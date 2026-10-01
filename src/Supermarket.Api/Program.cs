@@ -21,7 +21,13 @@ builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, relo
 builder.Services.AddOptions<JwtOptions>().Bind(builder.Configuration.GetSection("Jwt")).Validate(o => Encoding.UTF8.GetByteCount(o.Key) >= 32, "Set Jwt:Key to a secret containing at least 32 UTF-8 bytes.").Validate(o => o.LifetimeMinutes is > 0 and <= 1440, "JWT lifetime must be 1 to 1440 minutes.").ValidateOnStart();
 builder.Services.Configure<VideoOptions>(builder.Configuration.GetSection("Video"));
 builder.Services.Configure<HealthWorkerOptions>(builder.Configuration.GetSection("CameraHealth"));
-builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlServer(builder.Configuration.GetConnectionString("SqlServer") ?? throw new InvalidOperationException("Set ConnectionStrings:SqlServer.")));
+builder.Services.AddDbContext<AppDbContext>(o =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("SqlServer");
+    if (string.IsNullOrWhiteSpace(connectionString))
+        throw new InvalidOperationException("Set ConnectionStrings:SqlServer in appsettings.Local.json, appsettings.Production.json, or ConnectionStrings__SqlServer.");
+    o.UseSqlServer(connectionString);
+});
 var keyPath = builder.Configuration["DataProtection:KeyPath"] ?? Path.Combine(builder.Environment.ContentRootPath, ".local", "keys");
 builder.Services.AddDataProtection().SetApplicationName("FA26SE103").PersistKeysToFileSystem(new DirectoryInfo(keyPath));
 builder.Services.AddSingleton<IClock, SystemClock>();

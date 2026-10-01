@@ -1,7 +1,7 @@
 param([switch]$BootstrapAdmin, [string]$AdminEmail = 'admin@mf01.local')
 $ErrorActionPreference = 'Stop'
 $backendRoot = Split-Path $PSScriptRoot -Parent
-if (!(Test-Path -LiteralPath (Join-Path $backendRoot 'src\Supermarket.Api\appsettings.Local.json'))) { throw 'Run Initialize-Local.ps1 first.' }
+if (!(Test-Path -LiteralPath (Join-Path $backendRoot 'src\Supermarket.Api\appsettings.Local.json'))) { throw 'For an existing database, copy src/Supermarket.Api/appsettings.Local.example.json to appsettings.Local.json and fill in SQL credentials and Jwt:Key. To create an isolated SQL Express database, run Initialize-Local.ps1.' }
 $oldPassword = $env:Bootstrap__Password
 $oldEmail = $env:Bootstrap__Email
 $oldEnabled = $env:Bootstrap__Enabled
