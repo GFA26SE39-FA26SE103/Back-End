@@ -1,0 +1,1 @@
+<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><ProjectReference Include="../Supermarket.Domain/Supermarket.Domain.csproj"/></ItemGroup></Project>
