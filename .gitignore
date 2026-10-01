@@ -6,3 +6,4 @@ TestResults/
 *.user
 appsettings.Local.json
 .env
+.vs/
