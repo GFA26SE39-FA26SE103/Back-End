@@ -10,6 +10,7 @@ using Supermarket.Api;
 using Supermarket.Application;
 using Supermarket.Domain;
 using Supermarket.Infrastructure;
+using Supermarket.Infrastructure.Ai;
 using Supermarket.Infrastructure.Persistence;
 using Supermarket.Infrastructure.Persistence.Scaffolded;
 using Supermarket.Infrastructure.Video;
@@ -21,6 +22,11 @@ builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, relo
 builder.Services.AddOptions<JwtOptions>().Bind(builder.Configuration.GetSection("Jwt")).Validate(o => Encoding.UTF8.GetByteCount(o.Key) >= 32, "Set Jwt:Key to a secret containing at least 32 UTF-8 bytes.").Validate(o => o.LifetimeMinutes is > 0 and <= 1440, "JWT lifetime must be 1 to 1440 minutes.").ValidateOnStart();
 builder.Services.Configure<VideoOptions>(builder.Configuration.GetSection("Video"));
 builder.Services.Configure<HealthWorkerOptions>(builder.Configuration.GetSection("CameraHealth"));
+builder.Services.AddOptions<AiPreviewOptions>().Bind(builder.Configuration.GetSection("AiPreview"))
+    .Validate(o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https", "AiPreview:BaseUrl must be an absolute HTTP(S) URI.")
+    .Validate(o => o.TimeoutSeconds is > 0 and <= 120, "AiPreview timeout must be 1 to 120 seconds.")
+    .Validate(o => o.Confidence is >= 0 and <= 1, "AiPreview confidence must be in [0,1].")
+    .ValidateOnStart();
 builder.Services.AddDbContext<AppDbContext>(o =>
 {
     var connectionString = builder.Configuration.GetConnectionString("SqlServer");
@@ -43,6 +49,13 @@ builder.Services.AddScoped<StoreSetup>();
 builder.Services.AddScoped<CameraSetup>();
 builder.Services.AddScoped<MonitoringSetup>();
 builder.Services.AddScoped<CameraHealth>();
+builder.Services.AddScoped<AiPreview>();
+builder.Services.AddHttpClient<IAiPreviewClient, AiPreviewClient>((services, client) =>
+{
+    var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiPreviewOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+});
 builder.Services.AddHostedService<CameraHealthWorker>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
