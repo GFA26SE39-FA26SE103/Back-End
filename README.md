@@ -1,6 +1,16 @@
 # FA26SE103 MF-01 backend
 
-Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo `CAPSTONE/AGENTS.md` (ERD v3, revision 01/10/2026). SQL Server là nguồn dữ liệu chính. React đã nối thật login, camera registry, đăng ký/cấu hình, upload MP4 và AI preview; Store Layout, AI Config và dashboard setup/activate vẫn còn mock.
+Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.md](AGENTS.md) và [context đầy đủ của team](docs/PROJECT_CONTEXT.md), baseline **02/10/2026**. SQL Server là nguồn dữ liệu chính. Backend có API setup, upload MP4 và AI preview; mức độ nối frontend cần đối chiếu với checkout frontend hiện tại. Phạm vi làm việc trước mắt là **MF-01**.
+
+## Context chung khi clone backend
+
+- Đọc [AGENTS.md](AGENTS.md) trước khi làm việc; đây là hướng dẫn ngắn ở root để coding agent tự nạp khi mở repo backend.
+- Đọc [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) đầy đủ trước khi triển khai. File này giữ nguyên toàn bộ bản hướng dẫn team hiện tại, gồm MF-01..MF-04, BR, kiến trúc, quyết định còn mở và link RP1/RP2/BR/ERD. Các Mainflow sau là context thiết kế; phần đang tập trung triển khai là MF-01.
+- Đối chiếu phần đã triển khai và các gap trong README, [API contract](docs/API.md), [OpenAPI](docs/openapi.json) và source liên quan. [VALIDATION.md](docs/VALIDATION.md) là bằng chứng kiểm tra tại ngày ghi trong file.
+
+Bản hướng dẫn đầy đủ khoảng 63 KiB nên được tách khỏi file tự nạp; `AGENTS.md` yêu cầu agent đọc nó qua công cụ đọc file. Hai file đều nằm trong repo, không cần thư mục `AGENT` bên ngoài khi clone backend riêng.
+
+Khi team chốt BR/Mainflow/ERD mới, cập nhật `docs/PROJECT_CONTEXT.md`, ngày baseline và những quy tắc tương ứng trong `AGENTS.md` trong cùng PR. Context được chia sẻ qua Git; link tài liệu ngoài không tự đồng bộ nội dung vào repo.
 
 ## Thành viên mới clone về cần gì?
 
@@ -183,10 +193,10 @@ Nếu SQL nằm ở vị trí khác khi chạy local, truyền `-p:Mf01SchemaPat
 
 ## Các điểm còn chờ team đồng bộ
 
-- RP1/RP2/BR local vẫn có mô tả camera thuộc zone và confidence-based incident review đã lỗi thời. Backend theo quyết định cập nhật trong AGENTS.md: camera thuộc floor, N:M zone, model confidence chỉ là input filter.
-- AGENTS revision ERD v3 đã chốt MonitoringRule, IncidentType, Zone.area_m2 và camera maintenance. Code chỉ scaffold 10 bảng stable; rule mới là legacy DTO, chưa endpoint/persistence/seed IncidentType. Đây là thiếu implementation và đồng bộ SQL, không còn là chờ quyết định ERD. Không tự sửa generated EF hoặc tạo schema phỏng đoán. Chưa tìm thấy SQL authoritative trong CAPSTONE checkout; full SQL tests cần file đúng phiên bản.
+- Context baseline 02/10 xác định camera thuộc floor, N:M zone và model confidence chỉ là input filter. Đối chiếu các tài liệu/source cũ với [guide đầy đủ](docs/PROJECT_CONTEXT.md) trước khi mở rộng hành vi.
+- Theo guide mới, schema vật lý cuối cùng của MonitoringRule, IncidentType và Zone.area_m2 còn OPEN/PENDING ERD; camera maintenance cũng cần theo bản ERD được team duyệt. Code chỉ scaffold 10 bảng stable; MonitoringRuleContract là DTO tham khảo, chưa có endpoint/persistence/seed IncidentType. Comment cũ về ERD v3 trong DTO không thay thế phê duyệt schema. Không tự sửa generated EF hoặc tạo schema phỏng đoán. Full SQL tests cần file SQL authoritative đúng phiên bản.
 - Nối Store/floor/zone UI thật; thêm camera→zone selector và camera-frame ROI editor qua mapping API. Floor map polygon khác ROI trên frame; không dùng sample geometry thay tọa độ thật.
-- Đồng bộ SQL authoritative ERD v3/scaffold, triển khai rule CRUD per-zone: chỉ IncidentType AI-detected, warning <= critical, unit/measurement đúng loại, sustain/cooldown >= 0, enabled. Có area_m2 > 0 cho density; không tính people/m² khi thiếu diện tích.
+- Sau khi team duyệt schema, đồng bộ SQL/scaffold và triển khai rule CRUD per-zone: chỉ IncidentType AI-detected, warning < critical, unit/measurement đúng loại, sustain/cooldown >= 0, enabled. Nếu dùng density people/m² thì cần diện tích vật lý > 0; cách lưu area_m2 vẫn chờ chốt. Không tính people/m² khi thiếu diện tích.
 - Activation hiện chỉ bật configuration, kiểm tra zone ACTIVE và ít nhất một mapped camera ACTIVE/tested/enabled; chưa kiểm tra đủ rule/measurement readiness, chưa khởi động continuous AI worker. Preview đã chạy nhưng chưa ROI measurements, sustained-threshold evaluator, OperationalEvents, incident dedup/cooldown. Nối runtime và lifecycle activate/deactivate trước khi gọi là monitoring thật. Health events tách biệt Operational Incidents.
-- Multiple-camera measurement-source selection và một số operational limits còn mở (AGENTS §33); không tự cộng người từ các camera nhìn cùng zone hay suy ra cross-camera identity. Chưa xác nhận full MF-01 UI acceptance hoặc hiệu năng live stream.
+- Multiple-camera measurement-source selection và một số operational limits còn mở ([PROJECT_CONTEXT §33](docs/PROJECT_CONTEXT.md#33-implementation-questions-that-are-currently-open)); không tự cộng người từ các camera nhìn cùng zone hay suy ra cross-camera identity. Chưa xác nhận full MF-01 UI acceptance hoặc hiệu năng live stream.
 - Backend dùng repository riêng `GFA26SE39-FA26SE103/Back-End`: `main` là stable, `dev` là integration, feature branches qua PR vào dev và cần review trước khi merge.
