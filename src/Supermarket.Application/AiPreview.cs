@@ -16,8 +16,9 @@ public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPrevie
             throw new ApplicationException("CONNECTION_NOT_READY", "Test the current camera connection before AI preview.");
         if (!connection.IsEnabled)
             throw new ApplicationException("CONNECTION_DISABLED", "Enable the current camera connection before AI preview.");
-        if (connection.SourceType != "LIVE" || connection.Protocol is not ("HTTP" or "RTSP" or "HLS"))
-            throw new ApplicationException("AI_SOURCE_UNSUPPORTED", "AI preview supports live HTTP, RTSP, or HLS camera streams only.");
+        if (!(connection.SourceType == "LIVE" && connection.Protocol is "HTTP" or "RTSP" or "HLS")
+            && !(connection.SourceType == "RECORDED" && connection.Protocol == "FILE"))
+            throw new ApplicationException("AI_SOURCE_UNSUPPORTED", "AI preview supports live HTTP/RTSP/HLS or uploaded recorded video.");
 
         return await client.Start(connection, ct);
     }

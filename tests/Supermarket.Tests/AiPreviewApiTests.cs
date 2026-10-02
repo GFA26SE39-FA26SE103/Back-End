@@ -65,6 +65,7 @@ public sealed class AiPreviewApiTests
         Assert.Equal("service-key", handler.LastRequest!.Headers.GetValues("X-AI-Service-Key").Single());
         Assert.Contains("camera-password", handler.LastBody);
         Assert.Contains(connection.StreamUri, handler.LastBody);
+        Assert.Contains("\"source_type\":\"LIVE\"", handler.LastBody);
         Assert.Equal(["/health", $"/sessions/{cameraId}/start"], handler.RequestPaths);
         var publicJson = JsonSerializer.Serialize(result);
         Assert.DoesNotContain("camera-password", publicJson);

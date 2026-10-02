@@ -68,6 +68,9 @@ public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICamera
         return store.Transaction(async () =>
         {
             var camera = await Get(id, ct);
+            foreach (var mapping in await store.List<CameraZoneMapping>(m => m.CameraId == id && m.Status == "ACTIVE", ct))
+                if ((await store.List<MonitoringConfiguration>(m => m.ZoneId == mapping.ZoneId && m.Status == "ACTIVE", ct)).Count > 0)
+                    throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before replacing the camera source.");
             var x = (await store.List<CameraConnection>(c => c.CameraId == id, ct)).SingleOrDefault();
             var isNew = x is null;
             x ??= new CameraConnection { ConnectionId = Guid.NewGuid(), CameraId = id };

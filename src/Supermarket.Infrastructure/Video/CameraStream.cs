@@ -49,14 +49,15 @@ public sealed class CameraStream(ICredentialProtector secrets, IOptions<VideoOpt
         if (connection.Protocol == "WEBRTC")
             throw new AppError("VIDEO_ADAPTER_REQUIRED", "WebRTC requires a media-gateway adapter.", 422);
         var uri = new Uri(connection.StreamUri);
+        var input = connection.StreamUri;
         if (connection.SourceType == "RECORDED")
         {
-            var root = Path.GetFullPath(options.Value.RecordedRoot) + Path.DirectorySeparatorChar;
+            var root = Path.GetFullPath(options.Value.RecordedRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
             var path = Path.GetFullPath(uri.LocalPath);
             if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
                 throw new AppError("INVALID_VIDEO_PATH", "Recorded video must exist under the configured video directory.", 422);
+            input = path;
         }
-        var input = connection.StreamUri;
         if (connection.Username is not null)
         {
             var builder = new UriBuilder(uri) { UserName = connection.Username, Password = connection.CredentialSecretRef is null ? "" : secrets.Unprotect(connection.CredentialSecretRef) };

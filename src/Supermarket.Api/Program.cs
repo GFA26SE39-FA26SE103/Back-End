@@ -21,6 +21,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: false).AddEnvironmentVariables();
 builder.Services.AddOptions<JwtOptions>().Bind(builder.Configuration.GetSection("Jwt")).Validate(o => Encoding.UTF8.GetByteCount(o.Key) >= 32, "Set Jwt:Key to a secret containing at least 32 UTF-8 bytes.").Validate(o => o.LifetimeMinutes is > 0 and <= 1440, "JWT lifetime must be 1 to 1440 minutes.").ValidateOnStart();
 builder.Services.Configure<VideoOptions>(builder.Configuration.GetSection("Video"));
+builder.Services.PostConfigure<VideoOptions>(options =>
+    options.RecordedRoot = Path.GetFullPath(options.RecordedRoot, builder.Environment.ContentRootPath));
 builder.Services.Configure<HealthWorkerOptions>(builder.Configuration.GetSection("CameraHealth"));
 builder.Services.AddOptions<AiPreviewOptions>().Bind(builder.Configuration.GetSection("AiPreview"))
     .Validate(o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https", "AiPreview:BaseUrl must be an absolute HTTP(S) URI.")
@@ -41,6 +43,8 @@ builder.Services.AddSingleton<IPasswordService, PasswordService>();
 builder.Services.AddSingleton<ICredentialProtector, CredentialProtector>();
 builder.Services.AddSingleton<DemoCameraState>();
 builder.Services.AddScoped<ICameraStream, CameraStream>();
+builder.Services.AddScoped<IRecordedVideoStorage, RecordedVideoStorage>();
+builder.Services.AddScoped<RecordedVideoUpload>();
 builder.Services.AddScoped<ISetupStore, EfSetupStore>();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<ITokenIssuer, TokenIssuer>();

@@ -1,6 +1,6 @@
 # FA26SE103 MF-01 backend
 
-Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo RP1/RP2 và `Project/AGENT/AGENTS.md`. SQL Server là nguồn dữ liệu chính. Frontend hiện vẫn dùng mocks; thay đổi này dựng backend và hợp đồng API để frontend tích hợp tiếp.
+Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo `CAPSTONE/AGENTS.md` (ERD v3, revision 01/10/2026). SQL Server là nguồn dữ liệu chính. React đã nối thật login, camera registry, đăng ký/cấu hình, upload MP4 và AI preview; Store Layout, AI Config và dashboard setup/activate vẫn còn mock.
 
 ## Thành viên mới clone về cần gì?
 
@@ -103,6 +103,8 @@ Domain không phụ thuộc ASP.NET/EF. Controller không truy cập DbContext. 
 - Supermarket, floors, map URL/dimensions, zones với polygon normalized `[0,1]`.
 - Camera thuộc Floor; metadata lắp đặt/bảo hành, vị trí và rotation trên map.
 - Connection 1:1: configure → test → preview → enable/disable. Mỗi lần PUT configuration sẽ disable và xóa kết quả test cũ.
+- Upload MP4 làm nguồn RECORDED/FILE qua `POST /api/cameras/{id}/recorded-video` (multipart `file`, ADMIN, tối đa 200 MB). Kiểm tra header và decode frame bằng FFmpeg; server sinh filename, lưu ngoài wwwroot. Không sửa schema DB.
+- Proxy AI preview start/status/frame/stop tới native YOLO + ByteTrack, hỗ trợ LIVE HTTP/RTSP/HLS và RECORDED FILE. React nhận JPEG đã vẽ person box/track ID, không gọi Python trực tiếp.
 - Camera N:M Zone qua mapping; cùng tầng; ROI normalized; PUT idempotent.
 - MonitoringConfiguration per-zone, confidence `[0,1]`, DRAFT/ACTIVE/INACTIVE. Activation yêu cầu zone active và camera mapped active có connection enabled/tested.
 - Health worker, check thủ công, OPEN → INVESTIGATING → RESOLVED. Khi có lại frame, worker tự resolve event và cập nhật last seen; Admin có thể thêm resolution note.
@@ -124,6 +126,27 @@ Floor map được tham chiếu bằng HTTP(S) asset URL. PATCH ở increment n�
 Preview hiện là ảnh frame (demo SVG hoặc JPEG), dùng được để vẽ ROI và refresh. Đây chưa phải browser HLS/WebRTC playback liên tục.
 
 ## Video và credential
+
+### Upload video thay camera để test YOLO + ByteTrack
+
+Từ `C:\FPT University\CAPSTONE\Backend\Back-End`, chạy backend như bình thường. Nếu FFmpeg chưa có trên PATH, đặt đường dẫn portable trong cửa sổ PowerShell chạy BE:
+
+```powershell
+$env:Video__FfmpegPath = 'C:\FPT University\CAPSTONE\setup\tools\ffmpeg\ffmpeg-9.0.2-essentials_build\bin\ffmpeg.exe'
+.\scripts\Start-Local.ps1
+```
+
+`Video:RecordedRoot` mặc định `.local/videos`, resolve theo API content root thay vì thư mục terminal. Từ source, mặc định là `C:\FPT University\CAPSTONE\Backend\Back-End\src\Supermarket.Api\.local\videos`. AI service mặc định đọc đúng thư mục đó. Nếu đổi folder/di chuyển checkout/publish, đặt `Video:RecordedRoot` và `AI_RECORDED_ROOT` tới cùng đường dẫn tuyệt đối. Chạy ở máy/container khác phải share/mount storage; URI file trên laptop không tự truy cập được từ server khác.
+
+React: **Cameras → Add camera → Uploaded video** (hoặc chọn camera ACTIVE → **Upload video**) → chọn MP4 → **Save video source → Test & enable → Start AI preview**. Store/floor phải tồn tại trong DB; tạo qua API/Swagger nếu chưa có.
+
+Upload dừng session AI cũ, lưu filename ngẫu nhiên, configure RECORDED/FILE, xóa credentials/test và disable connection. Response upload không trả local URI; connection view hiện có vẫn trả URI cho Admin. File không public qua static files. Upload lỗi/canceled hoặc configure thất bại cleanup file mới. File upload thành công được giữ, kể cả sau khi bị thay nguồn; chưa có retention/delete API, cần quản lý dung lượng và backup riêng. Không commit video, `.local`, keys hoặc secret.
+
+Không thay nguồn (upload hoặc PUT connection) khi camera map tới monitoring ACTIVE; deactivate trước. Mapping/ROI được giữ, phải xem lại ROI nếu cảnh đổi. Upload là controlled fallback/evaluation; live CCTV vẫn là mục tiêu chính.
+
+AI đọc tuần tự mọi frame, pace theo FPS và tốc độ inference (có thể chậm hơn thời gian thật), không tự loop. EOF trả `COMPLETED`, giữ JPEG cuối; stop/start replay với tracker mới. Preview chưa ghi measurement, OperationalEvent hay Incident. Health worker hiện probe khả năng đọc một frame của file, không phản ánh GPU/tiến độ/EOF; file còn đọc được có thể vẫn ONLINE sau playback.
+
+Proxy: `POST /api/cameras/{id}/ai-preview/start`, `GET .../status`, `GET .../frame`, `POST .../stop`; ADMIN JWT. `AiPreview:BaseUrl` mặc định `http://127.0.0.1:8090`. Internal key nếu dùng phải khớp `AI_INTERNAL_SERVICE_KEY`. Model/device/confidence từ `AiPreview` được gửi tới Python; chưa lấy từ rule của zone.
 
 RTSP, HTTP/HLS và recorded video dùng FFmpeg để đọc/giải mã một frame; thành công chỉ khi nhận được frame, không chỉ khi mở được TCP. Cấu hình `Video:FfmpegPath` trỏ tới FFmpeg trên máy. Recorded FILE phải nằm dưới `Video:RecordedRoot`. Dockerfile bao gồm FFmpeg. WebRTC yêu cầu adapter media gateway, hiện trả lỗi rõ ràng.
 
@@ -161,8 +184,9 @@ Nếu SQL nằm ở vị trí khác khi chạy local, truyền `-p:Mf01SchemaPat
 ## Các điểm còn chờ team đồng bộ
 
 - RP1/RP2/BR local vẫn có mô tả camera thuộc zone và confidence-based incident review đã lỗi thời. Backend theo quyết định cập nhật trong AGENTS.md: camera thuộc floor, N:M zone, model confidence chỉ là input filter.
-- MonitoringRule/IncidentType chỉ có DTO contract; chưa tạo endpoint hay persistence theo phạm vi triển khai hiện tại trong AGENTS.md. Bảng MonitoringRule trong file SQL của `Project/DB` chưa được backend sử dụng.
-- `area_m2`, measurement-source selection và most-recent-maintenance field chưa có trong schema stable; backend không tự thêm cột.
-- Activation hiện bật configuration trong backend; pipeline YOLO/ByteTrack và OperationalEvents thuộc MF-02, chưa chạy ở increment này.
-- Nối các trang React với API, live CCTV cụ thể và playback gateway là các bước tích hợp tiếp theo. Chưa xác nhận full MF-01 UI acceptance hoặc hiệu năng live stream.
+- AGENTS revision ERD v3 đã chốt MonitoringRule, IncidentType, Zone.area_m2 và camera maintenance. Code chỉ scaffold 10 bảng stable; rule mới là legacy DTO, chưa endpoint/persistence/seed IncidentType. Đây là thiếu implementation và đồng bộ SQL, không còn là chờ quyết định ERD. Không tự sửa generated EF hoặc tạo schema phỏng đoán. Chưa tìm thấy SQL authoritative trong CAPSTONE checkout; full SQL tests cần file đúng phiên bản.
+- Nối Store/floor/zone UI thật; thêm camera→zone selector và camera-frame ROI editor qua mapping API. Floor map polygon khác ROI trên frame; không dùng sample geometry thay tọa độ thật.
+- Đồng bộ SQL authoritative ERD v3/scaffold, triển khai rule CRUD per-zone: chỉ IncidentType AI-detected, warning <= critical, unit/measurement đúng loại, sustain/cooldown >= 0, enabled. Có area_m2 > 0 cho density; không tính people/m² khi thiếu diện tích.
+- Activation hiện chỉ bật configuration, kiểm tra zone ACTIVE và ít nhất một mapped camera ACTIVE/tested/enabled; chưa kiểm tra đủ rule/measurement readiness, chưa khởi động continuous AI worker. Preview đã chạy nhưng chưa ROI measurements, sustained-threshold evaluator, OperationalEvents, incident dedup/cooldown. Nối runtime và lifecycle activate/deactivate trước khi gọi là monitoring thật. Health events tách biệt Operational Incidents.
+- Multiple-camera measurement-source selection và một số operational limits còn mở (AGENTS §33); không tự cộng người từ các camera nhìn cùng zone hay suy ra cross-camera identity. Chưa xác nhận full MF-01 UI acceptance hoặc hiệu năng live stream.
 - Backend dùng repository riêng `GFA26SE39-FA26SE103/Back-End`: `main` là stable, `dev` là integration, feature branches qua PR vào dev và cần review trước khi merge.

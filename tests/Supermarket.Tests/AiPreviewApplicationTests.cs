@@ -48,7 +48,6 @@ public sealed class AiPreviewApplicationTests
 
     [Theory]
     [InlineData("DEMO", "HTTP")]
-    [InlineData("RECORDED", "FILE")]
     [InlineData("LIVE", "WEBRTC")]
     public async Task StartRejectsSourcesThatNativePreviewCannotRead(string sourceType, string protocol)
     {
@@ -74,6 +73,19 @@ public sealed class AiPreviewApplicationTests
         Assert.DoesNotContain(harness.Connection.StreamUri, json);
         Assert.DoesNotContain(harness.Connection.CredentialSecretRef!, json);
         Assert.Equal("LIVE", result.State);
+    }
+
+    [Fact]
+    public async Task StartAcceptsTestedEnabledRecordedVideo()
+    {
+        var harness = Harness.Ready();
+        harness.Connection.SourceType = "RECORDED";
+        harness.Connection.Protocol = "FILE";
+        harness.Connection.StreamUri = "file:///C:/videos/sample.mp4";
+
+        await harness.UseCase.Start(harness.Camera.CameraId, Ct);
+
+        Assert.Same(harness.Connection, Assert.Single(harness.Client.StartedConnections));
     }
 
     [Fact]

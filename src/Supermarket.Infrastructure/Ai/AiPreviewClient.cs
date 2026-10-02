@@ -38,6 +38,7 @@ public sealed class AiPreviewClient(
         }
         var body = new StartRequest(
             connection.StreamUri,
+            connection.SourceType,
             connection.Username,
             connection.CredentialSecretRef is null ? null : secrets.Unprotect(connection.CredentialSecretRef),
             options.Model,
@@ -131,6 +132,7 @@ public sealed class AiPreviewClient(
 
     private sealed record StartRequest(
         string StreamUrl,
+        string SourceType,
         string? Username,
         string? Password,
         string Model,
