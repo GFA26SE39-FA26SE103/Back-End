@@ -22,4 +22,4 @@ Local initialization was run successfully and created `FA26SE103_MF01_Local`. Ad
 
 The local API was started on port 5080, liveness returned UP, SQL readiness returned READY, and the Swagger contract was exported to `docs/openapi.json`. The smoke-test process was then stopped so the first Admin can be bootstrapped on the user's next start.
 
-Not verified in this workspace: real CCTV/RTSP connectivity, continuous browser streaming, AI pipeline integration, React integration, Docker image build, GitHub Actions execution or VPS deployment. Pending MonitoringRule/IncidentType ERD work remains outside this increment's persistence layer.
+Not verified in this workspace: real CCTV/RTSP connectivity, continuous browser streaming, AI pipeline integration, React integration, Docker image build, GitHub Actions execution or VPS deployment. This dated evidence predates the ERD v3 documentation baseline; MonitoringRule/IncidentType persistence remains outside this MF-01 increment even though ERD v3 now defines their physical structures.

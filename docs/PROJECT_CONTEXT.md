@@ -1,9 +1,9 @@
-# AGENTS.md — FA26SE103 Implementation Sync
+# PROJECT_CONTEXT.md — FA26SE103 Implementation Snapshot
 
 > **Project:** AI-Powered Smart Supermarket Operations Monitoring System  
 > **Project code:** FA26SE103  
 > **Group:** GFA26SE39  
-> **Purpose of this file:** give humans and coding agents one implementation-oriented view of the current agreed product, Mainflows, domain rules, architecture, and implementation scope before code is written.
+> **Purpose of this file:** provide a repository-owned synchronized implementation snapshot so a backend-only clone gives humans and coding agents one implementation-oriented view of the current agreed product, Mainflows, domain rules, architecture, and implementation scope before code is written.
 >
 > **Synchronization baseline:** team/Mainflow decisions through **02/10/2026**, aligned with `GFA26SE39_Final_Agreed_Mainflows_2026-10-02.docx`.
 >
@@ -66,15 +66,25 @@ Use these documents as the project baseline:
    - Current Drive source:
      `https://docs.google.com/document/d/1ODHDSkK0pLCcbKVS2nl3G0KhxIz6Q5PR/edit?usp=drivesdk`
 
-5. **FA26SE103_ERD.drawio**
-   - Physical/data-model design currently under active team editing.
+5. **FA26SE103_ERD_v3.drawio — current physical persistence baseline**
+   - Use ERD v3, not the historical `FA26SE103_ERD.drawio`, when documenting the approved physical data model.
    - Current Drive source:
+     `https://drive.google.com/file/d/1NVmehb2jDjxqFU0qHmlqPug4GGB30613/view?usp=drivesdk`
+   - Historical ERD reference, retained for traceability only:
      `https://drive.google.com/file/d/1xq6EkquGppDAcLqcVndJ4AhB9ILHj180/view?usp=drivesdk`
    - **Do not change this file unless you are assigned to ERD/database work.**
 
-6. **Report 3 — Software Requirement Specification**
+6. **GFA26SE39_Final_Agreed_Mainflows_2026-10-02.docx**
+   - Current agreed Mainflow semantics. The repository does not currently record a Drive URL for this document; add it only when the team supplies the URL.
+
+7. **Report 3 — Software Requirement Specification**
    - Currently being prepared.
+   - The current Drive URL is not recorded in this repository; add it only when the team supplies the URL.
    - It will formalize Product Overview, Actors, Use Cases, System Functional Overview, Screen Flow, Screen Authorization, Non-Screen Functions, ERD/entity descriptions, detailed functions, NFRs, BRs, common requirements, and messages.
+
+8. **Canva Mainflow / Review deck**
+   - Presentation/design reference with lower authority than the agreed BR/Mainflows:
+     `https://www.canva.com/design/DAHWviilNDA/WQWyS79Eao8V8pXqkgt9Vg/edit`
 
 ## 1.2 Conflict rule
 
@@ -297,7 +307,7 @@ MF-01 should establish:
 - CameraHealthEvent;
 - basic account administration required to operate the system (**supporting Admin capability; not a required Mainflow slide step**).
 
-IncidentType configuration is logically system setup, but its **final physical schema must follow the ERD currently being synchronized**.
+IncidentType configuration is logically system setup, and its physical persistence must follow ERD v3. The current MF-01 code may keep this behind a stable interface until the MF-02 persistence increment is assigned.
 
 ---
 
@@ -904,7 +914,7 @@ When multiple cameras monitor one Zone, an operational measurement should use ei
 
 This rule prevents double counting without introducing cross-camera re-identification.
 
-The exact measurement-source configuration can be finalized with the MonitoringRule/AI configuration design.
+The exact measurement-source configuration remains an open design item. Do not sum overlapping camera counts or infer cross-camera identity until the team approves the strategy.
 
 ---
 
@@ -946,23 +956,13 @@ Critical >= 3 people/m²
 
 This requires a real physical area value.
 
-### Current open decision
+### ERD v3 persistence
 
-The team has not yet formally frozen how `area_m2` is represented in the physical ERD.
-
-Preferred simple option:
-
-```text
-Zone.area_m2
-```
-
-entered manually by Admin for Zones that use physical density.
+`Zone.area_m2` exists in ERD v3. It is the physical area value used for the agreed people-per-square-metre density formula and may be entered by Admin for Zones that use physical density.
 
 Do **not** implement camera-based physical area estimation, homography-based local-density estimation, or 3D calibration just to obtain square metres unless the scope is formally expanded.
 
-If `area_m2` is not adopted, the metric must be renamed away from physical `people/m²` density to something such as Zone Occupancy.
-
-Until this decision is frozen, keep heatmap implementation independent from `area_m2`.
+Keep heatmap implementation independent from `area_m2`; heatmaps use tracked positions and do not require real-world square metres.
 
 ---
 
@@ -1030,6 +1030,7 @@ Current important values:
 - name;
 - zone type;
 - `map_polygon`;
+- `area_m2` from ERD v3 for physical density calculations;
 - status.
 
 `map_polygon` uses normalized floor-map coordinates.
@@ -1148,45 +1149,46 @@ RESOLVED
 
 This is unrelated to the removed account/camera-review fields.
 
-## Pending ERD synchronization
+## ERD v3 physical baseline and remaining alignment
 
 ### `MonitoringRule`
 
-The previous SQL draft used generic fields such as:
+ERD v3 defines the physical rule structure. Its current concepts include:
 
 ```text
-rule_type
-threshold_value
-severity
+rule_id
+config_id
+incident_type_id
+warning_threshold
+critical_threshold
+threshold_unit
+sustain_sec
+cooldown_sec
+parameters_json
+enabled
+UNIQUE(config_id, incident_type_id)
 ```
 
-Do **not** assume this old shape is final.
-
-Current Business Rules instead require the domain model to support:
-
-```text
-MonitoringRule
-- MonitoringConfiguration / Zone context
-- IncidentType
-- warning threshold
-- critical threshold
-- unit
-- sustain time
-- cooldown
-- enabled/status
-```
-
-The ERD/database team is currently synchronizing this.
+Do not resurrect the historical generic `rule_type` / `threshold_value` / `severity` shape. Do not add a competing migration; the current MF-01 code does not yet expose full MonitoringRule persistence.
 
 ### `IncidentType`
 
-Required by the current business model.
+ERD v3 defines current physical concepts including:
 
-The domain semantics must support the current routing policy: an Incident Type may be configured to require Operator review before assignment. Do not invent a physical column name until the ERD/BR schema is synchronized.
+```text
+incident_type_id
+code
+name
+description
+source_type
+measurement_type
+requires_before_photo
+default_severity
+status
+timestamps
+```
 
-Final physical schema is being finalized with the ERD.
-
-Do not create a competing table/migration independently.
+The business behavior is agreed: Critical or an Incident Type configured as requiring Operator review goes to Operator before assignment. ERD v3 has no obvious `requires_operator_review` field, so the exact persistence representation remains a documented BR ↔ ERD synchronization item. Do not invent a column or create a competing table/migration.
 
 ---
 
@@ -1774,7 +1776,7 @@ A clean end-to-end demo should be possible in this order:
 20. Admin investigates/restores the connection.
 21. Health event resolves.
 
-If MonitoringRule/IncidentType schema is not yet merged, steps that depend on their final physical shape may be stubbed behind a stable domain/service interface rather than committing a competing migration.
+Although ERD v3 defines MonitoringRule/IncidentType persistence, steps that depend on the unresolved Incident Type review-flag representation may be stubbed behind a stable domain/service interface rather than committing a competing migration.
 
 ---
 
@@ -2028,7 +2030,7 @@ Can start immediately on stable entities:
 - migrations;
 - API contracts.
 
-Hold final MonitoringRule/IncidentType persistence until the ERD merge is agreed.
+Integrate future MonitoringRule/IncidentType persistence against ERD v3 and the approved SQL schema. Coordinate only the remaining review-flag representation before adding behavior; do not create a competing migration.
 
 ## Web/Admin track
 
@@ -2092,7 +2094,7 @@ Recommendation
 AuditLog
 ```
 
-Potential concepts such as Manager-on-duty are required by later escalation/shift rules. **Zone adjacency is not required by the current 02/10 routing baseline; do not add it unless the BR changes.**
+Potential concepts such as Manager-on-duty are required by later escalation/shift rules. `ZoneAdjacency` exists in ERD v3; its operational use remains subject to the latest BR/Mainflow alignment and must not be silently assumed for dispatch.
 
 Do not add speculative tables simply to make the schema "look complete".
 
@@ -2163,7 +2165,7 @@ zone assignment
 workload
 ```
 
-Current 02/10 routing does **not** require adjacent-Zone dispatch. Do not introduce `ZoneAdjacency` or geometry-derived adjacency unless a later BR explicitly restores that behavior.
+The current 02/10 baseline does not require adjacent-Zone dispatch. `ZoneAdjacency` remains an ERD v3 entity, but do not use it for dispatch unless the latest BR/Mainflow alignment explicitly confirms that behavior.
 
 ---
 
@@ -2191,7 +2193,7 @@ mean over people served in last 5 min
 people in Zone / Zone area (m²)
 ```
 
-Physical `area_m2` representation is still an open ERD decision.
+`Zone.area_m2` is present in ERD v3 and is the physical area input for this formula.
 
 ## Checkout utilization
 
@@ -2421,33 +2423,28 @@ For MF-01, implementation should produce enough concrete behavior to populate:
 
 # 33. Implementation questions that are currently OPEN
 
-Do not silently decide these in code without team agreement.
+Do not silently decide these in code without team agreement. ERD v3 facts are not open questions; the items below are the remaining alignment points:
 
-1. **Crowd physical area**
-   - Will `Zone.area_m2` be added?
-   - Preferred simple option: manual Admin input.
-   - Heatmap does not depend on this.
+1. **Incident Type review flag representation**
+   - Business behavior requires Operator review for Critical or review-required Incident Types.
+   - ERD v3 has no obvious `requires_operator_review` field.
+   - Agree the physical representation before adding full IncidentType persistence.
 
-2. **Final MonitoringRule physical schema**
-   - Domain semantics are agreed.
-   - ERD team is synchronizing fields/relationships.
-
-3. **Final IncidentType physical schema**
-   - 10 baseline types are agreed.
-   - 4 AI-detected + 6 staff-report-only.
-   - Exact columns/relations should follow merged ERD.
-
-4. **Measurement source when several cameras monitor one Zone**
+2. **Measurement source when several cameras monitor one Zone**
    - designated source camera vs non-overlapping measurement ROIs;
    - no cross-camera ReID.
 
-5. **Checkout counter representation**
+3. **Checkout counter representation**
    - needed later for checkout utilization/capacity;
    - do not invent complex POS integration.
 
-6. **Manager-on-duty representation**
+4. **Manager-on-duty representation**
    - required later for escalation;
    - likely derived from shift/duty assignment.
+
+5. **Operational use of `ZoneAdjacency`**
+   - the entity exists in ERD v3;
+   - resolve any BR/Mainflow disagreement before using it for adjacent-zone dispatch.
 
 
 ---
@@ -2460,7 +2457,7 @@ When an AI coding agent works on this project:
 2. Preserve the Mainflow boundaries.
 3. Do not invent new business requirements.
 4. Do not change ERD/schema files owned by another task unless explicitly assigned.
-5. If a required field/table is currently marked **OPEN/PENDING ERD**, implement against an interface/DTO/mock or stop and ask rather than creating a competing schema.
+5. If a required business-to-persistence representation remains **OPEN/PENDING alignment**, implement against an interface/DTO/mock or stop and ask rather than creating a competing schema.
 6. Keep domain/business validation in backend/domain code, not only frontend.
 7. Keep UI logic from becoming the only source of business truth.
 8. Add tests with behavior changes.
@@ -2515,7 +2512,7 @@ Zone
 MonitoringConfiguration
    ↓
 MonitoringRule / IncidentType
-   (domain agreed; physical ERD being finalized)
+   (ERD v3 physical baseline; review-flag representation pending alignment)
 
 Camera
    ↓
@@ -2576,10 +2573,12 @@ camera health flow
 The team should **coordinate before freezing migrations** for:
 
 ```text
-MonitoringRule
-IncidentType
-area_m2
 measurement-source selection
+IncidentType review-flag representation
+measurement-source selection
+checkout-counter representation
+Manager-on-duty representation
+operational use of ZoneAdjacency
 ```
 
 Those are not reasons to block the rest of MF-01.
@@ -2595,3 +2594,30 @@ At the end of MF-01, a reviewer should be able to watch this happen:
 That is an end-to-end **setup/configuration Mainflow**, not a collection of disconnected CRUD screens.
 
 The next increment, MF-02, begins when camera/video data becomes operational measurements/events and those events begin producing and routing Incidents.
+
+---
+
+# 38. Current decisions / superseded designs
+
+This section prevents historical designs from being reintroduced while preserving the current agreed behavior.
+
+## Superseded
+
+- Model-confidence-based Incident routing or review.
+- High YOLO confidence meaning auto-dispatch and low confidence meaning Operator review.
+- Universal Operator pre-dispatch review for every Incident.
+- Universal Staff auto-notification for every Incident.
+- Staff reports passing through the camera Detection & Tracking pipeline.
+- Staff directly closing or verifying their own Task.
+- MF-04 Planning validation being a mandatory prerequisite for opening Analytics.
+
+## Current
+
+- Model confidence filters raw detections only.
+- Operator pre-dispatch review is conditional: Critical or review-required Incident Types go to Operator before assignment.
+- Non-review Info/Warning Incidents may auto-route to eligible Staff in the affected Zone; failed acceptance falls back to Operator.
+- Staff-report extraction is a separate path from camera Detection & Tracking.
+- Operator independently verifies submitted evidence.
+- MF-04 Planning and Analytics are independently enterable.
+- AI recommendations are advisory; they do not automatically change store operations.
+- `Zone.area_m2`, `MonitoringRule` structure, `IncidentType` structure, and `ZoneAdjacency` are represented in ERD v3. The exact Incident Type review-flag persistence and the other alignment items in section 33 remain open.

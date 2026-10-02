@@ -64,7 +64,7 @@ Keep controllers thin. Domain must not depend on ASP.NET or EF. Do not expose sc
 
 Database-first: approved ERD/schema → approved SQL Server change → re-scaffold → review generated changes → update mappings/use cases/contracts/tests. Generated files under `src/Supermarket.Infrastructure/Persistence/Scaffolded` must not be manually edited for business behavior. Keep custom EF extensions outside that directory. Do not introduce code-first migrations or a competing schema.
 
-The full guide still marks final `MonitoringRule`, `IncidentType`, `Zone.area_m2`, measurement-source selection, checkout-counter and manager-on-duty representation as open/pending. Coordinate before freezing their physical schema. Legacy DTOs/comments do not establish schema approval. Do not edit team-owned ERD/schema unless assigned.
+The current physical persistence baseline is `FA26SE103_ERD_v3.drawio`. ERD v3 defines `Zone.area_m2` and concrete `MonitoringRule`/`IncidentType` structures, but the current MF-01 code intentionally scaffolds only the stable setup entities. The remaining alignment questions are the physical representation of the Incident Type "requires Operator review" behavior, multi-camera measurement-source selection, checkout-counter representation, Manager-on-duty representation, and any conflicting operational use of `ZoneAdjacency`. Legacy DTOs/comments do not establish schema approval. Do not edit team-owned ERD/schema unless assigned.
 
 Current scaffolding covers the ten stable setup entities. SQL source is maintained outside this backend repository; see README for the approved schema path/override and integration-test prerequisites. A missing schema file does not justify generating one from C# models.
 

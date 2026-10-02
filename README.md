@@ -5,7 +5,7 @@ Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.
 ## Context chung khi clone backend
 
 - Đọc [AGENTS.md](AGENTS.md) trước khi làm việc; đây là hướng dẫn ngắn ở root để coding agent tự nạp khi mở repo backend.
-- Đọc [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) đầy đủ trước khi triển khai. File này giữ nguyên toàn bộ bản hướng dẫn team hiện tại, gồm MF-01..MF-04, BR, kiến trúc, quyết định còn mở và link RP1/RP2/BR/ERD. Các Mainflow sau là context thiết kế; phần đang tập trung triển khai là MF-01.
+- Đọc [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) đầy đủ trước khi triển khai. File này là snapshot triển khai được đồng bộ trong repository, gồm MF-01..MF-04, BR, kiến trúc, ERD v3 facts, các quyết định còn mở và link RP1/RP2/BR/ERD. Các Mainflow sau là context thiết kế; phần đang tập trung triển khai là MF-01.
 - Đối chiếu phần đã triển khai và các gap trong README, [API contract](docs/API.md), [OpenAPI](docs/openapi.json) và source liên quan. [VALIDATION.md](docs/VALIDATION.md) là bằng chứng kiểm tra tại ngày ghi trong file.
 
 Bản hướng dẫn đầy đủ khoảng 63 KiB nên được tách khỏi file tự nạp; `AGENTS.md` yêu cầu agent đọc nó qua công cụ đọc file. Hai file đều nằm trong repo, không cần thư mục `AGENT` bên ngoài khi clone backend riêng.
@@ -176,7 +176,7 @@ $env:MF01_SCAFFOLD_CONNECTION = 'Server=.\SQLEXPRESS;Database=FA26SE103_MF01_Loc
 dotnet test --settings coverage.runsettings --collect:'XPlat Code Coverage'
 ```
 
-Generated files nằm tại `Infrastructure/Persistence/Scaffolded`; custom EF configuration nằm ở partial extension bên ngoài thư mục generated. Script chỉ scaffold 10 bảng stable, bỏ MonitoringRule. Không dùng `EnsureCreated` hoặc code-first migrations. Tham khảo [EF Core reverse engineering](https://learn.microsoft.com/en-us/ef/core/managing-schemas/scaffolding/).
+Generated files nằm tại `Infrastructure/Persistence/Scaffolded`; custom EF configuration nằm ở partial extension bên ngoài thư mục generated. Script hiện chỉ scaffold 10 bảng stable của MF-01 và chưa đưa đầy đủ MonitoringRule/IncidentType persistence vào increment này, dù ERD v3 đã định nghĩa cấu trúc vật lý của chúng. Không dùng `EnsureCreated` hoặc code-first migrations. Tham khảo [EF Core reverse engineering](https://learn.microsoft.com/en-us/ef/core/managing-schemas/scaffolding/).
 
 ## Kiểm thử
 
@@ -194,9 +194,9 @@ Nếu SQL nằm ở vị trí khác khi chạy local, truyền `-p:Mf01SchemaPat
 ## Các điểm còn chờ team đồng bộ
 
 - Context baseline 02/10 xác định camera thuộc floor, N:M zone và model confidence chỉ là input filter. Đối chiếu các tài liệu/source cũ với [guide đầy đủ](docs/PROJECT_CONTEXT.md) trước khi mở rộng hành vi.
-- Theo guide mới, schema vật lý cuối cùng của MonitoringRule, IncidentType và Zone.area_m2 còn OPEN/PENDING ERD; camera maintenance cũng cần theo bản ERD được team duyệt. Code chỉ scaffold 10 bảng stable; MonitoringRuleContract là DTO tham khảo, chưa có endpoint/persistence/seed IncidentType. Comment cũ về ERD v3 trong DTO không thay thế phê duyệt schema. Không tự sửa generated EF hoặc tạo schema phỏng đoán. Full SQL tests cần file SQL authoritative đúng phiên bản.
+- ERD v3 là baseline vật lý hiện tại và đã định nghĩa `Zone.area_m2`, MonitoringRule, IncidentType và ZoneAdjacency. Code chỉ scaffold 10 bảng stable; MonitoringRuleContract là DTO tham khảo, chưa có endpoint/persistence/seed IncidentType. BR vẫn cần đồng bộ với ERD v3 về cách lưu cờ "requires Operator review" của IncidentType, cùng measurement-source, checkout-counter và Manager-on-duty. Không tự sửa generated EF hoặc tạo schema phỏng đoán. Full SQL tests cần file SQL authoritative đúng phiên bản.
 - Nối Store/floor/zone UI thật; thêm camera→zone selector và camera-frame ROI editor qua mapping API. Floor map polygon khác ROI trên frame; không dùng sample geometry thay tọa độ thật.
-- Sau khi team duyệt schema, đồng bộ SQL/scaffold và triển khai rule CRUD per-zone: chỉ IncidentType AI-detected, warning < critical, unit/measurement đúng loại, sustain/cooldown >= 0, enabled. Nếu dùng density people/m² thì cần diện tích vật lý > 0; cách lưu area_m2 vẫn chờ chốt. Không tính people/m² khi thiếu diện tích.
+- Khi MF-02 được giao, đồng bộ SQL/scaffold theo ERD v3 và triển khai rule CRUD per-zone: chỉ IncidentType AI-detected, warning < critical, unit/measurement đúng loại, sustain/cooldown >= 0, enabled. `Zone.area_m2` đã có trong ERD v3; nếu dùng density people/m² thì cần diện tích vật lý > 0. Không tính people/m² khi thiếu diện tích.
 - Activation hiện chỉ bật configuration, kiểm tra zone ACTIVE và ít nhất một mapped camera ACTIVE/tested/enabled; chưa kiểm tra đủ rule/measurement readiness, chưa khởi động continuous AI worker. Preview đã chạy nhưng chưa ROI measurements, sustained-threshold evaluator, OperationalEvents, incident dedup/cooldown. Nối runtime và lifecycle activate/deactivate trước khi gọi là monitoring thật. Health events tách biệt Operational Incidents.
 - Multiple-camera measurement-source selection và một số operational limits còn mở ([PROJECT_CONTEXT §33](docs/PROJECT_CONTEXT.md#33-implementation-questions-that-are-currently-open)); không tự cộng người từ các camera nhìn cùng zone hay suy ra cross-camera identity. Chưa xác nhận full MF-01 UI acceptance hoặc hiệu năng live stream.
 - Backend dùng repository riêng `GFA26SE39-FA26SE103/Back-End`: `main` là stable, `dev` là integration, feature branches qua PR vào dev và cần review trước khi merge.
