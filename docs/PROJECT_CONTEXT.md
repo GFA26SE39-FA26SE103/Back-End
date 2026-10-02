@@ -60,6 +60,7 @@ Use these documents as the project baseline:
 3. **GFA26SE39_Final_Agreed_Mainflows_2026-10-02.docx — current agreed Mainflow baseline**
    - Defines the latest agreed MF-01..MF-04 flow semantics and slide/swimlane behavior.
    - In particular, it freezes conditional Operator review in MF-02, evidence verification in MF-03, and the independent Planning vs Analytics entry paths in MF-04.
+   - The repository does not currently record a Drive URL for this document; do not invent one. Add it only when the team supplies the URL.
 
 4. **FA26SE103_Business_Rules.docx — current working detailed BR**
    - Defines detailed business semantics: camera/zone rules, OperationalEvent vs Incident, routing, task rules, shifts, calculations, scope rules, and lifecycles.
@@ -74,15 +75,12 @@ Use these documents as the project baseline:
      `https://drive.google.com/file/d/1xq6EkquGppDAcLqcVndJ4AhB9ILHj180/view?usp=drivesdk`
    - **Do not change this file unless you are assigned to ERD/database work.**
 
-6. **GFA26SE39_Final_Agreed_Mainflows_2026-10-02.docx**
-   - Current agreed Mainflow semantics. The repository does not currently record a Drive URL for this document; add it only when the team supplies the URL.
-
-7. **Report 3 — Software Requirement Specification**
+6. **Report 3 — Software Requirement Specification**
    - Currently being prepared.
    - The current Drive URL is not recorded in this repository; add it only when the team supplies the URL.
    - It will formalize Product Overview, Actors, Use Cases, System Functional Overview, Screen Flow, Screen Authorization, Non-Screen Functions, ERD/entity descriptions, detailed functions, NFRs, BRs, common requirements, and messages.
 
-8. **Canva Mainflow / Review deck**
+7. **Canva Mainflow / Review deck**
    - Presentation/design reference with lower authority than the agreed BR/Mainflows:
      `https://www.canva.com/design/DAHWviilNDA/WQWyS79Eao8V8pXqkgt9Vg/edit`
 
@@ -781,7 +779,7 @@ Conceptually it owns:
 
 The same IncidentType may use different thresholds in different Zones.
 
-**Physical table fields are being synchronized in the ERD. Do not hardcode an incompatible schema while ERD work is in progress.**
+**ERD v3 defines the concrete physical MonitoringRule structure. Do not hardcode an incompatible schema or add a competing migration.**
 
 ## Incident
 
@@ -1484,7 +1482,7 @@ API request/response
 
 Direct mapping may be used for simple MF-01 operations only when it does not weaken business rules. Important invariants remain in Application or Domain code.
 
-Do not freeze or invent scaffolded contracts for unresolved schema decisions: `MonitoringRule`, `IncidentType`, `Zone.area_m2`, multiple-camera measurement-source selection, checkout counter representation, manager-on-duty representation, or Zone adjacency.
+Do not freeze or invent scaffolded contracts for the remaining unresolved alignment points: the persistence representation of Incident Type "requires Operator review", multiple-camera measurement-source selection, checkout-counter representation, Manager-on-duty representation, or the operational use of `ZoneAdjacency`. ERD v3 already defines `Zone.area_m2`, the physical `MonitoringRule` and `IncidentType` structures, and the `ZoneAdjacency` entity.
 
 # 12. Recommended MF-01 service boundaries
 
@@ -2094,7 +2092,9 @@ Recommendation
 AuditLog
 ```
 
-Potential concepts such as Manager-on-duty are required by later escalation/shift rules. `ZoneAdjacency` exists in ERD v3; its operational use remains subject to the latest BR/Mainflow alignment and must not be silently assumed for dispatch.
+Potential concepts such as Manager-on-duty are required by later escalation/shift rules.
+
+ZoneAdjacency exists in ERD v3. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
 
 Do not add speculative tables simply to make the schema "look complete".
 
@@ -2165,7 +2165,7 @@ zone assignment
 workload
 ```
 
-The current 02/10 baseline does not require adjacent-Zone dispatch. `ZoneAdjacency` remains an ERD v3 entity, but do not use it for dispatch unless the latest BR/Mainflow alignment explicitly confirms that behavior.
+ZoneAdjacency exists in ERD v3. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
 
 ---
 
@@ -2443,8 +2443,7 @@ Do not silently decide these in code without team agreement. ERD v3 facts are no
    - likely derived from shift/duty assignment.
 
 5. **Operational use of `ZoneAdjacency`**
-   - the entity exists in ERD v3;
-   - resolve any BR/Mainflow disagreement before using it for adjacent-zone dispatch.
+   - ZoneAdjacency exists in ERD v3. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
 
 
 ---
@@ -2475,7 +2474,7 @@ When an AI coding agent works on this project:
 20. Keep CameraHealthEvent separate from supermarket Operational Incidents.
 21. Do not auto-dispatch every Incident: Critical or review-required Incident Types require Operator review before assignment.
 22. For non-review Info/Warning incidents, notify eligible Staff in the affected Zone; fallback to Operator when no eligible Staff or acceptance retries fail.
-23. Do not add adjacent-Zone dispatch / `ZoneAdjacency` under the current 02/10 baseline unless the BR changes.
+23. ZoneAdjacency exists in ERD v3. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
 24. Keep MF-04 Planning and Analytics as independent entry paths; successful shift validation is not a prerequisite for opening the dashboard.
 25. Keep Admin account/Staff CRUD as a supporting capability, not a required step in the four Mainflow diagrams.
 
@@ -2620,4 +2619,5 @@ This section prevents historical designs from being reintroduced while preservin
 - Operator independently verifies submitted evidence.
 - MF-04 Planning and Analytics are independently enterable.
 - AI recommendations are advisory; they do not automatically change store operations.
-- `Zone.area_m2`, `MonitoringRule` structure, `IncidentType` structure, and `ZoneAdjacency` are represented in ERD v3. The exact Incident Type review-flag persistence and the other alignment items in section 33 remain open.
+- `Zone.area_m2`, the physical `MonitoringRule` and `IncidentType` structures, and `ZoneAdjacency` are represented in ERD v3. The Incident Type review-flag persistence and the other alignment items in section 33 remain open.
+- ZoneAdjacency exists in ERD v3. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
