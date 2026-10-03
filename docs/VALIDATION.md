@@ -106,3 +106,10 @@ Added a selectable Cloudinary adapter using signed HTTPS Upload API calls (SHA-2
 - Prepared the ignored `appsettings.Local.json` Cloudinary section without printing credentials or changing existing DB/JWT settings; tracked base/example configuration contains empty credentials and Provider Local. Verified Git ignores the real local file. API and setup instructions were updated; OpenAPI route/DTO schemas are unchanged.
 
 No real Cloudinary credential was supplied, so live upload/download/delete, account limits/PDF permissions and actual cross-machine/restart acceptance remain unverified. No shared local map was uploaded/deleted, no SQL integration was executed and no VPS was accessed. Previously saved local images require their local files until explicitly replaced with the same originals under the Cloudinary provider. Cleanup/network failures can leave unreferenced assets; warnings/manual storage inspection are documented, with no automatic bulk deletion or startup migration.
+
+## Cloudinary Media Library folder correction 2026-10-03
+
+After the user supplied credentials locally and reported a floor-plan image appearing in Cloudinary Home, source inspection found that uploads only prefixed `public_id` with the configured Folder. Cloudinary dynamic folders require a separate `asset_folder` parameter. Uploads now send the configured value in both locations; existing asset IDs/downloads are unchanged and no remote asset was moved.
+
+- Release build performed by focused tests: **PASS**. Cloudinary/floor-plan/Operator selection: **59 passed, 0 failed, 0 skipped**, including 36 Cloudinary cases. PNG/JPEG/PDF contract checks now assert `asset_folder`; an additional case verifies a custom Folder value and the signed request. `git diff --check`: **PASS**.
+- README and API storage notes explain new uploads, existing Home assets and folder moves. No frontend/API schema/SQL change. Live acceptance of the newly added folder parameter remains unverified; no real credentials were printed or used by these tests.

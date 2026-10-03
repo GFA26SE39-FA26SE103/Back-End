@@ -40,6 +40,7 @@ public sealed class CloudinaryFloorPlanTests
         Assert.Equal(extension == "pdf" ? "raw/upload" : "image/upload", upload.Action);
         Assert.Equal("authenticated", upload.Fields["type"]);
         Assert.Equal("false", upload.Fields["overwrite"]);
+        Assert.Equal("fa26se103/floor-plans", upload.Fields["asset_folder"]);
         Assert.StartsWith("fa26se103/floor-plans/" + w.Floor.FloorId.ToString("N") + "/", upload.Fields["public_id"]);
         Assert.DoesNotContain("transformation", upload.Fields.Keys);
         Assert.Equal(bytes, upload.File);
@@ -56,6 +57,17 @@ public sealed class CloudinaryFloorPlanTests
         Assert.True(long.Parse(download.Fields["expires_at"], CultureInfo.InvariantCulture) > long.Parse(download.Fields["timestamp"], CultureInfo.InvariantCulture));
         await w.Cloud.Delete(w.Floor.FloorId, saved.Token, default);
         Assert.Empty(w.Handler.Assets);
+    }
+
+    [Fact]
+    public async Task CustomFolderIsSentAsTheMediaLibraryFolder()
+    {
+        using var w = new World();
+        w.CloudOptions.Folder = "demo-store/maps";
+        await w.Cloud.Save(w.Floor.FloorId, new MemoryStream(Png), "map.png", "image/png", Png.Length, default);
+        var upload = Assert.Single(w.Handler.Calls);
+        Assert.Equal("demo-store/maps", upload.Fields["asset_folder"]);
+        Assert.StartsWith("demo-store/maps/" + w.Floor.FloorId.ToString("N") + "/", upload.Fields["public_id"]);
     }
 
     [Theory, InlineData("empty"), InlineData("oversized"), InlineData("signature"), InlineData("extension"), InlineData("mime"), InlineData("incomplete"), InlineData("short-png")]

@@ -40,7 +40,12 @@ public sealed class CloudinaryFloorPlanStorage(HttpClient http, IOptions<Cloudin
         var config = Config();
         var resourceType = format.Extension == ".pdf" ? "raw" : "image";
         var publicId = $"{config.Folder}/{floorId:N}/{Guid.NewGuid():N}" + (resourceType == "raw" ? format.Extension : "");
-        var fields = Signed(new() { ["public_id"] = publicId, ["type"] = "authenticated", ["overwrite"] = "false" });
+        // Dynamic folders organize Media Library assets independently of the public ID path.
+        var fields = Signed(new()
+        {
+            ["public_id"] = publicId, ["asset_folder"] = config.Folder,
+            ["type"] = "authenticated", ["overwrite"] = "false"
+        });
         using var form = new MultipartFormDataContent();
         foreach (var field in fields) form.Add(new StringContent(field.Value), field.Key);
         var file = new ByteArrayContent(bytes.GetBuffer(), 0, (int)bytes.Length);
