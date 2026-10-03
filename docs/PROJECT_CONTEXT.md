@@ -116,8 +116,8 @@ If code and a document disagree, raise the mismatch before adding more behavior.
 
 The system supports:
 
-- one supermarket branch for project evaluation;
-- Supermarket / Floor / Zone configuration;
+- one supermarket branch for project evaluation, provided as a single default store (no store setup step);
+- Floor / Zone configuration inside that default store;
 - camera registration, mapping, stream configuration, testing, preview, and health;
 - AI person detection and multi-object tracking;
 - customer flow;
@@ -178,7 +178,7 @@ STAFF
 Responsible for system/configuration administration:
 
 - user accounts and roles;
-- supermarket/floor/zone setup;
+- floor/zone setup inside the single default store;
 - camera configuration;
 - camera connections;
 - camera-zone mappings;
@@ -247,14 +247,14 @@ These are the shared end-to-end product Mainflows. Internal AI steps are compone
 
 ### Goal
 
-Prepare the supermarket, floor/zone structure, cameras, camera-zone coverage, connection settings, and monitoring configuration so the system can safely enter operational monitoring.
+Prepare the floor/zone structure of the default store, cameras, camera-zone coverage, connection settings, and monitoring configuration so the system can safely enter operational monitoring.
 
 ### Main path
 
 ```text
 Admin Login
     ↓
-Set up Store / Floor / Zone
+Set up Floor / Zone
     ↓
 Register & Configure Camera
     ↓
@@ -294,8 +294,7 @@ Camera/stream health is **system health**, not a supermarket Operational Inciden
 MF-01 should establish:
 
 - authentication/RBAC baseline;
-- Supermarket;
-- Floor;
+- Floor (inside the single default Supermarket record);
 - Zone;
 - Camera;
 - CameraConnection;
@@ -1003,7 +1002,7 @@ Never store plaintext passwords or hand-roll SHA-256 password storage.
 
 ### `Supermarket`
 
-One branch for the project baseline.
+One branch for the project baseline. **Decision 03/10/2026:** the system runs with exactly one default Supermarket record, provided by seed/initial data. There is no store setup step, screen, or create/edit store workflow; Admin setup starts at Floor. Keep the table and the `Floor.supermarket_id` FK as in the ERD; clients read the default store with `GET /supermarkets` and do not let users pick or create one.
 
 ### `Floor`
 
@@ -1327,7 +1326,6 @@ Owns commands, queries, use-case orchestration, use-case authorization, transact
 Expected MF-01 use cases include:
 
 ```text
-CreateSupermarket
 CreateFloor
 CreateZone
 RegisterCamera
@@ -1531,11 +1529,11 @@ Rules:
 
 ## Supermarket
 
+Single default store, read-only for clients (no store setup in the current baseline):
+
 ```text
 GET    /supermarkets
-POST   /supermarkets
 GET    /supermarkets/{id}
-PATCH  /supermarkets/{id}
 ```
 
 ## Floors
@@ -1753,7 +1751,7 @@ last_test_message
 A clean end-to-end demo should be possible in this order:
 
 1. Admin logs in.
-2. Admin creates/opens the supermarket.
+2. Admin opens the default store (pre-seeded; no store creation step).
 3. Admin creates a Floor.
 4. Admin attaches a floor-map asset.
 5. Admin draws a Zone polygon on the floor map.
@@ -1788,7 +1786,7 @@ Minimum DoD:
 
 - [ ] Admin authentication works.
 - [ ] RBAC protects Admin configuration endpoints.
-- [ ] Supermarket/Floor/Zone CRUD works.
+- [ ] Default store is available; Floor/Zone CRUD works.
 - [ ] Floor map can be referenced/displayed.
 - [ ] Zone polygon can be created and reloaded.
 - [ ] Camera can be registered and placed on a Floor.
@@ -1838,7 +1836,7 @@ At minimum:
 ### Store setup
 
 ```text
-create supermarket
+default supermarket exists
 → create floor
 → create zone
 → reload
@@ -2035,7 +2033,7 @@ Integrate future MonitoringRule/IncidentType persistence against ERD v3 and the 
 Can start against API contracts/mocks:
 
 - login;
-- supermarket/floor management;
+- floor management (single default store);
 - floor map view;
 - zone editor;
 - camera management;
@@ -2410,7 +2408,7 @@ Whenever implementation introduces or changes behavior, make sure the correspond
 For MF-01, implementation should produce enough concrete behavior to populate:
 
 - Admin screen flow;
-- Supermarket/Floor/Zone screens;
+- Floor/Zone screens;
 - Camera setup screens;
 - connection test/preview screens;
 - monitoring config screens;
@@ -2588,7 +2586,7 @@ Those are not reasons to block the rest of MF-01.
 
 At the end of MF-01, a reviewer should be able to watch this happen:
 
-> An Admin logs in, sets up the store/floor/zone structure, registers and configures a camera, triggers connection testing and preview, maps the camera to one or more valid Zones using normalized ROIs, configures and activates monitoring, sees continuous camera/stream health monitoring, then investigates, retests, and restores a detected connection/stream/configuration issue.
+> An Admin logs in, sets up the floor/zone structure of the default store, registers and configures a camera, triggers connection testing and preview, maps the camera to one or more valid Zones using normalized ROIs, configures and activates monitoring, sees continuous camera/stream health monitoring, then investigates, retests, and restores a detected connection/stream/configuration issue.
 
 That is an end-to-end **setup/configuration Mainflow**, not a collection of disconnected CRUD screens.
 

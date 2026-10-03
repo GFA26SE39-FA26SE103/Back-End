@@ -23,7 +23,7 @@ Implement and verify this setup flow:
 
 ```text
 Admin login
-→ Store / Floor / Zone setup
+→ Floor / Zone setup (single default store; no store setup step)
 → Register & configure camera
 → Test connection & preview
 → Map camera to Zone(s), including camera-frame ROI
@@ -38,7 +38,7 @@ Account administration supports MF-01 but is not a required diagram step. Later 
 
 ## Domain rules to preserve
 
-- One supermarket branch. `Supermarket → Floor`; both `Zone` and `Camera` belong to `Floor`.
+- One supermarket branch, as a single default `Supermarket` record from seed data. Do not build store create/edit/select flows; Admin setup starts at Floor. `Supermarket → Floor`; both `Zone` and `Camera` belong to `Floor`.
 - Camera ↔ Zone is N:M through `CameraZoneMapping`. Reject mappings across floors.
 - `Zone.map_polygon` is on the floor map; `CameraZoneMapping.roi_polygon` is on a camera frame. They are separate coordinate spaces, not an automatic projection.
 - Persist spatial coordinates normalized to `[0,1]`, with valid polygon geometry and at least three points. Normalization handles scaling, not arbitrary crop/perspective changes.
