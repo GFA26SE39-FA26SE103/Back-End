@@ -4,6 +4,31 @@ namespace Supermarket.Tests;
 
 public sealed class MonitoringPolicyTests
 {
+    [Fact]
+    public void PeopleCountIsExplicitAndDoesNotReinterpretDensity()
+    {
+        var type=new IncidentType { Code="OVERCROWDING_CONGESTION", MeasurementType="CROWD_DENSITY", SourceType="AI_DETECTED" };
+        var count=new MonitoringRule { WarningThreshold=1,CriticalThreshold=2,ThresholdUnit="PEOPLE",ParametersJson="{\"custom\":7,\"measurementMode\":\"PEOPLE_COUNT\"}" };
+        MonitoringPolicy.Validate(count,type);
+        var definition=MonitoringPolicy.RuntimeDefinition(count,type);
+        Assert.True(definition.Supported); Assert.Equal("PEOPLE_COUNT",definition.Mode);
+        Assert.Equal("PEOPLE",definition.Unit);
+        var density=new MonitoringRule { WarningThreshold=2,CriticalThreshold=3,ThresholdUnit="PEOPLE_PER_M2" };
+        MonitoringPolicy.Validate(density,type);
+        Assert.False(MonitoringPolicy.RuntimeDefinition(density,type).Supported);
+        Assert.Equal("PEOPLE_PER_M2",density.ThresholdUnit); Assert.Null(density.ParametersJson);
+        count.ParametersJson="[]";
+        Assert.Throws<DomainException>(()=>MonitoringPolicy.Validate(count,type));
+    }
+
+    [Fact]
+    public void UnsupportedLegacyRuleCanBeDisabledInDraft()
+    {
+        var rule=Rule; rule.Enabled=false; rule.ThresholdUnit="LEGACY";
+        var type=Type; type.Code="EXCESSIVE_WAITING_TIME"; type.MeasurementType="WAITING_TIME";
+        MonitoringPolicy.Validate(rule,type);
+        Assert.False(MonitoringPolicy.RuntimeDefinition(rule,type).Supported);
+    }
     private static IncidentType Type => new() { Code = "LONG_QUEUE", SourceType = "AI_DETECTED", MeasurementType = "QUEUE_LENGTH" };
     private static MonitoringRule Rule => new() { WarningThreshold = 3, CriticalThreshold = 5, ThresholdUnit = "PEOPLE" };
     [Theory]

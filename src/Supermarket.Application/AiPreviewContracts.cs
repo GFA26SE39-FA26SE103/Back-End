@@ -6,5 +6,9 @@ public sealed record AiPreviewStatusView(
     DateTime? StartedAt,
     DateTime UpdatedAt,
     long FrameSequence,
-    string? ErrorCode);
+    string? ErrorCode,
+    Guid? SessionId=null,
+    string Purpose="PREVIEW",
+    string? ConfigurationFingerprint=null,
+    string? AnnotationContext=null);
 

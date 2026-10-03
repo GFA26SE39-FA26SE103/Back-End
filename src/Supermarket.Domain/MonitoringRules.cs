@@ -27,8 +27,32 @@ public sealed class MonitoringRule : TrackedEntity
     public bool Enabled { get; set; } = true;
 }
 public sealed record MeasurementDefinition(string Unit, decimal Warning, decimal Critical);
+public sealed record RuntimeMeasurementDefinition(string Mode, string Unit, bool Supported, string? Reason);
 public static class MonitoringPolicy
 {
+    public static RuntimeMeasurementDefinition RuntimeDefinition(MonitoringRule rule, IncidentType type)
+    {
+        if (type.Code=="LONG_QUEUE" && type.MeasurementType=="QUEUE_LENGTH" && rule.ThresholdUnit=="PEOPLE")
+            return new("QUEUE_LENGTH","PEOPLE",true,null);
+        if (type.Code=="OVERCROWDING_CONGESTION" && type.MeasurementType=="CROWD_DENSITY")
+        {
+            var explicitCount=false;
+            try {
+                using var json=JsonDocument.Parse(rule.ParametersJson??"{}");
+                explicitCount=json.RootElement.ValueKind==JsonValueKind.Object && json.RootElement.TryGetProperty("measurementMode",out var mode)
+                    && mode.ValueKind==JsonValueKind.String && mode.GetString()=="PEOPLE_COUNT";
+            } catch(JsonException) { /* Structural validation reports malformed JSON. */ }
+            if(explicitCount && rule.ThresholdUnit=="PEOPLE") return new("PEOPLE_COUNT","PEOPLE",true,null);
+            return new("CROWD_DENSITY",rule.ThresholdUnit,false,"Density runtime is deferred. Explicitly select PEOPLE_COUNT with PEOPLE thresholds, or keep the density rule disabled.");
+        }
+        return new(type.MeasurementType??"UNSUPPORTED",rule.ThresholdUnit,false,"This measurement has no runtime yet; keep its rule disabled in Draft.");
+    }
+    public static void ValidateForActivation(MonitoringRule rule, IncidentType type)
+    {
+        Validate(rule,type);
+        var runtime=RuntimeDefinition(rule,type);
+        Rules.Require(!rule.Enabled || runtime.Supported,"RULE_RUNTIME_UNSUPPORTED",runtime.Reason??"Measurement runtime is unsupported.");
+    }
     // Agreed measurement/unit pairs. Checkout remains pending counter/composite design.
     public static MeasurementDefinition? Definition(IncidentType type) => (type.Code, type.MeasurementType) switch
     {
@@ -54,11 +78,12 @@ public static class MonitoringPolicy
         Rules.Require(rule.SustainSec >= 0 && rule.CooldownSec >= 0, "INVALID_RULE_TIMING", "Sustain and cooldown must be non-negative seconds.");
         var definition = Definition(type);
         Rules.Require(!rule.Enabled || definition is not null, "RULE_UNSUPPORTED", "This measurement is not ready; keep its rule disabled in Draft.");
-        if (definition is not null)
+        if (definition is not null && rule.Enabled)
         {
-            Rules.Require(rule.ThresholdUnit == definition.Unit, "INVALID_RULE_UNIT", $"The measurement requires {definition.Unit}.");
-            if (definition.Unit == "PEOPLE") Rules.Require(decimal.Truncate(rule.WarningThreshold) == rule.WarningThreshold && decimal.Truncate(rule.CriticalThreshold) == rule.CriticalThreshold,
-                "INVALID_THRESHOLDS", "Queue thresholds must be whole people counts.");
+            var unit=RuntimeDefinition(rule,type).Supported ? "PEOPLE" : definition.Unit;
+            Rules.Require(rule.ThresholdUnit == unit, "INVALID_RULE_UNIT", $"The measurement requires {unit} and an explicit matching measurement mode.");
+            if (unit == "PEOPLE") Rules.Require(decimal.Truncate(rule.WarningThreshold) == rule.WarningThreshold && decimal.Truncate(rule.CriticalThreshold) == rule.CriticalThreshold,
+                "INVALID_THRESHOLDS", "Thresholds must be whole people counts.");
         }
         Rules.Optional(rule.ParametersJson, 16000, "Rule parameters");
         if (rule.ParametersJson is not null)

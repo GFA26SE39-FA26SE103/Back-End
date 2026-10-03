@@ -21,11 +21,15 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<Floor> Floors { get; set; }
 
+    public virtual DbSet<Incident> Incidents { get; set; }
+
     public virtual DbSet<IncidentType> IncidentTypes { get; set; }
 
     public virtual DbSet<MonitoringConfiguration> MonitoringConfigurations { get; set; }
 
     public virtual DbSet<MonitoringRule> MonitoringRules { get; set; }
+
+    public virtual DbSet<OperationalEvent> OperationalEvents { get; set; }
 
     public virtual DbSet<Role> Roles { get; set; }
 
@@ -286,6 +290,72 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("FK_Floor_Supermarket");
         });
 
+        modelBuilder.Entity<Incident>(entity =>
+        {
+            entity.ToTable("Incident");
+
+            entity.HasIndex(e => new { e.ZoneId, e.IncidentTypeId, e.ClosedAt }, "IX_Incident_Zone_Type_Closed");
+
+            entity.HasIndex(e => new { e.ZoneId, e.IncidentTypeId }, "UX_Incident_Open_Zone_Type")
+                .IsUnique()
+                .HasFilter("([closed_at] IS NULL)");
+
+            entity.Property(e => e.IncidentId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_Incident_Id")
+                .HasColumnName("incident_id");
+            entity.Property(e => e.ClosedAt)
+                .HasPrecision(3)
+                .HasColumnName("closed_at");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_Incident_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Description)
+                .HasMaxLength(2000)
+                .HasColumnName("description");
+            entity.Property(e => e.IncidentTypeId).HasColumnName("incident_type_id");
+            entity.Property(e => e.ReportedByUserId).HasColumnName("reported_by_user_id");
+            entity.Property(e => e.Severity)
+                .HasMaxLength(20)
+                .HasColumnName("severity");
+            entity.Property(e => e.SourceType)
+                .HasMaxLength(20)
+                .HasColumnName("source_type");
+            entity.Property(e => e.Status)
+                .HasMaxLength(30)
+                .HasColumnName("status");
+            entity.Property(e => e.StatusReason)
+                .HasMaxLength(1000)
+                .HasColumnName("status_reason");
+            entity.Property(e => e.Title)
+                .HasMaxLength(200)
+                .HasColumnName("title");
+            entity.Property(e => e.TriggerCameraId).HasColumnName("trigger_camera_id");
+            entity.Property(e => e.UpdatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_Incident_UpdatedAt")
+                .HasColumnName("updated_at");
+            entity.Property(e => e.ZoneId).HasColumnName("zone_id");
+
+            entity.HasOne(d => d.IncidentType).WithMany(p => p.Incidents)
+                .HasForeignKey(d => d.IncidentTypeId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Incident_Type");
+
+            entity.HasOne(d => d.ReportedByUser).WithMany(p => p.Incidents)
+                .HasForeignKey(d => d.ReportedByUserId)
+                .HasConstraintName("FK_Incident_Reporter");
+
+            entity.HasOne(d => d.TriggerCamera).WithMany(p => p.Incidents)
+                .HasForeignKey(d => d.TriggerCameraId)
+                .HasConstraintName("FK_Incident_Camera");
+
+            entity.HasOne(d => d.Zone).WithMany(p => p.Incidents)
+                .HasForeignKey(d => d.ZoneId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Incident_Zone");
+        });
+
         modelBuilder.Entity<IncidentType>(entity =>
         {
             entity.ToTable("IncidentType");
@@ -427,6 +497,60 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.IncidentTypeId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_MonitoringRule_IncidentType");
+        });
+
+        modelBuilder.Entity<OperationalEvent>(entity =>
+        {
+            entity.HasKey(e => e.EventId);
+
+            entity.ToTable("OperationalEvent");
+
+            entity.HasIndex(e => new { e.IncidentId, e.DetectedAt }, "IX_OperationalEvent_Incident_Time").IsDescending(false, true);
+
+            entity.HasIndex(e => new { e.ZoneId, e.DetectedAt }, "IX_OperationalEvent_Zone_Time").IsDescending(false, true);
+
+            entity.Property(e => e.EventId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_OperationalEvent_Id")
+                .HasColumnName("event_id");
+            entity.Property(e => e.CameraId).HasColumnName("camera_id");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_OperationalEvent_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.DetectedAt)
+                .HasPrecision(3)
+                .HasColumnName("detected_at");
+            entity.Property(e => e.EventType)
+                .HasMaxLength(50)
+                .HasColumnName("event_type");
+            entity.Property(e => e.IncidentId).HasColumnName("incident_id");
+            entity.Property(e => e.MetadataJson).HasColumnName("metadata_json");
+            entity.Property(e => e.MetricValue)
+                .HasColumnType("decimal(18, 4)")
+                .HasColumnName("metric_value");
+            entity.Property(e => e.RuleId).HasColumnName("rule_id");
+            entity.Property(e => e.Status)
+                .HasMaxLength(30)
+                .HasColumnName("status");
+            entity.Property(e => e.ZoneId).HasColumnName("zone_id");
+
+            entity.HasOne(d => d.Camera).WithMany(p => p.OperationalEvents)
+                .HasForeignKey(d => d.CameraId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_OperationalEvent_Camera");
+
+            entity.HasOne(d => d.Incident).WithMany(p => p.OperationalEvents)
+                .HasForeignKey(d => d.IncidentId)
+                .HasConstraintName("FK_OperationalEvent_Incident");
+
+            entity.HasOne(d => d.Rule).WithMany(p => p.OperationalEvents)
+                .HasForeignKey(d => d.RuleId)
+                .HasConstraintName("FK_OperationalEvent_Rule");
+
+            entity.HasOne(d => d.Zone).WithMany(p => p.OperationalEvents)
+                .HasForeignKey(d => d.ZoneId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_OperationalEvent_Zone");
         });
 
         modelBuilder.Entity<Role>(entity =>

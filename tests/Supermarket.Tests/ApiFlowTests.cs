@@ -12,15 +12,7 @@ namespace Supermarket.Tests;
 public sealed partial class ApiFlowTests(SqlApiFixture fixture)
 {
     private static Point[] Triangle => [new(.1m, .1m), new(.8m, .1m), new(.1m, .8m)];
-    private async Task<HttpClient> Admin()
-    {
-        var client = fixture.Factory.CreateClient();
-        var result = await client.PostAsJsonAsync("/api/auth/login", new LoginRequest(SqlApiFixture.AdminEmail, SqlApiFixture.AdminPassword));
-        result.EnsureSuccessStatusCode();
-        var login = (await result.Content.ReadFromJsonAsync<LoginResponse>())!;
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", login.AccessToken);
-        return client;
-    }
+    private Task<HttpClient> Admin() => fixture.AdminClient();
     private static async Task<T> Read<T>(HttpResponseMessage response)
     {
         var text = await response.Content.ReadAsStringAsync();

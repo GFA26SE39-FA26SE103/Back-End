@@ -27,5 +27,7 @@ public partial class IncidentType
 
     public DateTime UpdatedAt { get; set; }
 
+    public virtual ICollection<Incident> Incidents { get; set; } = new List<Incident>();
+
     public virtual ICollection<MonitoringRule> MonitoringRules { get; set; } = new List<MonitoringRule>();
 }

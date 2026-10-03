@@ -9,6 +9,25 @@ namespace Supermarket.Tests;
 public sealed class MonitoringSetupTests
 {
     [Fact]
+    public async Task PeopleCountModeDoesNotRequireArea()
+    {
+        var h=new Harness(); h.AddRule("OVERCROWDING_CONGESTION","CROWD_DENSITY","PEOPLE");
+        h.Store.Values.OfType<MonitoringRule>().Single().ParametersJson="{\"measurementMode\":\"PEOPLE_COUNT\"}";
+        h.Zone.AreaM2=null;
+        var review=await h.Setup.Review(h.Zone.ZoneId,default);
+        Assert.True(review.CanActivate); Assert.DoesNotContain(review.Issues,i=>i.Code=="ZONE_AREA_REQUIRED");
+    }
+    [Fact]
+    public async Task ActivationRejectsMoreThanOneActiveMapping()
+    {
+        var h=new Harness(); h.AddRule();
+        var second=new Camera { CameraId=Guid.NewGuid(), FloorId=h.Zone.FloorId, Status="ACTIVE" };
+        h.Store.Values.Add(second);
+        h.Store.Values.Add(new CameraZoneMapping { CameraZoneId=Guid.NewGuid(),CameraId=second.CameraId,ZoneId=h.Zone.ZoneId,RoiPolygon="[{\"x\":0,\"y\":0},{\"x\":1,\"y\":0},{\"x\":0,\"y\":1}]" });
+        var review=await h.Setup.Review(h.Zone.ZoneId,default);
+        Assert.False(review.CanActivate); Assert.Contains(review.Issues,i=>i.Code=="MEASUREMENT_SOURCE_AMBIGUOUS");
+    }
+    [Fact]
     public async Task ActivationRejectsConfigurationWithoutEnabledRules()
     {
         var h = new Harness();
@@ -39,7 +58,8 @@ public sealed class MonitoringSetupTests
         Assert.False(review.CanActivate);
         Assert.Contains(review.Issues, i => i.Code == "ZONE_AREA_REQUIRED");
         h.Zone.AreaM2 = 10;
-        Assert.True((await h.Setup.Review(h.Zone.ZoneId, default)).CanActivate);
+        var density=await h.Setup.Review(h.Zone.ZoneId, default);
+        Assert.False(density.CanActivate); Assert.Contains(density.Issues,i=>i.Code=="RULE_RUNTIME_UNSUPPORTED");
         h.Connection.LastTestResult = "FAILED";
         var error = await Assert.ThrowsAsync<AppError>(() => h.Setup.Activate(h.Zone.ZoneId, true, h.Configuration.UpdatedAt, default));
         Assert.Equal("MONITORING_NOT_READY", error.Code);

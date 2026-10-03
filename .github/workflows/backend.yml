@@ -10,7 +10,7 @@ jobs:
           dotnet-version: '10.0.x'
       - run: dotnet restore --configfile NuGet.Config
       - name: Domain unit tests
-        run: dotnet test --no-restore --filter "FullyQualifiedName!~ApiFlowTests" --settings coverage.runsettings --collect:'XPlat Code Coverage' --results-directory TestResults
+        run: dotnet test --no-restore --filter "FullyQualifiedName!~ApiFlowTests&FullyQualifiedName!~ConcurrencyTests" --settings coverage.runsettings --collect:'XPlat Code Coverage' --results-directory TestResults
       - run: dotnet publish src/Supermarket.Api -c Release --no-restore
       - uses: actions/upload-artifact@v4
         if: always()
@@ -54,7 +54,8 @@ jobs:
         env:
           MF01_SCHEMA_FILE: ${{ vars.MF01_SCHEMA_FILE || 'FA26SE103_Database_V0.1.sql' }}
           MF01_MONITORING_MIGRATION_FILE: ${{ vars.MF01_MONITORING_MIGRATION_FILE || 'migrations/20261003_01_monitoring_rules_erd_v3.sql' }}
-        run: dotnet test --no-restore "-p:Mf01SchemaPath=$GITHUB_WORKSPACE/SchemaSource/$MF01_SCHEMA_FILE" "-p:Mf01MonitoringMigrationPath=$GITHUB_WORKSPACE/SchemaSource/$MF01_MONITORING_MIGRATION_FILE" --settings coverage.runsettings --collect:'XPlat Code Coverage' --results-directory TestResults
+          MF02_RUNTIME_MIGRATION_FILE: ${{ vars.MF02_RUNTIME_MIGRATION_FILE || 'migrations/20261003_02_monitoring_runtime_erd_v3.sql' }}
+        run: dotnet test --no-restore "-p:Mf01SchemaPath=$GITHUB_WORKSPACE/SchemaSource/$MF01_SCHEMA_FILE" "-p:Mf01MonitoringMigrationPath=$GITHUB_WORKSPACE/SchemaSource/$MF01_MONITORING_MIGRATION_FILE" "-p:Mf02MonitoringRuntimeMigrationPath=$GITHUB_WORKSPACE/SchemaSource/$MF02_RUNTIME_MIGRATION_FILE" --settings coverage.runsettings --collect:'XPlat Code Coverage' --results-directory TestResults
       - uses: actions/upload-artifact@v4
         if: always()
         with:

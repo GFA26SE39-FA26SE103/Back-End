@@ -19,13 +19,14 @@ public sealed partial class MonitoringSetup
         {
             var type = await store.Find<IncidentType>(rule.IncidentTypeId, ct);
             if (type is null) { issues.Add(new("INCIDENT_TYPE_MISSING", "A rule's incident type no longer exists.")); continue; }
-            try { MonitoringPolicy.Validate(rule, type); }
+            try { MonitoringPolicy.ValidateForActivation(rule, type); }
             catch (DomainException e) { issues.Add(new(e.Code, $"{type.Name}: {e.Message}")); }
-            if (type.MeasurementType == "CROWD_DENSITY" && zone.AreaM2 is not > 0)
+            if (MonitoringPolicy.RuntimeDefinition(rule,type).Mode == "CROWD_DENSITY" && zone.AreaM2 is not > 0)
                 issues.Add(new("ZONE_AREA_REQUIRED", "Enter the zone's physical area in m² before enabling density monitoring."));
         }
         var cameras = new List<MonitoringCameraView>();
         var mappings = await store.List<CameraZoneMapping>(m => m.ZoneId == zoneId && m.Status == "ACTIVE", ct);
+        if(mappings.Count>1) issues.Add(new("MEASUREMENT_SOURCE_AMBIGUOUS","Keep exactly one active camera mapping for this zone; overlapping cameras are not combined."));
         foreach (var mapping in mappings)
         {
             var camera = UseCase.Found(await store.Find<Camera>(mapping.CameraId, ct));
@@ -52,9 +53,8 @@ public sealed partial class MonitoringSetup
         }
         if (!cameras.Any(c => c.Ready)) issues.Add(new("CAMERA_NOT_READY", "Map an active camera with valid ROI and tested, enabled AI-compatible source."));
         var warnings = new List<string>();
-        if (cameras.Count > 1) warnings.Add("Multiple camera mappings exist. Measurement-source selection remains pending; do not combine overlapping counts.");
         if (cameras.Any(c => c.SourceType == "RECORDED")) warnings.Add("Recorded video is a controlled test source, not live operational CCTV.");
-        warnings.Add("Activation applies the MF-01 configuration. Continuous measurement/rule evaluation and incident dispatch are separate MF-02 work.");
+        warnings.Add("Activation requests backend-owned monitoring. Check runtime separately; incident dispatch/tasks are not implemented in this increment.");
         return new(await View(configuration,ct,rules.ToArray()),StoreSetup.View(zone),cameras.ToArray(),issues.ToArray(),warnings.ToArray(),issues.Count == 0);
     }
 }

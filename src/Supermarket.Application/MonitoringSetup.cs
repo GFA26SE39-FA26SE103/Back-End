@@ -1,7 +1,7 @@
 using Supermarket.Domain;
 namespace Supermarket.Application;
 
-public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser current)
+public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser current,IMonitoringIncidentQueries? runtimeQueries=null,IMonitoringSessionOwnership? ownership=null)
 {
     public async Task<IncidentTypeView[]> IncidentTypes(CancellationToken ct)
     {
@@ -9,8 +9,12 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
         return (await store.List<IncidentType>(t => t.SourceType == "AI_DETECTED", ct)).OrderBy(t => t.Code).Select(t =>
         {
             var d = MonitoringPolicy.Definition(t);
+            var supported=t.Code=="LONG_QUEUE" && t.MeasurementType=="QUEUE_LENGTH";
+            var options=t.Code=="OVERCROWDING_CONGESTION" && t.MeasurementType=="CROWD_DENSITY"
+                ? new[] { new MonitoringMeasurementOptionView("PEOPLE_COUNT","PEOPLE",true,"Temporary count mode; enter whole-person thresholds."),new MonitoringMeasurementOptionView("CROWD_DENSITY","PEOPLE_PER_M2",false,"Physical density runtime is deferred.",d?.Warning,d?.Critical) }
+                : new[] { new MonitoringMeasurementOptionView(t.MeasurementType??"UNSUPPORTED",d?.Unit??"PENDING",supported,supported?null:"Measurement runtime is not yet implemented.",d?.Warning,d?.Critical) };
             return new IncidentTypeView(t.IncidentTypeId,t.Code,t.Name,t.Description,t.SourceType,t.MeasurementType,t.Status,
-                d is not null,d?.Unit,d?.Warning,d?.Critical,d is null ? "Counter/composite measurement is not yet defined. Keep this rule disabled in Draft." : null);
+                supported,d?.Unit,d?.Warning,d?.Critical,supported?null:"Select a supported measurement mode or keep this rule disabled in Draft.",options);
         }).ToArray();
     }
     public async Task<MonitoringConfigurationView> Get(Guid zoneId, CancellationToken ct)
@@ -37,6 +41,8 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             Rules.Require(input.Select(r => r.IncidentTypeId).Distinct().Count() == input.Length, "DUPLICATE_RULE", "Only one rule per incident type is allowed.");
             var configuration = existing ?? new MonitoringConfiguration { ConfigId = Guid.NewGuid(), ZoneId = zoneId, CreatedByUserId = current.UserId };
             var oldRules = existing is null ? new List<MonitoringRule>() : await store.List<MonitoringRule>(r => r.ConfigId == configuration.ConfigId, ct);
+            if(runtimeQueries is not null && oldRules.Any(r=>!input.Any(x=>x.IncidentTypeId==r.IncidentTypeId)))
+                await runtimeQueries.EnsureSchema(ct); // Refuse deletion before evidence can be safely detached.
             var prepared = new List<(MonitoringRule Rule, bool IsNew)>();
             foreach (var r in input)
             {
@@ -53,7 +59,13 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             configuration.ConfidenceThreshold = request.ConfidenceThreshold;
             configuration.Status = "DRAFT";
             if (existing is null) await store.Add(configuration, ct); else await store.Update(configuration, ct);
-            foreach (var old in oldRules.Where(r => !input.Any(x => x.IncidentTypeId == r.IncidentTypeId))) await store.Remove(old, ct);
+            foreach (var old in oldRules.Where(r => !input.Any(x => x.IncidentTypeId == r.IncidentTypeId)))
+            {
+                // Keep immutable aggregate evidence when its optional rule is removed.
+                foreach(var evidence in await store.List<OperationalEvent>(e=>e.RuleId==old.RuleId,ct))
+                { evidence.RuleId=null; await store.Update(evidence,ct); }
+                await store.Remove(old, ct);
+            }
             foreach (var (rule, isNew) in prepared)
                 if (isNew) await store.Add(rule, ct); else await store.Update(rule, ct);
             return await View(configuration, ct, prepared.Select(r => r.Rule).ToArray());
@@ -74,8 +86,16 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             if (expectedUpdatedAt is not null) CheckVersion(configuration, expectedUpdatedAt);
             if (active)
             {
+                if(runtimeQueries is not null) await runtimeQueries.EnsureSchema(ct);
                 var review = await BuildReview(zoneId, ct);
                 if (!review.CanActivate) throw new ApplicationException("MONITORING_NOT_READY", string.Join(" ", review.Issues.Select(i => i.Message)));
+                foreach(var camera in review.Cameras.Where(c=>c.Ready))
+                {
+                    if(ownership?.IsMonitoringOwned(camera.CameraId)!=true) continue;
+                    var mappedZones=(await store.List<CameraZoneMapping>(m=>m.CameraId==camera.CameraId && m.Status=="ACTIVE",ct)).Select(m=>m.ZoneId).ToArray();
+                    if(!(await store.List<MonitoringConfiguration>(c=>c.Status=="ACTIVE" && mappedZones.Contains(c.ZoneId),ct)).Any())
+                        throw new ApplicationException("MONITORING_STOP_PENDING","Monitoring owner is stopping. Wait for STOPPED runtime before reactivating to replay.");
+                }
             }
             configuration.Status = active ? "ACTIVE" : "INACTIVE";
             await store.Update(configuration, ct);

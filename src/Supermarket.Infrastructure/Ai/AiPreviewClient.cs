@@ -26,6 +26,7 @@ public sealed class AiPreviewClient(
         "AI_REQUEST_INVALID",
         "AI_SERVICE_UNAUTHORIZED",
         "AI_PREVIEW_FAILED"
+        ,"AI_SESSION_MONITORING_OWNED","AI_SESSION_OWNER_MISMATCH"
     ];
     private readonly AiPreviewOptions options = configured.Value;
 
@@ -77,7 +78,7 @@ public sealed class AiPreviewClient(
             throw await Error(response, ct);
         var dto = await response.Content.ReadFromJsonAsync<StatusResponse>(Json, ct)
             ?? throw new AppError("AI_SERVICE_INVALID_RESPONSE", "AI preview service returned an invalid response.", 503);
-        return new AiPreviewStatusView(dto.CameraId, dto.State, dto.StartedAt, dto.UpdatedAt, dto.FrameSequence, dto.ErrorCode);
+        return new AiPreviewStatusView(dto.CameraId, dto.State, dto.StartedAt, dto.UpdatedAt, dto.FrameSequence, dto.ErrorCode,dto.SessionId,dto.Purpose??"PREVIEW",dto.ConfigurationFingerprint,dto.AnnotationContext);
     }
 
     private async Task<HttpResponseMessage> Send(HttpRequestMessage request, CancellationToken ct)
@@ -148,5 +149,5 @@ public sealed class AiPreviewClient(
         DateTime? StartedAt,
         DateTime UpdatedAt,
         long FrameSequence,
-        string? ErrorCode);
+        string? ErrorCode,Guid? SessionId,string? Purpose,string? ConfigurationFingerprint,string? AnnotationContext);
 }

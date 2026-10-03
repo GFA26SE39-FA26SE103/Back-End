@@ -5,7 +5,7 @@ Push-Location (Split-Path $PSScriptRoot -Parent)
 try {
     & dotnet tool restore --configfile NuGet.Config
     if ($LASTEXITCODE -ne 0) { throw 'EF tool restore failed.' }
-    $tableArguments = @('Role','UserAccount','Supermarket','Floor','Zone','Camera','CameraConnection','CameraZoneMapping','MonitoringConfiguration','MonitoringRule','IncidentType','CameraHealthEvent') | ForEach-Object { '--table'; $_ }
+    $tableArguments = @('Role','UserAccount','Supermarket','Floor','Zone','Camera','CameraConnection','CameraZoneMapping','MonitoringConfiguration','MonitoringRule','IncidentType','CameraHealthEvent','Incident','OperationalEvent') | ForEach-Object { '--table'; $_ }
     & dotnet ef dbcontext scaffold $Connection Microsoft.EntityFrameworkCore.SqlServer --project src/Supermarket.Infrastructure --configuration $Configuration --output-dir Persistence/Scaffolded --context AppDbContext --no-onconfiguring --force @tableArguments
     if ($LASTEXITCODE -ne 0) { throw 'Scaffolding failed.' }
 } finally { Pop-Location }

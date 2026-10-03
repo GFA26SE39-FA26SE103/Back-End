@@ -32,4 +32,6 @@ public partial class MonitoringRule
     public virtual MonitoringConfiguration Config { get; set; } = null!;
 
     public virtual IncidentType IncidentType { get; set; } = null!;
+
+    public virtual ICollection<OperationalEvent> OperationalEvents { get; set; } = new List<OperationalEvent>();
 }

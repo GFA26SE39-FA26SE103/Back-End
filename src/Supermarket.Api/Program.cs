@@ -15,6 +15,7 @@ using Supermarket.Infrastructure.FloorPlans;
 using Supermarket.Infrastructure.Persistence;
 using Supermarket.Infrastructure.Persistence.Scaffolded;
 using Supermarket.Infrastructure.Video;
+using Supermarket.Infrastructure.Monitoring;
 using UserAccount = Supermarket.Domain.UserAccount;
 using Role = Supermarket.Domain.Role;
 
@@ -28,6 +29,7 @@ builder.Services.Configure<FloorPlanOptions>(builder.Configuration.GetSection("F
 builder.Services.PostConfigure<FloorPlanOptions>(options =>
     options.Root = Path.GetFullPath(options.Root, builder.Environment.ContentRootPath));
 builder.Services.Configure<HealthWorkerOptions>(builder.Configuration.GetSection("CameraHealth"));
+builder.Services.Configure<MonitoringWorkerOptions>(builder.Configuration.GetSection("Monitoring"));
 builder.Services.AddOptions<AiPreviewOptions>().Bind(builder.Configuration.GetSection("AiPreview"))
     .Validate(o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https", "AiPreview:BaseUrl must be an absolute HTTP(S) URI.")
     .Validate(o => o.TimeoutSeconds is > 0 and <= 120, "AiPreview timeout must be 1 to 120 seconds.")
@@ -58,6 +60,13 @@ builder.Services.AddScoped<Accounts>();
 builder.Services.AddScoped<StoreSetup>();
 builder.Services.AddScoped<CameraSetup>();
 builder.Services.AddScoped<MonitoringSetup>();
+builder.Services.AddScoped<IMonitoringSnapshotReader,MonitoringSnapshotReader>();
+builder.Services.AddScoped<IMonitoringIncidentQueries,EfMonitoringIncidentQueries>();
+builder.Services.AddScoped<MonitoringIncidentWriter>();
+builder.Services.AddScoped<MonitoringLive>();
+builder.Services.AddSingleton<MonitoringCameraCoordinator>();
+builder.Services.AddSingleton<IMonitoringRuntimeState>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());
+builder.Services.AddSingleton<IMonitoringSessionOwnership>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());
 builder.Services.AddScoped<CameraHealth>();
 builder.Services.AddScoped<AiPreview>();
 builder.Services.AddHttpClient<IAiPreviewClient, AiPreviewClient>((services, client) =>
@@ -67,6 +76,11 @@ builder.Services.AddHttpClient<IAiPreviewClient, AiPreviewClient>((services, cli
     client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
 });
 builder.Services.AddHostedService<CameraHealthWorker>();
+builder.Services.AddHttpClient<IAiMonitoringClient,AiMonitoringClient>((services,client)=> {
+    var options=services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiPreviewOptions>>().Value;
+    client.BaseAddress=new Uri(options.BaseUrl); client.Timeout=TimeSpan.FromSeconds(options.TimeoutSeconds);
+});
+builder.Services.AddHostedService<MonitoringWorker>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
 {
@@ -99,7 +113,7 @@ builder.Services.AddRateLimiter(o => { o.RejectionStatusCode = 429; o.AddPolicy(
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(o =>
 {
-    o.SwaggerDoc("v1", new OpenApiInfo { Title = "FA26SE103 MF-01 API", Version = "v1" });
+    o.SwaggerDoc("v1", new OpenApiInfo { Title = "FA26SE103 Operations API", Version = "v1" });
     o.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme { Type = SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "JWT" });
     o.AddSecurityRequirement(document => new OpenApiSecurityRequirement { { new OpenApiSecuritySchemeReference("Bearer", document), new List<string>() } });
 });
