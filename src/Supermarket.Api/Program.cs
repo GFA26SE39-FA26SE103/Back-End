@@ -21,6 +21,7 @@ using Role = Supermarket.Domain.Role;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: false).AddEnvironmentVariables();
+builder.Services.AddBackendReverseProxy(builder.Configuration);
 builder.Services.AddOptions<JwtOptions>().Bind(builder.Configuration.GetSection("Jwt")).Validate(o => Encoding.UTF8.GetByteCount(o.Key) >= 32, "Set Jwt:Key to a secret containing at least 32 UTF-8 bytes.").Validate(o => o.LifetimeMinutes is > 0 and <= 1440, "JWT lifetime must be 1 to 1440 minutes.").ValidateOnStart();
 builder.Services.Configure<VideoOptions>(builder.Configuration.GetSection("Video"));
 builder.Services.PostConfigure<VideoOptions>(options =>
@@ -131,12 +132,13 @@ builder.Services.AddSwaggerGen(o =>
 var app = builder.Build();
 // Suppress framework exception diagnostics to avoid logging sensitive adapter/SQL messages.
 app.UseExceptionHandler(new ExceptionHandlerOptions { SuppressDiagnosticsCallback = _ => true });
+app.UseBackendReverseProxy();
 app.UseStatusCodePages();
 app.UseCors();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
-if (app.Environment.IsDevelopment()) { app.UseSwagger(); app.UseSwaggerUI(); }
+if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Swagger:Enabled")) { app.UseSwagger(); app.UseSwaggerUI(); }
 app.MapControllers();
 app.MapGet("/health/live", () => Results.Ok(new { status = "UP" })).AllowAnonymous();
 app.MapGet("/health/ready", async (AppDbContext db, CancellationToken ct) =>

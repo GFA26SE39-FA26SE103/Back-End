@@ -70,7 +70,11 @@ API: `http://localhost:5080`; Swagger: `http://localhost:5080/swagger`. Đăng n
 
 ### Cấu hình khi tự host trên VPS
 
-Chưa deploy backend lên VPS. GitHub Actions chạy build/test và tạo publish artifact; workflow hiện không upload hoặc khởi động backend trên server.
+Backend Dev đã có [bộ cấu hình Docker/Compose và hướng dẫn deploy](docs/DEPLOY_DEV.md), dùng SQL `FA26SE103_Dev` hiện có, GitHub-hosted runner → GHCR → Tailscale/SSH và NPM. Workflow **Deploy backend Dev** tự chạy khi code được push/merge vào nhánh `dev`; có thể chạy lại thủ công nhưng chỉ chấp nhận ref `dev`. Workflow kiểm thử trước khi build/push và cập nhật API theo image digest, có readiness check và rollback. Cấu hình thật nằm trong `api.env` riêng trên VM, key ring/video/map local nằm trong named volumes. Chưa chạy deploy thực tế; cần thiết lập secrets, DNS/NPM và acceptance trên server.
+
+Môi trường Dev trên server dùng `ASPNETCORE_ENVIRONMENT=Staging` với `Swagger__Enabled=true`, không bật route demo Development. `ReverseProxy__Enabled=true` chỉ đọc forwarded HTTPS/IP từ `ReverseProxy__KnownProxies` đã cấu hình; đặt middleware trước rate limit/auth để login limit theo IP client và URL map có đúng scheme. Xem hướng dẫn deploy cho IP NPM và các giới hạn upload.
+
+Nếu host production riêng bằng publish output:
 
 ```powershell
 dotnet publish src/Supermarket.Api -c Release -o .local/publish
@@ -235,7 +239,7 @@ Integration tests tạo database ngẫu nhiên `FA26SE103_MF01_Test_<guid>` từ
 
 GitHub Actions mặc định chạy build, các test không cần SQL và Release publish cho repository backend độc lập. Test dùng `SqlApiFixture` phải có `[Trait("Category", "SqlIntegration")]` trên class; các phần `partial` của `ApiFlowTests` dùng chung trait này. Job `verify` chạy `Category!=SqlIntegration`, job SQL chạy `Category=SqlIntegration`, gồm cả concurrency tests. Job SQL integration được bật khi variable `MF01_SCHEMA_REPOSITORY` trỏ tới repo Database. Đặt `MF01_SCHEMA_REF` tới branch/commit đã có migration (hiện `feature/mf01-monitoring-rules`), `MF01_SCHEMA_FILE` (mặc định baseline V0.1), `MF01_MONITORING_MIGRATION_FILE` (mặc định `migrations/20261003_01_monitoring_rules_erd_v3.sql`) và secret read-only `MF01_SCHEMA_READ_TOKEN` nếu private. Job skipped không phải bằng chứng SQL đã được kiểm tra trên GitHub.
 
-Nếu SQL nằm ở vị trí khác, truyền `-p:Mf01SchemaPath=<baseline SQL>`, `-p:Mf01MonitoringMigrationPath=<migration01 SQL>` và `-p:Mf02MonitoringRuntimeMigrationPath=<migration02 SQL>`. CI có `MF02_RUNTIME_MIGRATION_FILE` tương ứng; Schema repo/ref cần chứa cả01/02. Test không cần SQL: `dotnet test -c Release --filter "Category!=SqlIntegration"`; toàn bộ test SQL có Category=SqlIntegration. Full suite cần đủ schema/migrations/SQL Server. Dockerfile/workflow chưa deploy lên VPS.
+Nếu SQL nằm ở vị trí khác, truyền `-p:Mf01SchemaPath=<baseline SQL>`, `-p:Mf01MonitoringMigrationPath=<migration01 SQL>` và `-p:Mf02MonitoringRuntimeMigrationPath=<migration02 SQL>`. CI có `MF02_RUNTIME_MIGRATION_FILE` tương ứng; Schema repo/ref cần chứa cả01/02. Test không cần SQL: `dotnet test -c Release --filter "Category!=SqlIntegration"`; toàn bộ test SQL có Category=SqlIntegration. Full suite cần đủ schema/migrations/SQL Server. [Deploy Dev](docs/DEPLOY_DEV.md) tự chạy từ nhánh `dev`; chưa xác minh rollout thực tế trên VPS.
 
 ## Các điểm còn chờ team đồng bộ
 

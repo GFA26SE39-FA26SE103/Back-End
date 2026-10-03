@@ -6,4 +6,7 @@ TestResults/
 *.user
 appsettings.Local.json
 .env
+*.env
+*.pem
+*.key
 .vs/
