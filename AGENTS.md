@@ -1,6 +1,7 @@
 # AGENTS.md — FA26SE103 Backend
 
 Project: AI-Powered Smart Supermarket Operations Monitoring System, GFA26SE39.
+Assigned increment 03/10/2026: MF-02 ROI count/queue → OperationalEvent → DETECTED Incident + live feed; see PROJECT_CONTEXT section39. Temporary count-mode/DETECTED exception is user-approved, not a claim of updated team-wide BR. Dispatch/tasks/closure/analytics remain unassigned.
 Business/Mainflow baseline: **02/10/2026**. Current implementation focus: **MF-01 — Setup & System Configuration**.
 
 ## Required context
@@ -66,9 +67,9 @@ Database-first: approved ERD/schema → approved SQL Server change → re-scaffo
 
 The current physical persistence baseline is `FA26SE103_ERD_v3.drawio`. The approved 2026-10-03 monitoring migration adds `MonitoringRule`/`IncidentType` persistence to MF-01; `Zone.area_m2` is also mapped. The remaining alignment questions are the physical representation of the Incident Type "requires Operator review" behavior, multi-camera measurement-source selection, checkout-counter representation, Manager-on-duty representation, and any conflicting operational use of `ZoneAdjacency`. Checkout capacity may be kept as a disabled Draft rule, not enabled until its measurement is approved. Legacy DTOs/comments do not establish schema approval. Do not edit team-owned ERD/schema unless assigned.
 
-Current scaffolding covers twelve setup/catalog/rule entities. SQL source and the approved migration are maintained in the separate Database repository; see README for schema/migration overrides and isolated integration-test prerequisites. A missing SQL file does not justify generating one from C# models.
+Current scaffolding covers fourteen setup/catalog/rule/runtime entities. SQL source and approved migrations are in the separate Database repository; see README for schema/migration overrides and isolated-test prerequisites. A missing SQL file does not justify generating one from C# models.
 
-Monitoring activation currently validates setup readiness and updates configuration status. AI preview does not establish that continuous rule evaluation or incident generation is implemented. Keep requirements, existing code, and verified behavior clearly distinguished.
+Monitoring activation validates readiness and requests backend-owned runtime monitoring (count/queue only). Preview is view-only while monitoring owns the camera. Keep requirements, existing code, and verified behavior distinct; this increment does not implement dispatch or task verification.
 
 ## Workflow and verification
 
