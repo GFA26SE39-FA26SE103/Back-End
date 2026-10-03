@@ -101,6 +101,14 @@ public sealed class Zone : TrackedEntity
     {
         get; set;
     }
+    public string? ColorHex
+    {
+        get; set;
+    }
+    public decimal? AreaM2
+    {
+        get; set;
+    }
     public string MapPolygon { get; set; } = "[]";
     public string Status { get; set; } = "ACTIVE";
 }

@@ -432,9 +432,15 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.ZoneId)
                 .HasDefaultValueSql("(newsequentialid())")
                 .HasColumnName("zone_id");
+            entity.Property(e => e.AreaM2)
+                .HasColumnType("decimal(12, 2)")
+                .HasColumnName("area_m2");
             entity.Property(e => e.Code)
                 .HasMaxLength(50)
                 .HasColumnName("code");
+            entity.Property(e => e.ColorHex)
+                .HasMaxLength(7)
+                .HasColumnName("color_hex");
             entity.Property(e => e.CreatedAt)
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())", "DF_Zone_CreatedAt")

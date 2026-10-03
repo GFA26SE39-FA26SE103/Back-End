@@ -2930,6 +2930,15 @@
           "status": {
             "type": "string",
             "nullable": true
+          },
+          "colorHex": {
+            "type": "string",
+            "nullable": true
+          },
+          "areaM2": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -2962,6 +2971,15 @@
             "items": {
               "$ref": "#/components/schemas/Point"
             },
+            "nullable": true
+          },
+          "colorHex": {
+            "type": "string",
+            "nullable": true
+          },
+          "areaM2": {
+            "type": "number",
+            "format": "double",
             "nullable": true
           },
           "status": {

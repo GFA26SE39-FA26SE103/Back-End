@@ -36,6 +36,17 @@ public sealed class SqlApiFixture : IAsyncLifetime
             await using var command = new SqlCommand(batch, connection) { CommandTimeout = 60 };
             await command.ExecuteNonQueryAsync();
         }
+        await using (var testDatabase = new SqlConnection(ConnectionString))
+        {
+            await testDatabase.OpenAsync();
+            await using var syncZone = new SqlCommand("""
+                IF COL_LENGTH(N'dbo.Zone', N'color_hex') IS NULL
+                    ALTER TABLE dbo.[Zone] ADD color_hex nvarchar(7) NULL;
+                IF COL_LENGTH(N'dbo.Zone', N'area_m2') IS NULL
+                    ALTER TABLE dbo.[Zone] ADD area_m2 decimal(12,2) NULL;
+                """, testDatabase);
+            await syncZone.ExecuteNonQueryAsync();
+        }
         Factory = new ApiFactory(new Dictionary<string, string?>
         {
             ["ConnectionStrings:SqlServer"] = ConnectionString,

@@ -8,7 +8,7 @@ Base URL local: `http://localhost:5080/api`. JSON dùng camelCase; IDs là UUID;
 | Accounts | GET/POST /users; PATCH /users/{id}; POST /users/{id}/enable hoặc disable; GET /roles |
 | Supermarket | GET/POST /supermarkets; GET/PATCH /supermarkets/{id} |
 | Floors | GET/POST /supermarkets/{id}/floors; GET/PATCH /floors/{id}; POST/GET /floors/{id}/map |
-| Zones | GET/POST /floors/{id}/zones; GET/PATCH /zones/{id} |
+| Zones | GET/POST /floors/{id}/zones; GET/PATCH /zones/{id}; normalized polygon, optional `colorHex` and `areaM2` |
 | Cameras | GET/POST /floors/{id}/cameras; GET/PATCH /cameras/{id} |
 | Connection | GET/PUT /cameras/{id}/connection; POST .../test, .../enable, .../disable |
 | Preview | GET /cameras/{id}/preview: image/svg+xml cho demo, image/jpeg cho FFmpeg |
@@ -25,7 +25,7 @@ Liveness `/health/live`, readiness `/health/ready` nằm ngoài prefix `/api`. S
 Ví dụ zone:
 
 ```json
-{"code":"CHECKOUT","name":"Checkout area","zoneType":"CHECKOUT","status":"ACTIVE","mapPolygon":[{"x":0.1,"y":0.1},{"x":0.8,"y":0.1},{"x":0.1,"y":0.8}]}
+{"code":"CHECKOUT","name":"Checkout area","zoneType":"CHECKOUT","status":"ACTIVE","colorHex":"#F97316","areaM2":42.5,"mapPolygon":[{"x":0.1,"y":0.1},{"x":0.8,"y":0.1},{"x":0.1,"y":0.8}]}
 ```
 
 Ví dụ camera connection:

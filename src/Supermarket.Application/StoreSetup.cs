@@ -78,8 +78,12 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current)
             Rules.Polygon(r.MapPolygon);
             Rules.Status(r.Status, "ACTIVE", "INACTIVE");
             Rules.Optional(r.ZoneType, 50, "ZoneType");
+            Rules.ZoneColor(r.ColorHex);
+            Rules.ZoneArea(r.AreaM2);
             x.Name = Rules.Text(r.Name, 100, "Name");
             x.ZoneType = r.ZoneType;
+            x.ColorHex = r.ColorHex?.ToUpperInvariant();
+            x.AreaM2 = r.AreaM2;
             x.MapPolygon = JsonSerializer.Serialize(r.MapPolygon);
             x.Status = r.Status;
             if (x.Status != "ACTIVE")
@@ -92,6 +96,6 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current)
             return View(x);
         }, ct);
     }
-    public static ZoneView View(Zone x) => new(x.ZoneId, x.FloorId, x.Code, x.Name, x.ZoneType, JsonSerializer.Deserialize<Point[]>(x.MapPolygon)!, x.Status, x.UpdatedAt);
+    public static ZoneView View(Zone x) => new(x.ZoneId, x.FloorId, x.Code, x.Name, x.ZoneType, JsonSerializer.Deserialize<Point[]>(x.MapPolygon)!, x.ColorHex, x.AreaM2, x.Status, x.UpdatedAt);
     private Task Save<T>(T x, Guid? id, CancellationToken ct) where T : Entity, new() => id is null ? store.Add(x, ct) : store.Update(x, ct);
 }

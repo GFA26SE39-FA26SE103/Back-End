@@ -37,3 +37,12 @@ Verified after implementing authenticated floor-plan storage and the real Store 
 - Runtime Development Swagger export: **PASS** (`GET /swagger/v1/swagger.json` returned 200); `docs/openapi.json` was regenerated from the running controller contract.
 
 The complete SQL integration suite was not rerun because the approved shared SQL schema file is not present in this checkout. No live browser-to-database acceptance, real PDF visual inspection, object-storage deployment, S3/MinIO integration, or concurrent multi-process storage validation is claimed here.
+
+## Zone editor contract validation 2026-10-03
+
+- `Zone.color_hex` and `Zone.area_m2` were added additively to `FA26SE103_Dev`; the table contained no Zone rows at migration time.
+- EF scaffold regenerated from the updated database and maps `color_hex` as `nvarchar(7) NULL` and `area_m2` as `decimal(12,2) NULL`.
+- Release solution build: **PASS**, 0 warnings and 0 errors.
+- Backend tests not requiring the unavailable shared SQL file: **100 passed**. The new SQL integration test compiles and covers color/area round-trip plus invalid values, but could not execute without the shared schema file.
+- Development Swagger export: **PASS**; `docs/openapi.json` was regenerated from the running Release API contract.
+- Frontend build and lint: **PASS**. Frontend tests: **44 passed across 10 files**.

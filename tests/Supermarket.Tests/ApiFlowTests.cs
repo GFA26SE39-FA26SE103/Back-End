@@ -56,6 +56,27 @@ public sealed class ApiFlowTests(SqlApiFixture fixture)
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync("/api/supermarkets", new StoreRequest("SECOND", "Second", null))).StatusCode);
     }
     [Fact]
+    public async Task ZoneColorAndAreaPersistAndValidate()
+    {
+        using var client = await Admin();
+        var floor = await Floor(client);
+        var created = await Read<ZoneView>(await client.PostAsJsonAsync($"/api/floors/{floor}/zones", new ZoneRequest(
+            Guid.NewGuid().ToString("N"), "Produce", "SALES", Triangle, ColorHex: "#22C55E", AreaM2: 125.50m)));
+
+        Assert.Equal("#22C55E", created.ColorHex);
+        Assert.Equal(125.50m, created.AreaM2);
+        var reload = (await client.GetFromJsonAsync<ZoneView>($"/api/zones/{created.ZoneId}"))!;
+        Assert.Equal("#22C55E", reload.ColorHex);
+        Assert.Equal(125.50m, reload.AreaM2);
+
+        var invalidColor = await client.PostAsJsonAsync($"/api/floors/{floor}/zones", new ZoneRequest(
+            Guid.NewGuid().ToString("N"), "Invalid color", null, Triangle, ColorHex: "green"));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, invalidColor.StatusCode);
+        var invalidArea = await client.PostAsJsonAsync($"/api/floors/{floor}/zones", new ZoneRequest(
+            Guid.NewGuid().ToString("N"), "Invalid area", null, Triangle, AreaM2: 0));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, invalidArea.StatusCode);
+    }
+    [Fact]
     public async Task ConnectionTestPreviewEnableReloadAndReset()
     {
         using var client = await Admin();
