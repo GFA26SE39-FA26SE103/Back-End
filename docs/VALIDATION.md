@@ -58,3 +58,14 @@ Approved scope: MF-01 per-zone Draft rule persistence and readiness-validated ac
 - Release publish **PASS**. Runtime Development Swagger export **PASS**, 41 paths including catalog/review and zoneId preview query; `docs/openapi.json` regenerated from the current compiled controller contract. Temporary documentation API ran on 5087 with bootstrap and health worker disabled, then only that owned process was stopped. The user's existing Debug API was not stopped.
 
 Not claimed: real browser-to-shared-DB mutation acceptance, live YOLO/GPU confidence comparison, continuous rule evaluation, ROI measurements, OperationalEvents/Incidents, cooldown/dedup/dispatch, multi-camera count aggregation, checkout composite implementation, GitHub Actions execution or deployment. AI-service source confirms the supplied confidence is passed to YOLO tracking; controlled HTTP tests verify the BE payload, not GPU results. MF-01 ACTIVE is configuration state, not evidence of MF-02 incident processing.
+
+## CI test-category split validation 2026-10-03
+
+The previous `verify` filter excluded only names containing `ApiFlowTests`. Both `ConcurrencyTests` still loaded `SqlApiFixture`, causing the standalone runner to fail before test execution when the approved SQL schema was unavailable. `ApiFlowTests` (including its partial monitoring tests) and `ConcurrencyTests` now carry `Category=SqlIntegration`. The workflow selects complementary categories: `Category!=SqlIntegration` in `verify`, `Category=SqlIntegration` in the existing conditional SQL job.
+
+- Release build and non-SQL test selection with coverage: **159 passed, 0 failed, 0 skipped**. On this restricted Windows host, the first run failed in 14 HTTP tests because the optional Windows EventLog provider could not write to `.NET Runtime`. Rerunning with process-only `Logging__EventLog__LogLevel__Default=None` passed; the environment value was restored afterward. No application or workflow logging configuration was changed.
+- SQL-category discovery with `--list-tests`: **11 tests selected**, including both concurrency tests and both monitoring API-flow tests. Discovery does not initialize fixtures or execute SQL tests; no shared database was accessed.
+- `dotnet publish src/Supermarket.Api -c Release --no-restore`: **PASS**.
+- `git diff --check`: **PASS**.
+
+SQL integration execution and a new GitHub Actions run are not claimed. The SQL job retains its existing schema-repository prerequisite; the CI fix does not change the database schema, SQL source, or runtime business behavior.

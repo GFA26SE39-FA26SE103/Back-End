@@ -9,6 +9,7 @@ using Xunit;
 namespace Supermarket.Tests;
 
 [Collection("SqlApi")]
+[Trait("Category", "SqlIntegration")]
 public sealed partial class ApiFlowTests(SqlApiFixture fixture)
 {
     private static Point[] Triangle => [new(.1m, .1m), new(.8m, .1m), new(.1m, .8m)];
