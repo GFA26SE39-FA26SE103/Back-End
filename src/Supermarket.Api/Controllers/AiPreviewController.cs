@@ -21,6 +21,21 @@ public sealed class AiPreviewController(AiPreview preview) : ControllerBase
         return File(frame.Bytes, frame.ContentType);
     }
 
+    [HttpGet("frame/next")]
+    [Produces("image/jpeg")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> NextFrame(Guid id, CancellationToken ct, [FromQuery] long afterSequence = 0, [FromQuery] Guid? afterSessionId = null)
+    {
+        if (afterSequence < 0) return BadRequest();
+        var frame = await preview.NextFrame(id, afterSequence, afterSessionId, ct);
+        Response.Headers.CacheControl = "no-store";
+        if (frame is null) return NoContent();
+        Response.Headers["X-Frame-Sequence"] = frame.FrameSequence.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        Response.Headers["X-Session-Id"] = frame.SessionId.ToString();
+        return File(frame.Bytes, frame.ContentType);
+    }
+
     [HttpPost("stop")]
     public Task<AiPreviewStatusView> Stop(Guid id, CancellationToken ct) => preview.Stop(id, ct);
 }

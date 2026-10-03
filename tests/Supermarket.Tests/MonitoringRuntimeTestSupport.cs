@@ -91,5 +91,6 @@ internal sealed class MonitoringRuntimeTestSupport : IAsyncDisposable
         public Task<AiPreviewStatusView> Status(Guid c,CancellationToken ct)=>Task.FromResult(Status(c));
         public Task<AiPreviewStatusView> Stop(Guid c,CancellationToken ct) { ViewerStops++; return Task.FromResult(Status(c)); }
         public Task<PreviewFrame> Frame(Guid c,CancellationToken ct)=>Task.FromResult(new PreviewFrame([1],"image/jpeg"));
+        public Task<SequencedPreviewFrame?> NextFrame(Guid c,long afterSequence,Guid? afterSessionId,CancellationToken ct)=>throw new NotSupportedException();
     }
 }

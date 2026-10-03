@@ -116,6 +116,38 @@
         }
       }
     },
+    "/api/cameras/{id}/ai-preview/frame/next": {
+      "get": {
+        "tags": [
+          "AiPreview"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "name": "afterSequence",
+            "in": "query",
+            "schema": { "type": "integer", "format": "int64", "default": 0 }
+          },
+          {
+            "name": "afterSessionId",
+            "in": "query",
+            "schema": { "type": "string", "format": "uuid", "nullable": true }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "New annotated frame",
+            "content": { "image/jpeg": { "schema": { "type": "string", "format": "binary" } } }
+          },
+          "204": { "description": "No new frame" }
+        }
+      }
+    },
     "/api/cameras/{id}/ai-preview/stop": {
       "post": {
         "tags": [

@@ -201,6 +201,7 @@ public sealed class RecordedVideoTests
         public Task<AiPreviewStatusView> Start(CameraConnection c, CancellationToken ct, decimal? confidence = null) => throw new NotSupportedException();
         public Task<AiPreviewStatusView> Status(Guid id, CancellationToken ct) => throw new NotSupportedException();
         public Task<PreviewFrame> Frame(Guid id, CancellationToken ct) => throw new NotSupportedException();
+        public Task<SequencedPreviewFrame?> NextFrame(Guid id, long afterSequence, Guid? afterSessionId, CancellationToken ct) => throw new NotSupportedException();
     }
     private sealed class TestStore : ISetupStore
     {

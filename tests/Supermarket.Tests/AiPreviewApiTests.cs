@@ -29,6 +29,7 @@ public sealed class AiPreviewApiTests
         Assert.Equal("start", type.GetMethod("Start")!.GetCustomAttributes(typeof(HttpPostAttribute), true).Cast<HttpPostAttribute>().Single().Template);
         Assert.NotNull(type.GetMethod("Status")!.GetCustomAttributes(typeof(HttpGetAttribute), true).Single());
         Assert.NotNull(type.GetMethod("Frame")!.GetCustomAttributes(typeof(HttpGetAttribute), true).Single());
+        Assert.Equal("frame/next", type.GetMethod("NextFrame")!.GetCustomAttributes(typeof(HttpGetAttribute), true).Cast<HttpGetAttribute>().Single().Template);
         Assert.Equal("stop", type.GetMethod("Stop")!.GetCustomAttributes(typeof(HttpPostAttribute), true).Cast<HttpPostAttribute>().Single().Template);
     }
 
@@ -48,6 +49,53 @@ public sealed class AiPreviewApiTests
         Assert.Equal("image/jpeg", file.ContentType);
         Assert.Equal("no-store", controller.Response.Headers.CacheControl);
         Assert.Equal([0xFF, 0xD8, 0xFF, 0xD9], file.FileContents);
+    }
+
+    [Fact]
+    public async Task NextFrameProxyExposesSequenceAndReturnsNoContentWhenUnchanged()
+    {
+        var camera = ReadyCamera();
+        var useCase = new AiPreview(new TestStore(camera, ReadyConnection(camera.CameraId)), new AdminUser(), new StubClient());
+        var controller = new AiPreviewController(useCase)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+        };
+
+        var result = await controller.NextFrame(camera.CameraId, CancellationToken.None, 1);
+        Assert.IsType<FileContentResult>(result);
+        Assert.Equal("2", controller.Response.Headers["X-Frame-Sequence"]);
+        Assert.Equal("no-store", controller.Response.Headers.CacheControl);
+
+        var duplicate = await controller.NextFrame(camera.CameraId, CancellationToken.None, 2);
+        Assert.IsType<NoContentResult>(duplicate);
+    }
+
+    [Fact]
+    public async Task InternalClientOnlyReturnsAFrameWhenUpstreamSequenceAdvances()
+    {
+        var cameraId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+        var handler = new RecordingHandler(request =>
+        {
+            var response = new HttpResponseMessage(request.RequestUri!.Query.Contains("after_sequence=2") ? HttpStatusCode.NoContent : HttpStatusCode.OK);
+            if (response.StatusCode == HttpStatusCode.OK)
+            {
+                response.Content = new ByteArrayContent([0xFF, 0xD8, 0xFF, 0xD9]);
+                response.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/jpeg");
+                response.Headers.TryAddWithoutValidation("X-Frame-Sequence", "2");
+                response.Headers.TryAddWithoutValidation("X-Session-Id", sessionId.ToString());
+            }
+            return response;
+        });
+        var client = new AiPreviewClient(new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:8090") }, Options.Create(new AiPreviewOptions()), new TestProtector());
+
+        var first = await client.NextFrame(cameraId, 1, sessionId, CancellationToken.None);
+        Assert.NotNull(first);
+        Assert.Equal(2, first.FrameSequence);
+        Assert.Equal(sessionId, first.SessionId);
+        Assert.Contains("after_sequence=1", handler.LastRequest!.RequestUri!.Query);
+        Assert.Contains($"after_session_id={sessionId}", handler.LastRequest.RequestUri.Query);
+        Assert.Null(await client.NextFrame(cameraId, 2, sessionId, CancellationToken.None));
     }
 
     [Fact]
@@ -177,6 +225,8 @@ public sealed class AiPreviewApiTests
         public Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct, decimal? confidence = null) => Task.FromResult(View(connection.CameraId, "LIVE"));
         public Task<AiPreviewStatusView> Status(Guid cameraId, CancellationToken ct) => Task.FromResult(View(cameraId, "LIVE"));
         public Task<PreviewFrame> Frame(Guid cameraId, CancellationToken ct) => Task.FromResult(new PreviewFrame([0xFF, 0xD8, 0xFF, 0xD9], "image/jpeg"));
+        public Task<SequencedPreviewFrame?> NextFrame(Guid cameraId, long afterSequence, Guid? afterSessionId, CancellationToken ct)
+            => Task.FromResult<SequencedPreviewFrame?>(afterSequence >= 2 ? null : new SequencedPreviewFrame([0xFF, 0xD8, 0xFF, 0xD9], "image/jpeg", 2, Guid.NewGuid()));
         public Task<AiPreviewStatusView> Stop(Guid cameraId, CancellationToken ct) => Task.FromResult(View(cameraId, "STOPPED"));
         private static AiPreviewStatusView View(Guid id, string state) => new(id, state, DateTime.UtcNow, DateTime.UtcNow, 1, null);
     }

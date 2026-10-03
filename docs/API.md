@@ -7,7 +7,7 @@ Quyền đọc cho màn vận hành (Operator floor map, camera live):
 | Quyền | Endpoints |
 |---|---|
 | ADMIN, OPERATOR, MANAGER | `GET /supermarkets`, `GET /supermarkets/{id}`, `GET /supermarkets/{id}/floors`, `GET /floors/{id}`, `GET /floors/{id}/map`, `GET /floors/{id}/zones`, `GET /zones/{id}`, `GET /floors/{id}/cameras`, `GET /cameras/{id}`, `GET /cameras/{id}/zones`, `GET /cameras/{id}/preview` |
-| ADMIN, OPERATOR | `/cameras/{id}/ai-preview/start`, `status`, `frame`, `stop` (một phiên GPU dùng chung; người sau có thể nhận `AI_SESSION_CAPACITY`) |
+| ADMIN, OPERATOR | `/cameras/{id}/ai-preview/start`, `status`, `frame`, `frame/next`, `stop` (một phiên GPU dùng chung; người sau có thể nhận `AI_SESSION_CAPACITY`) |
 | Chỉ ADMIN | Mọi POST/PUT/PATCH/DELETE, `GET /cameras/{id}/connection` (có stream URI), `POST .../connection/test`, accounts, monitoring, camera health |
 
 Controller và use case cùng kiểm tra quyền; STAFF không đọc được dữ liệu setup.
@@ -112,6 +112,8 @@ Activate revalidates readiness trong Serializable transaction (409 `MONITORING_N
 Deactivate là desired SQL state trước khi worker nhả owner. Runtime trả `STOPPING / MONITORING_STOP_PENDING` trong khoảng này, không báo STOPPED sớm. Reactivate khi không còn ACTIVE configuration trên camera nhưng owner chưa được nhả trả409 `MONITORING_STOP_PENDING`; đợi STOPPED rồi thử lại. Thêm/reconfigure zone khi camera còn một configuration ACTIVE khác vẫn được phép và không rewind.
 
 Admin kiểm thử saved confidence bằng `POST /api/cameras/{id}/ai-preview/start?zoneId=<uuid>`: mapping/ROI/config hợp lệ, nguồn tested/enabled. Preview-only có thể restart với Draft confidence. Khi camera thuộc active monitoring, Draft restart trả409 `AI_SESSION_MONITORING_OWNED`; active preview và public Stop chỉ attach/detach, không reset/stop owner. Status additive `sessionId, purpose(PREVIEW|MONITORING), configurationFingerprint, annotationContext`. Boxes dùng annotation context; ROI counts dựa confidence từng zone. Zone query ADMIN only; ordinary view ADMIN/OPERATOR.
+
+`GET /api/cameras/{id}/ai-preview/frame/next?afterSequence=N&afterSessionId=<uuid>` (ADMIN/OPERATOR) chờ tối đa 1 giây để có JPEG đã vẽ box/track ID mới. `200 image/jpeg` trả `X-Frame-Sequence` và `X-Session-Id` (CORS expose hai header), `204` nghĩa chưa có frame mới; cả hai `Cache-Control: no-store`. Gửi lại session ID giúp client nhận frame đầu khi phiên AI khởi động lại và sequence reset. Endpoint `GET .../frame` cũ vẫn hoạt động. React dùng `frame/next` qua BE/JWT, không tải lặp JPEG và không có khoảng nghỉ 250 ms sau mỗi frame. Tốc độ thực tế vẫn phụ thuộc video nguồn, xử lý AI/JPEG, proxy và trình duyệt; monitoring worker tiếp tục xử lý tuần tự mọi frame để giữ đúng các mốc thời gian nguồn.
 
 Rule validation codes: `INVALID_CONFIDENCE`, `INVALID_THRESHOLDS`, `INVALID_RULE_UNIT`, `INVALID_RULE_TIMING`, `INVALID_RULE_PARAMETERS`, `INCIDENT_TYPE_NOT_AI`, `INCIDENT_TYPE_INACTIVE`, `RULE_UNSUPPORTED`, `DUPLICATE_RULE`. Review issues thêm `NO_ENABLED_RULES`, `ZONE_AREA_REQUIRED`, `CAMERA_NOT_READY`, `AI_SOURCE_UNSUPPORTED`.
 
