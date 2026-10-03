@@ -9,6 +9,7 @@ public sealed record CreateUserRequest([Required, EmailAddress, MaxLength(255)] 
 public sealed record UpdateUserRequest([Required, MaxLength(150)] string FullName, Guid RoleId);
 public sealed record StoreRequest([Required, MaxLength(50)] string Code, [Required, MaxLength(150)] string Name, [MaxLength(500)] string? Address, string Status = "ACTIVE");
 public sealed record FloorRequest(int FloorNumber, [Required, MaxLength(100)] string Name, [MaxLength(1000)] string? MapAssetUrl, int? MapWidth, int? MapHeight);
+public sealed record FloorDetailsRequest(int FloorNumber, [Required, MaxLength(100)] string Name);
 public sealed record ZoneRequest([Required, MaxLength(50)] string Code, [Required, MaxLength(100)] string Name, [MaxLength(50)] string? ZoneType, [Required] Point[] MapPolygon, string Status = "ACTIVE", [MaxLength(7)] string? ColorHex = null, decimal? AreaM2 = null);
 public sealed record CameraRequest([Required, MaxLength(50)] string Code, [Required, MaxLength(100)] string Name, [MaxLength(100)] string? Manufacturer, [MaxLength(100)] string? Model, [MaxLength(150)] string? SerialNumber, DateTime InstalledAt, DateTime WarrantyExpiresAt, decimal? MapX, decimal? MapY, decimal? MapRotationDeg, string Status = "INACTIVE");
 public sealed record ConnectionRequest([Required] string SourceType, [Required] string Protocol, [Required, MaxLength(1000)] string StreamUri, [MaxLength(1000)] string? SnapshotUri = null, [MaxLength(150)] string? Username = null, [MaxLength(128)] string? Password = null);

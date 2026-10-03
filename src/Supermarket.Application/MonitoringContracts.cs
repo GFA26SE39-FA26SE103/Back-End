@@ -6,6 +6,7 @@ public sealed record MonitoringRuleRequest(Guid IncidentTypeId, decimal WarningT
     [Required, MaxLength(30)] string ThresholdUnit, int SustainSec = 30, int CooldownSec = 300, bool Enabled = true,
     [MaxLength(16000)] string? ParametersJson = null);
 public sealed record MonitoringActivationRequest(DateTime ExpectedUpdatedAt);
+public sealed record MonitoringDeleteRequest(Guid ConfigId, DateTime ExpectedUpdatedAt);
 public sealed record MonitoringRuleView(Guid RuleId, Guid IncidentTypeId, string IncidentCode, string IncidentName,
     decimal WarningThreshold, decimal CriticalThreshold, string ThresholdUnit, int SustainSec, int CooldownSec,
     bool Enabled, string? ParametersJson);

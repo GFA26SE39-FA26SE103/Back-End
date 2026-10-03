@@ -157,7 +157,7 @@ public sealed class SetupOverviewTests
         }
     }
 
-    private sealed class Factory(MonitoringSetupTests.MemoryStore store) : WebApplicationFactory<Program>
+    internal sealed class Factory(MonitoringSetupTests.MemoryStore store) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {

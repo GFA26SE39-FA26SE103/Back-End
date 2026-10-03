@@ -17,14 +17,14 @@ Controller và use case cùng kiểm tra quyền; STAFF không đọc được d
 | Auth | POST /auth/login; GET /auth/me |
 | Accounts | GET/POST /users; PATCH /users/{id}; POST /users/{id}/enable hoặc disable; GET /roles |
 | Supermarket | GET/POST /supermarkets; GET/PATCH /supermarkets/{id} |
-| Floors | GET/POST /supermarkets/{id}/floors; GET/PATCH /floors/{id}; POST/GET /floors/{id}/map |
+| Floors | GET/POST /supermarkets/{id}/floors; GET/PATCH /floors/{id}; PATCH /floors/{id}/details; POST/GET /floors/{id}/map |
 | Zones | GET/POST /floors/{id}/zones; GET/PATCH /zones/{id}; normalized polygon, optional `colorHex` and `areaM2` |
 | Cameras | GET/POST /floors/{id}/cameras; GET/PATCH /cameras/{id} |
 | Connection | GET/PUT /cameras/{id}/connection; POST .../test, .../enable, .../disable |
 | Preview | GET /cameras/{id}/preview: image/svg+xml cho demo, image/jpeg cho FFmpeg |
 | Geometry | GET /cameras/{id}/zones; PUT/DELETE /cameras/{id}/zones/{zoneId} |
 | AI catalog | GET /incident-types (ADMIN, read-only AI types) |
-| Monitoring | GET/PUT /zones/{zoneId}/monitoring; GET .../review; POST .../activate, .../deactivate |
+| Monitoring | GET/PUT/DELETE /zones/{zoneId}/monitoring; GET .../review; POST .../activate, .../deactivate |
 | Setup dashboard | GET /setup/overview (ADMIN, read-only saved-data snapshot) |
 | Health | GET /cameras/{id}/health; POST /cameras/{id}/health/check; GET /camera-health-events?cameraId=...&status=... |
 | Investigation | POST /camera-health-events/{id}/investigate; POST .../resolve |
@@ -67,7 +67,13 @@ Ví dụ mapping:
 {"roiPolygon":[{"x":0.1,"y":0.1},{"x":0.8,"y":0.1},{"x":0.1,"y":0.8}],"status":"ACTIVE"}
 ```
 
-### Monitoring Draft / Review / Activate
+### Floor creation and metadata editing
+
+`POST /api/supermarkets/{id}/floors` (ADMIN) dùng `FloorRequest` hiện có. Store Layout gửi `floorNumber`, `name` và `mapAssetUrl/mapWidth/mapHeight: null`; tạo floor trước, upload map sau. Store là default store từ seed, không thêm flow tạo/chọn store.
+
+`PATCH /api/floors/{id}/details` (ADMIN) nhận `{"floorNumber":2,"name":"Upper floor"}`. Name trim, bắt buộc, tối đa 100 ký tự; floorNumber là int và unique trong cùng store (409 `DUPLICATE` nếu trùng). Không giới hạn tầng phải dương; tầng 0 hoặc tầng âm được phép. Endpoint chỉ thay name/number, giữ floorId, storeId và metadata map hiện tại đọc từ DB, cùng các zone/camera/mapping. Không gửi lại map URL cũ từ lúc mở form. Response là Floor. Full `PATCH /floors/{id}` vẫn giữ contract cũ; upload map dùng endpoint riêng.
+
+### Monitoring Draft / Review / Activate / Delete
 
 `GET /api/incident-types` trả baseline AI types với `supported`, `thresholdUnit`, configurable defaults và `unsupportedReason`. Catalog read-only, không gồm staff-reported types. Checkout Capacity chưa supported vì counter/composite measurement chưa được chốt.
 
@@ -100,6 +106,8 @@ Ví dụ tạo Draft:
 ```
 
 Activate revalidates readiness trong Serializable transaction (409 `MONITORING_NOT_READY` nếu blocker), không tin kết quả review cũ. Response là ConfigurationView status ACTIVE/INACTIVE và updatedAt mới. Mọi thao tác chỉ ADMIN. Deactivate trước khi thay rule/confidence/source/mapping/ROI. Activate chưa tạo AI worker, measurements hay incidents.
+
+`DELETE /api/zones/{zoneId}/monitoring` (ADMIN) nhận JSON body `{"configId":"<saved config UUID>","expectedUpdatedAt":"<saved updatedAt, ISO UTC>"}`. Chỉ xóa DRAFT hoặc INACTIVE; ACTIVE trả 409 `MONITORING_ACTIVE`, phải Deactivate trước. Config ID hoặc timestamp thay đổi trả 409 `CONFIGURATION_CHANGED`, kể cả khi config cũ đã bị xóa và tạo lại. Không có config trả 404. Thành công trả 204, xóa config và rules của nó trong cùng transaction; Zone, Camera và CameraZoneMapping/ROI được giữ. Các FK khác vẫn được tôn trọng và lỗi persistence rollback transaction. Sau xóa, GET monitoring trả 404, setup overview có configuration null; có thể tạo Draft mới. UI yêu cầu xác nhận tên config/zone/floor, có Cancel/close/Escape; thất bại giữ config và hộp thoại để Admin đọc lỗi.
 
 Admin kiểm thử confidence đã lưu bằng `POST /api/cameras/{id}/ai-preview/start?zoneId=<uuid>`: backend yêu cầu zone tồn tại, mapping ACTIVE cùng tầng và valid ROI/config confidence, stop session cũ trước khi start Python với zone confidence. Cấu hình có thể DRAFT, không cần Activate. Không có query thì preview ADMIN/OPERATOR giữ hành vi cũ/default `AiPreview:Confidence`; query có zone chỉ ADMIN. Restart reset camera-local track IDs và có thể ảnh hưởng viewer khác. Preview chỉ vẽ detections/tracks toàn frame, không đánh giá rule/ROI metrics. Source vẫn phải test-success/enabled, camera ACTIVE.
 

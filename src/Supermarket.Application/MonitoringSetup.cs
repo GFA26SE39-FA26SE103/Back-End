@@ -65,6 +65,25 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
         UseCase.Admin(current);
         return store.Transaction(() => BuildReview(zoneId, ct), ct);
     }
+    public Task Delete(Guid zoneId, MonitoringDeleteRequest request, CancellationToken ct)
+    {
+        UseCase.Admin(current);
+        return store.Transaction(async () =>
+        {
+            var configuration = await Configuration(zoneId, ct);
+            if (configuration.ConfigId != request.ConfigId)
+                throw new ApplicationException("CONFIGURATION_CHANGED", "Configuration changed; reload before deleting.");
+            CheckVersion(configuration, request.ExpectedUpdatedAt);
+            if (configuration.Status == "ACTIVE")
+                throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before deleting its configuration.");
+            Rules.Status(configuration.Status, "DRAFT", "INACTIVE");
+            foreach (var rule in await store.List<MonitoringRule>(r => r.ConfigId == configuration.ConfigId, ct))
+                await store.Remove(rule, ct);
+            // Delete only the configuration and its rules. Other FK references reject and roll back the transaction.
+            await store.Remove(configuration, ct);
+            return true;
+        }, ct);
+    }
     public Task<MonitoringConfigurationView> Activate(Guid zoneId, bool active, CancellationToken ct) => Activate(zoneId, active, null, ct);
     public Task<MonitoringConfigurationView> Activate(Guid zoneId, bool active, DateTime? expectedUpdatedAt, CancellationToken ct)
     {

@@ -9,6 +9,11 @@ public sealed class MonitoringController(MonitoringSetup setup) : ControllerBase
 {
     [HttpGet] public Task<MonitoringConfigurationView> Get(Guid zoneId, CancellationToken ct) => setup.Get(zoneId, ct);
     [HttpPut] public Task<MonitoringConfigurationView> Save(Guid zoneId, MonitoringRequest r, CancellationToken ct) => setup.Save(zoneId, r, ct);
+    [HttpDelete, ProducesResponseType(StatusCodes.Status204NoContent)] public async Task<IActionResult> Delete(Guid zoneId, [FromBody] MonitoringDeleteRequest request, CancellationToken ct)
+    {
+        await setup.Delete(zoneId, request, ct);
+        return NoContent();
+    }
     [HttpGet("review")] public Task<MonitoringReviewView> Review(Guid zoneId, CancellationToken ct) => setup.Review(zoneId, ct);
     [HttpPost("activate")] public Task<MonitoringConfigurationView> Activate(Guid zoneId, MonitoringActivationRequest request, CancellationToken ct) => setup.Activate(zoneId, true, request.ExpectedUpdatedAt, ct);
     [HttpPost("deactivate")] public Task<MonitoringConfigurationView> Deactivate(Guid zoneId, MonitoringActivationRequest request, CancellationToken ct) => setup.Activate(zoneId, false, request.ExpectedUpdatedAt, ct);
