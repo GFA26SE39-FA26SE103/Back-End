@@ -8,7 +8,25 @@ public sealed partial class MonitoringSetup
     {
         var zone = UseCase.Found(await store.Find<Zone>(zoneId, ct));
         var configuration = await Configuration(zoneId, ct);
-        var rules = await store.List<MonitoringRule>(r => r.ConfigId == configuration.ConfigId, ct);
+        var rules = (await store.List<MonitoringRule>(r => r.ConfigId == configuration.ConfigId, ct)).ToArray();
+        var types = (await store.List<IncidentType>(ct: ct)).ToDictionary(t => t.IncidentTypeId);
+        var mappings = await store.List<CameraZoneMapping>(m => m.ZoneId == zoneId && m.Status == "ACTIVE", ct);
+        var cameras = new Dictionary<Guid, Camera>();
+        var connections = new Dictionary<Guid, CameraConnection>();
+        foreach (var mapping in mappings)
+        {
+            cameras[mapping.CameraId] = UseCase.Found(await store.Find<Camera>(mapping.CameraId, ct));
+            var connection = (await store.List<CameraConnection>(c => c.CameraId == mapping.CameraId, ct)).SingleOrDefault();
+            if (connection is not null) connections[mapping.CameraId] = connection;
+        }
+        return EvaluateReview(zone, ConfigurationView(configuration, rules, types), rules, types, mappings, cameras, connections);
+    }
+
+    // Dashboard and activation share saved-data readiness. Operational health is reported separately.
+    internal static MonitoringReviewView EvaluateReview(Zone zone, MonitoringConfigurationView configuration,
+        MonitoringRule[] rules, IReadOnlyDictionary<Guid, IncidentType> types, IEnumerable<CameraZoneMapping> mappings,
+        IReadOnlyDictionary<Guid, Camera> cameraRecords, IReadOnlyDictionary<Guid, CameraConnection> connections)
+    {
         var issues = new List<MonitoringIssue>();
         if (zone.Status != "ACTIVE") issues.Add(new("ZONE_INACTIVE", "Activate the zone before monitoring."));
         try { MonitoringPolicy.Confidence(configuration.ConfidenceThreshold); }
@@ -17,22 +35,39 @@ public sealed partial class MonitoringSetup
         if (enabled.Length == 0) issues.Add(new("NO_ENABLED_RULES", "Enable at least one supported AI rule."));
         foreach (var rule in enabled)
         {
-            var type = await store.Find<IncidentType>(rule.IncidentTypeId, ct);
+            var type = types.GetValueOrDefault(rule.IncidentTypeId);
             if (type is null) { issues.Add(new("INCIDENT_TYPE_MISSING", "A rule's incident type no longer exists.")); continue; }
             try { MonitoringPolicy.Validate(rule, type); }
             catch (DomainException e) { issues.Add(new(e.Code, $"{type.Name}: {e.Message}")); }
             if (type.MeasurementType == "CROWD_DENSITY" && zone.AreaM2 is not > 0)
                 issues.Add(new("ZONE_AREA_REQUIRED", "Enter the zone's physical area in m² before enabling density monitoring."));
         }
+        var cameras = MappedCameras(zone, mappings, cameraRecords, connections);
+        if (!cameras.Any(c => c.Ready)) issues.Add(new("CAMERA_NOT_READY", "Map an active camera with valid ROI and tested, enabled AI-compatible source."));
+        var warnings = new List<string>();
+        if (cameras.Length > 1) warnings.Add("Multiple camera mappings exist. Measurement-source selection remains pending; do not combine overlapping counts.");
+        if (cameras.Any(c => c.SourceType == "RECORDED")) warnings.Add("Recorded video is a controlled test source, not live operational CCTV.");
+        warnings.Add("Activation applies the MF-01 configuration. Continuous measurement/rule evaluation and incident dispatch are separate MF-02 work.");
+        return new(configuration, StoreSetup.View(zone), cameras, issues.ToArray(), warnings.ToArray(), issues.Count == 0);
+    }
+
+    internal static MonitoringCameraView[] MappedCameras(Zone zone, IEnumerable<CameraZoneMapping> mappings,
+        IReadOnlyDictionary<Guid, Camera> cameraRecords, IReadOnlyDictionary<Guid, CameraConnection> connections)
+    {
         var cameras = new List<MonitoringCameraView>();
-        var mappings = await store.List<CameraZoneMapping>(m => m.ZoneId == zoneId && m.Status == "ACTIVE", ct);
-        foreach (var mapping in mappings)
+        foreach (var mapping in mappings.Where(m => m.ZoneId == zone.ZoneId && m.Status == "ACTIVE"))
         {
-            var camera = UseCase.Found(await store.Find<Camera>(mapping.CameraId, ct));
-            var connection = (await store.List<CameraConnection>(c => c.CameraId == camera.CameraId, ct)).SingleOrDefault();
+            var camera = UseCase.Found(cameraRecords.GetValueOrDefault(mapping.CameraId));
+            var connection = connections.GetValueOrDefault(camera.CameraId);
             var problems = new List<MonitoringIssue>();
             Point[] roi = [];
-            try { Rules.SameFloor(camera, zone); roi = JsonSerializer.Deserialize<Point[]>(mapping.RoiPolygon) ?? []; Rules.Polygon(roi); }
+            try
+            {
+                Rules.SameFloor(camera, zone);
+                var points = JsonSerializer.Deserialize<Point[]>(mapping.RoiPolygon) ?? [];
+                Rules.Polygon(points);
+                roi = points;
+            }
             catch (JsonException) { problems.Add(new("ROI_INVALID", "Save a valid camera-frame ROI.")); }
             catch (DomainException e) { problems.Add(new(e.Code, e.Message)); }
             if (camera.Status != "ACTIVE") problems.Add(new("CAMERA_NOT_ACTIVE", "Activate the camera."));
@@ -47,14 +82,9 @@ public sealed partial class MonitoringSetup
                     && !(connection.SourceType == "RECORDED" && connection.Protocol == "FILE"))
                     problems.Add(new("AI_SOURCE_UNSUPPORTED", "AI requires live HTTP/RTSP/HLS or uploaded recorded video."));
             }
-            cameras.Add(new(camera.CameraId,camera.Code,camera.Name,camera.Status,mapping.Status,roi,connection?.SourceType,connection?.Protocol,
-                connection?.IsEnabled ?? false,connection?.LastTestResult,connection?.LastTestedAt,problems.Count == 0,problems.ToArray()));
+            cameras.Add(new(camera.CameraId, camera.Code, camera.Name, camera.Status, mapping.Status, roi, connection?.SourceType, connection?.Protocol,
+                connection?.IsEnabled ?? false, connection?.LastTestResult, connection?.LastTestedAt, problems.Count == 0, problems.ToArray()));
         }
-        if (!cameras.Any(c => c.Ready)) issues.Add(new("CAMERA_NOT_READY", "Map an active camera with valid ROI and tested, enabled AI-compatible source."));
-        var warnings = new List<string>();
-        if (cameras.Count > 1) warnings.Add("Multiple camera mappings exist. Measurement-source selection remains pending; do not combine overlapping counts.");
-        if (cameras.Any(c => c.SourceType == "RECORDED")) warnings.Add("Recorded video is a controlled test source, not live operational CCTV.");
-        warnings.Add("Activation applies the MF-01 configuration. Continuous measurement/rule evaluation and incident dispatch are separate MF-02 work.");
-        return new(await View(configuration,ct,rules.ToArray()),StoreSetup.View(zone),cameras.ToArray(),issues.ToArray(),warnings.ToArray(),issues.Count == 0);
+        return cameras.ToArray();
     }
 }

@@ -1396,6 +1396,35 @@
         }
       }
     },
+    "/api/setup/overview": {
+      "get": {
+        "tags": [
+          "Setup"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupOverviewView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupOverviewView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupOverviewView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/supermarkets": {
       "get": {
         "tags": [
@@ -3214,6 +3243,326 @@
         },
         "additionalProperties": false
       },
+      "SetupCamera": {
+        "type": "object",
+        "properties": {
+          "cameraId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "floorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "floorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "healthStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "hasConnection": {
+            "type": "boolean"
+          },
+          "connectionValid": {
+            "type": "boolean"
+          },
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "sourceType": {
+            "type": "string",
+            "nullable": true
+          },
+          "protocol": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastTestResult": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastTestedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonitoringIssue"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetupConfiguration": {
+        "type": "object",
+        "properties": {
+          "configId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "ruleCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "enabledRuleCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetupFloor": {
+        "type": "object",
+        "properties": {
+          "floorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "floorNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMap": {
+            "type": "boolean"
+          },
+          "zones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SetupZone"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetupHealthEvent": {
+        "type": "object",
+        "properties": {
+          "healthEventId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cameraId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cameraCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "eventType": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "detectedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetupOverviewView": {
+        "type": "object",
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "hasDefaultStore": {
+            "type": "boolean"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/SetupTotals"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SetupStep"
+            },
+            "nullable": true
+          },
+          "floors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SetupFloor"
+            },
+            "nullable": true
+          },
+          "cameras": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SetupCamera"
+            },
+            "nullable": true
+          },
+          "healthEvents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SetupHealthEvent"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetupStep": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "completed": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetupTotals": {
+        "type": "object",
+        "properties": {
+          "floorCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "zoneCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cameraCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "configuredZoneCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "activeConfigurationCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "readyToActivateCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "onlineCameraCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "enabledCameraCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "unresolvedHealthEventCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SetupZone": {
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/SetupConfiguration"
+          },
+          "setupReady": {
+            "type": "boolean"
+          },
+          "canActivate": {
+            "type": "boolean"
+          },
+          "cameras": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonitoringCameraView"
+            },
+            "nullable": true
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonitoringIssue"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "StoreRequest": {
         "type": "object",
         "properties": {
@@ -3413,7 +3762,7 @@
   },
   "security": [
     {
-      "Bearer": []
+      "Bearer": [ ]
     }
   ],
   "tags": [
@@ -3437,6 +3786,9 @@
     },
     {
       "name": "RecordedVideos"
+    },
+    {
+      "name": "Setup"
     },
     {
       "name": "Store"

@@ -89,6 +89,10 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
     {
         rows ??= (await store.List<MonitoringRule>(r => r.ConfigId == configuration.ConfigId, ct)).ToArray();
         var types = (await store.List<IncidentType>(ct: ct)).ToDictionary(t => t.IncidentTypeId);
+        return ConfigurationView(configuration, rows, types);
+    }
+    internal static MonitoringConfigurationView ConfigurationView(MonitoringConfiguration configuration, MonitoringRule[] rows, IReadOnlyDictionary<Guid, IncidentType> types)
+    {
         var views = rows.Select(r => new MonitoringRuleView(r.RuleId,r.IncidentTypeId,
             types.GetValueOrDefault(r.IncidentTypeId)?.Code ?? "UNKNOWN",types.GetValueOrDefault(r.IncidentTypeId)?.Name ?? "Unknown type",
             r.WarningThreshold,r.CriticalThreshold,r.ThresholdUnit,r.SustainSec,r.CooldownSec,r.Enabled,r.ParametersJson)).OrderBy(r => r.IncidentCode).ToArray();

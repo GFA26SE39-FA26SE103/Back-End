@@ -58,6 +58,7 @@ builder.Services.AddScoped<Accounts>();
 builder.Services.AddScoped<StoreSetup>();
 builder.Services.AddScoped<CameraSetup>();
 builder.Services.AddScoped<MonitoringSetup>();
+builder.Services.AddScoped<SetupOverview>();
 builder.Services.AddScoped<CameraHealth>();
 builder.Services.AddScoped<AiPreview>();
 builder.Services.AddHttpClient<IAiPreviewClient, AiPreviewClient>((services, client) =>

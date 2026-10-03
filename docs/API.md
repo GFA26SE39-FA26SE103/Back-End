@@ -25,6 +25,7 @@ Controller và use case cùng kiểm tra quyền; STAFF không đọc được d
 | Geometry | GET /cameras/{id}/zones; PUT/DELETE /cameras/{id}/zones/{zoneId} |
 | AI catalog | GET /incident-types (ADMIN, read-only AI types) |
 | Monitoring | GET/PUT /zones/{zoneId}/monitoring; GET .../review; POST .../activate, .../deactivate |
+| Setup dashboard | GET /setup/overview (ADMIN, read-only saved-data snapshot) |
 | Health | GET /cameras/{id}/health; POST /cameras/{id}/health/check; GET /camera-health-events?cameraId=...&status=... |
 | Investigation | POST /camera-health-events/{id}/investigate; POST .../resolve |
 | Development demo | POST /demo/cameras/{id}/state?online=false hoặc true |
@@ -32,6 +33,21 @@ Controller và use case cùng kiểm tra quyền; STAFF không đọc được d
 Liveness `/health/live`, readiness `/health/ready` nằm ngoài prefix `/api`. Swagger JSON `/swagger/v1/swagger.json` và UI `/swagger` chỉ bật ở Development; schema được tạo trực tiếp từ controller và DTO.
 
 `openapi.json` trong thư mục này là contract xuất từ API đã chạy để frontend import; xuất lại khi controller/DTO thay đổi. Runtime Swagger luôn là bản contract hiện tại.
+
+### Dashboard tổng quan MF-01
+
+`GET /api/setup/overview` chỉ ADMIN, trả `Cache-Control: no-store`. Controller và application cùng kiểm tra quyền. Đọc tuần tự theo batch trong transaction của `ISetupStore`; không tạo configuration cho zone chưa có, không probe camera, enable nguồn hoặc activate monitoring.
+
+Response gồm:
+
+- `generatedAt`, `hasDefaultStore`: thời điểm lấy snapshot UTC và tình trạng record store mặc định.
+- `totals`: floor/zone/camera counts, configured zones, ACTIVE configurations, configurations đủ điều kiện Review/Activate, cameras ONLINE trong nhóm ACTIVE + connection enabled và unresolved health events.
+- `steps[]`: `code, name, completed, total, description` cho floor-map/zone, source, test/enable, mapping/ROI, incident rules và activation. Mỗi bước đếm record đã lưu; `0/0` không có nghĩa setup hoàn tất. Test success không chứng minh Admin đã xem preview; preview completion chưa được lưu.
+- `floors[]`: thông tin floor, `hasMap`, `zones[]`. Từng zone có configuration summary hoặc null, `setupReady`, `canActivate`, sanitized mapped-camera/ROI summaries, issues và warnings. `setupReady` dùng chung policy với Monitoring Review/Activate; `canActivate` còn yêu cầu configuration chưa ACTIVE. Review và Activate vẫn phải đọc lại dữ liệu khi Admin thao tác.
+- `cameras[]`: lifecycle `status`, `healthStatus`, `lastSeenAt`, source type/protocol, connection validation/enabled/test result/time và issues. Không trả stream URI, username hoặc credentials. Test time và last received frame là hai thời điểm khác nhau.
+- `healthEvents[]`: unresolved events, mới nhất trước, gồm ID/camera code/type/status/detectedAt; không chứa probe error hoặc secret.
+
+Configuration ACTIVE và camera health độc lập: camera OFFLINE không tự deactivate configuration. MF-01 activation không đồng nghĩa continuous AI/rule processing. Recorded-file health chỉ xác nhận frame readability, không xác nhận AI playback/GPU. Dashboard frontend polling snapshot mỗi 30 giây khi tab đang hiện; nút Refresh chỉ đọc. Check health gọi endpoint probe ADMIN hiện có; màn Cameras cung cấp sửa source và Test/Enable/Preview. Investigation/Resolve workflow vẫn dùng endpoints health-event hiện có, chưa được tích hợp thành form trên dashboard.
 
 Ví dụ zone:
 
