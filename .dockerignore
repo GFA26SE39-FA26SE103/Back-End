@@ -7,3 +7,6 @@
 .git
 TestResults
 .env
+**/*.env
+**/*.pem
+**/*.key

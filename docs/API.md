@@ -30,7 +30,9 @@ Controller và use case cùng kiểm tra quyền; STAFF không đọc được d
 | Investigation | POST /camera-health-events/{id}/investigate; POST .../resolve |
 | Development demo | POST /demo/cameras/{id}/state?online=false hoặc true |
 
-Liveness `/health/live`, readiness `/health/ready` nằm ngoài prefix `/api`. Swagger JSON `/swagger/v1/swagger.json` và UI `/swagger` chỉ bật ở Development; schema được tạo trực tiếp từ controller và DTO.
+Liveness `/health/live`, readiness `/health/ready` nằm ngoài prefix `/api`. Readiness chỉ kiểm tra SQL connectivity, không xác nhận schema/seed/AI/camera. Swagger JSON `/swagger/v1/swagger.json` và UI `/swagger` bật ở Development hoặc khi cấu hình tường minh `Swagger:Enabled=true`; schema được tạo trực tiếp từ controller và DTO. Route demo vẫn chỉ có trong Development.
+
+[Deploy Dev](DEPLOY_DEV.md) dùng public base URL `https://supermarket-api-dev.kitsuracloud.com/api`. Sau NPM, bật `ReverseProxy:Enabled` và liệt kê IP proxy trong `ReverseProxy:KnownProxies`; chỉ một hop `X-Forwarded-For`/`X-Forwarded-Proto` từ proxy tin cậy được dùng trước rate limit/auth. Request Host không lấy từ `X-Forwarded-Host`. Floor-map upload sinh URL theo scheme/host request đã xử lý; các tham chiếu cũ không tự rewrite. JWT/RBAC và response DTO không thay đổi.
 
 `openapi.json` trong thư mục này là contract xuất từ API đã chạy để frontend import; xuất lại khi controller/DTO thay đổi. Runtime Swagger luôn là bản contract hiện tại.
 
