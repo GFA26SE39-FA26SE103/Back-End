@@ -20,7 +20,7 @@ Bạn chỉ cần cung cấp thông tin kết nối DB và tài khoản đăng n
 
 **Nếu cùng đọc mật khẩu camera đã mã hóa trong DB Dev:** các backend cần dùng chung Data Protection key ring của môi trường Dev. Chia sẻ riêng bộ key Dev tương ứng với dữ liệu đó, đặt trên máy từng người và cấu hình `DataProtection:KeyPath` trong file local tới thư mục vừa đặt key. Đồng bộ key ring khi có key mới; không lấy key production để dùng cho Dev và không commit key vào Git. Chỉ copy `appsettings.Local.json` không đủ để giải mã camera credentials đã được backend khác lưu.
 
-Data Protection key được backend tự sinh khi cần bảo vệ dữ liệu và nằm tại đường dẫn `DataProtection:KeyPath`; mặc định là `src/Supermarket.Api/.local/keys` khi chạy local bằng launch profile `http`. Script tạo DB SQL Express đặt đường dẫn riêng tại `.local/keys` ở root backend. Key này phục vụ `CameraConnection.credential_secret_ref`; mật khẩu tài khoản API được hash bằng PasswordHasher, JWT dùng `Jwt:Key`. Giữ các key đã dùng cùng bản backup DB có camera credentials; mất key sẽ phải nhập lại mật khẩu camera. Tham khảo [cấu hình Data Protection của ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview?view=aspnetcore-10.0).
+Data Protection key được backend tự sinh khi cần bảo vệ dữ liệu và nằm tại đường dẫn `DataProtection:KeyPath`; mặc định là `src/Supermarket.Api/.local/keys` khi chạy local bằng launch profile `http`. Key này phục vụ `CameraConnection.credential_secret_ref`; mật khẩu tài khoản API được hash bằng PasswordHasher, JWT dùng `Jwt:Key`. Giữ các key đã dùng cùng bản backup DB có camera credentials; mất key sẽ phải nhập lại mật khẩu camera. Tham khảo [cấu hình Data Protection của ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview?view=aspnetcore-10.0).
 
 | Thư mục/file trên máy | Cần gửi cho người clone? |
 | --- | --- |
@@ -64,7 +64,7 @@ dotnet restore --configfile NuGet.Config
 .\scripts\Start-Local.ps1
 ```
 
-Nếu DB chưa có tài khoản Admin, dùng `Start-Local.ps1 -BootstrapAdmin` để nhập mật khẩu và tạo tài khoản đầu tiên. Bootstrap chỉ tạo Admin khi database chưa có tài khoản. Với DB có sẵn của team, không cần chạy `Initialize-Local.ps1` hoặc scaffold lại chỉ để đổi connection string.
+Nếu DB chưa có tài khoản Admin, dùng `Start-Local.ps1 -BootstrapAdmin` để nhập mật khẩu và tạo tài khoản đầu tiên. Bootstrap chỉ tạo Admin khi database chưa có tài khoản. Với DB có sẵn của team, không cần scaffold lại chỉ để đổi connection string.
 
 API: `http://localhost:5080`; Swagger: `http://localhost:5080/swagger`. Đăng nhập bằng `POST /api/auth/login`, sao chép `accessToken` vào **Authorize** của Swagger. Configuration API chỉ dành cho ADMIN. Token của tài khoản đã disable hoặc đổi role bị từ chối ngay ở request tiếp theo.
 
@@ -80,21 +80,18 @@ Khi bạn đưa publish output lên VPS, đặt `ASPNETCORE_ENVIRONMENT=Producti
 
 Thứ tự ghi đè cấu hình hiện tại: `appsettings.json` → `appsettings.{Environment}.json` → `appsettings.Local.json` nếu có → biến môi trường. Khi chạy bản publish trên VPS, file production cùng biến môi trường cung cấp cấu hình thật.
 
-## Tạo DB SQL Express độc lập để thử local
+## Tạo Admin đầu tiên trên DB đã có sẵn
 
-Cần .NET SDK 10, SQL Server Express và `sqlcmd`. Từ thư mục `Project/Back-End`:
-
-Khi clone repository backend riêng, đặt checkout tại `Project/Back-End` và giữ script SQL của team tại `Project/DB/FA26SE103_Database_V0.1.sql`. Script SQL không được lưu trong repository backend.
+Sau khi cấu hình connection string và JWT key cho database đã có sẵn, chạy từ `Project/Back-End`:
 
 ```powershell
 dotnet restore --configfile NuGet.Config
-.\scripts\Initialize-Local.ps1
 .\scripts\Start-Local.ps1 -BootstrapAdmin
 ```
 
 Lần đầu nhập mật khẩu Admin dài 12–128 ký tự. Email mặc định `admin@mf01.local`; có thể đổi bằng `-AdminEmail`. Bootstrap chỉ tạo Admin khi database chưa có tài khoản; mật khẩu bootstrap chỉ truyền qua môi trường process, không ghi vào file. Các lần sau chạy `Start-Local.ps1` không có `-BootstrapAdmin`.
 
-`Initialize-Local.ps1` tạo database **FA26SE103_MF01_Local** độc lập, không import lại nếu database đã tồn tại. Script sinh JWT key vào `appsettings.Local.json` đã được gitignore. Nếu muốn dùng instance/database khác, truyền `-Server` và `-Database`; tên database phải bắt đầu bằng `FA26SE103_MF01_`.
+Backend không cung cấp script tự khởi tạo DB local. `Start-Local.ps1` chạy API với cấu hình hiện tại; `Scaffold.ps1` dành cho đồng bộ EF sau khi team đã duyệt và áp dụng thay đổi schema.
 
 ## Kiến trúc
 
@@ -169,14 +166,12 @@ Camera URI không được chứa userinfo, query hay fragment. Gửi `username`
 
 ## Database-first
 
-Schema SQL chỉ nằm tại `Project/DB/FA26SE103_Database_V0.1.sql`, bên cạnh thư mục `Project/Back-End`. Backend không giữ bản sao schema riêng. Script khởi tạo đọc file này trực tiếp; test project liên kết cùng file và chỉ sao chép vào build output để test runner đọc.
+Database SQL Server đã được team cấu hình là nguồn persistence. Entities scaffold hiện có trong source đủ để chạy API với database tương ứng; không dùng script SQL V0.1 cũ để suy ra contract mới. Backend không giữ bản sao schema riêng. Test project vẫn có cấu hình liên kết file SQL bên ngoài để tạo database test tạm; đây là prerequisite của SQL tests, không phải bước khởi động API.
 
-Scaffold local dùng Windows Authentication (`Integrated Security=True`) trên `.\SQLEXPRESS`, không dùng SQL username/password. Bản SQL hiện tại đã có UserAccount ACTIVE/DISABLED, không có cột account review và connection mặc định disabled; EF của các bảng đã implement được scaffold theo bản này.
-
-Khi team phê duyệt schema mới: cập nhật file SQL trong `Project/DB`, áp dụng vào database, rồi scaffold lại:
+Khi team phê duyệt schema mới: áp dụng thay đổi đã duyệt vào database, trỏ connection scaffold tới đúng database, rồi scaffold lại:
 
 ```powershell
-$env:MF01_SCAFFOLD_CONNECTION = 'Server=.\SQLEXPRESS;Database=FA26SE103_MF01_Local;Integrated Security=True;TrustServerCertificate=True'
+$env:MF01_SCAFFOLD_CONNECTION = '<connection string tới database đã duyệt>'
 .\scripts\Scaffold.ps1
 dotnet test --settings coverage.runsettings --collect:'XPlat Code Coverage'
 ```
