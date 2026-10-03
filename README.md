@@ -1,6 +1,6 @@
 # FA26SE103 MF-01 backend
 
-Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.md](AGENTS.md) và [context đầy đủ của team](docs/PROJECT_CONTEXT.md), baseline **02/10/2026**. SQL Server là nguồn dữ liệu chính. Backend có API setup, upload MP4 và AI preview; mức độ nối frontend cần đối chiếu với checkout frontend hiện tại. Phạm vi làm việc trước mắt là **MF-01**.
+Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.md](AGENTS.md) và [context đầy đủ của team](docs/PROJECT_CONTEXT.md), baseline **02/10/2026**. SQL Server là nguồn dữ liệu chính. Backend có API setup, floor-plan upload, upload MP4 và AI preview; mức độ nối frontend cần đối chiếu với checkout frontend hiện tại. Phạm vi làm việc trước mắt là **MF-01**.
 
 ## Context chung khi clone backend
 
@@ -111,6 +111,7 @@ Domain không phụ thuộc ASP.NET/EF. Controller không truy cập DbContext. 
 
 - Login JWT, `/auth/me`, roles, Admin tạo/sửa/enable/disable tài khoản, bảo vệ Admin cuối cùng.
 - Supermarket, floors, map URL/dimensions, zones với polygon normalized `[0,1]`.
+- Upload/replace floor plan PNG, JPEG hoặc PDF qua `POST /api/floors/{id}/map` (multipart `file`, ADMIN, mặc định tối đa 20 MB); asset được lưu ngoài `wwwroot` và chỉ đọc qua authenticated `GET /api/floors/{id}/map`.
 - Camera thuộc Floor; metadata lắp đặt/bảo hành, vị trí và rotation trên map.
 - Connection 1:1: configure → test → preview → enable/disable. Mỗi lần PUT configuration sẽ disable và xóa kết quả test cũ.
 - Upload MP4 làm nguồn RECORDED/FILE qua `POST /api/cameras/{id}/recorded-video` (multipart `file`, ADMIN, tối đa 200 MB). Kiểm tra header và decode frame bằng FFmpeg; server sinh filename, lưu ngoài wwwroot. Không sửa schema DB.
@@ -120,7 +121,11 @@ Domain không phụ thuộc ASP.NET/EF. Controller không truy cập DbContext. 
 - Health worker, check thủ công, OPEN → INVESTIGATING → RESOLVED. Khi có lại frame, worker tự resolve event và cập nhật last seen; Admin có thể thêm resolution note.
 - Swagger/OpenAPI, ProblemDetails với `code` và `requestId`, rate limit login, CORS, liveness/readiness.
 
-Floor map được tham chiếu bằng HTTP(S) asset URL. PATCH ở increment này nhận toàn bộ DTO chỉnh sửa, không phải JSON Patch hay merge patch. Camera không được chuyển sang tầng khác bằng PATCH; việc chuyển tầng cần use case xử lý mappings riêng.
+Floor map có thể được khai báo bằng HTTP(S) asset URL khi chỉnh floor hoặc upload vào local storage qua API mới. Local storage mặc định là `src/Supermarket.Api/.local/floor-plans`, cấu hình bằng `FloorPlan:Root`; giới hạn mặc định `FloorPlan:MaxBytes=20971520`. Storage name do server sinh, không dùng original filename làm path, không serve static, và thư mục `.local` không được commit. Local storage chỉ dành cho increment development; `IFloorPlanStorage` là boundary để thay bằng S3/MinIO sau này mà không đổi controller/use case.
+
+Store Layout frontend tải floor/camera thật, lấy map dưới dạng authenticated Blob, render trang PDF đầu tiên bằng PDF.js, và đặt camera bằng sprite body/muzzle/FOV. Drag hoặc keyboard chỉ sửa draft; **Save placement** mới gửi full camera DTO với `mapX/mapY` normalized và `mapRotationDeg`. Lưu placement không tự test/enable connection hay activate monitoring.
+
+PATCH ở increment này nhận toàn bộ DTO chỉnh sửa, không phải JSON Patch hay merge patch. Camera không được chuyển sang tầng khác bằng PATCH; việc chuyển tầng cần use case xử lý mappings riêng.
 
 ## Demo MF-01
 
@@ -195,7 +200,7 @@ Nếu SQL nằm ở vị trí khác khi chạy local, truyền `-p:Mf01SchemaPat
 
 - Context baseline 02/10 xác định camera thuộc floor, N:M zone và model confidence chỉ là input filter. Đối chiếu các tài liệu/source cũ với [guide đầy đủ](docs/PROJECT_CONTEXT.md) trước khi mở rộng hành vi.
 - ERD v3 là baseline vật lý hiện tại và đã định nghĩa `Zone.area_m2`, MonitoringRule, IncidentType và ZoneAdjacency. Code chỉ scaffold 10 bảng stable; MonitoringRuleContract là DTO tham khảo, chưa có endpoint/persistence/seed IncidentType. BR vẫn cần đồng bộ với ERD v3 về cách lưu cờ "requires Operator review" của IncidentType, cùng measurement-source, checkout-counter và Manager-on-duty. Không tự sửa generated EF hoặc tạo schema phỏng đoán. Full SQL tests cần file SQL authoritative đúng phiên bản.
-- Nối Store/floor/zone UI thật; thêm camera→zone selector và camera-frame ROI editor qua mapping API. Floor map polygon khác ROI trên frame; không dùng sample geometry thay tọa độ thật.
+- Store Layout đã nối read/upload floor map và camera placement thật. Phần tạo/sửa store, floor, zone, camera→zone selector và camera-frame ROI editor qua mapping API vẫn cần hoàn thiện. Floor map polygon khác ROI trên frame; không dùng sample geometry thay tọa độ thật.
 - Khi MF-02 được giao, đồng bộ SQL/scaffold theo ERD v3 và triển khai rule CRUD per-zone: chỉ IncidentType AI-detected, warning < critical, unit/measurement đúng loại, sustain/cooldown >= 0, enabled. `Zone.area_m2` đã có trong ERD v3; nếu dùng density people/m² thì cần diện tích vật lý > 0. Không tính people/m² khi thiếu diện tích.
 - Activation hiện chỉ bật configuration, kiểm tra zone ACTIVE và ít nhất một mapped camera ACTIVE/tested/enabled; chưa kiểm tra đủ rule/measurement readiness, chưa khởi động continuous AI worker. Preview đã chạy nhưng chưa ROI measurements, sustained-threshold evaluator, OperationalEvents, incident dedup/cooldown. Nối runtime và lifecycle activate/deactivate trước khi gọi là monitoring thật. Health events tách biệt Operational Incidents.
 - Multiple-camera measurement-source selection và một số operational limits còn mở ([PROJECT_CONTEXT §33](docs/PROJECT_CONTEXT.md#33-implementation-questions-that-are-currently-open)); không tự cộng người từ các camera nhìn cùng zone hay suy ra cross-camera identity. Chưa xác nhận full MF-01 UI acceptance hoặc hiệu năng live stream.

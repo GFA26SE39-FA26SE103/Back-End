@@ -5,6 +5,149 @@
     "version": "v1"
   },
   "paths": {
+    "/api/cameras/{id}/ai-preview/start": {
+      "post": {
+        "tags": [
+          "AiPreview"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiPreviewStatusView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiPreviewStatusView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiPreviewStatusView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cameras/{id}/ai-preview/status": {
+      "get": {
+        "tags": [
+          "AiPreview"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiPreviewStatusView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiPreviewStatusView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiPreviewStatusView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/cameras/{id}/ai-preview/frame": {
+      "get": {
+        "tags": [
+          "AiPreview"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/cameras/{id}/ai-preview/stop": {
+      "post": {
+        "tags": [
+          "AiPreview"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiPreviewStatusView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiPreviewStatusView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiPreviewStatusView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/login": {
       "post": {
         "tags": [
@@ -1066,6 +1209,69 @@
         }
       }
     },
+    "/api/cameras/{id}/recorded-video": {
+      "post": {
+        "tags": [
+          "RecordedVideos"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "File"
+                ],
+                "type": "object",
+                "properties": {
+                  "File": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              },
+              "encoding": {
+                "File": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordedVideoView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordedVideoView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordedVideoView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/supermarkets": {
       "get": {
         "tags": [
@@ -1412,6 +1618,90 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/floors/{id}/map": {
+      "post": {
+        "tags": [
+          "Store"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "File"
+                ],
+                "type": "object",
+                "properties": {
+                  "File": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              },
+              "encoding": {
+                "File": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/FloorPlanView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FloorPlanView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FloorPlanView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Store"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
@@ -1904,6 +2194,37 @@
   },
   "components": {
     "schemas": {
+      "AiPreviewStatusView": {
+        "type": "object",
+        "properties": {
+          "cameraId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "type": "string",
+            "nullable": true
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "frameSequence": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "Camera": {
         "type": "object",
         "properties": {
@@ -2231,6 +2552,38 @@
         },
         "additionalProperties": false
       },
+      "FloorPlanView": {
+        "type": "object",
+        "properties": {
+          "floorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mapUrl": {
+            "type": "string",
+            "nullable": true
+          },
+          "mapWidth": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "mapHeight": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "contentType": {
+            "type": "string",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
       "FloorRequest": {
         "type": "object",
         "properties": {
@@ -2398,6 +2751,24 @@
           "y": {
             "type": "number",
             "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RecordedVideoView": {
+        "type": "object",
+        "properties": {
+          "cameraId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sourceType": {
+            "type": "string",
+            "nullable": true
+          },
+          "protocol": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -2620,6 +2991,9 @@
   ],
   "tags": [
     {
+      "name": "AiPreview"
+    },
+    {
       "name": "Auth"
     },
     {
@@ -2630,6 +3004,9 @@
     },
     {
       "name": "Monitoring"
+    },
+    {
+      "name": "RecordedVideos"
     },
     {
       "name": "Store"

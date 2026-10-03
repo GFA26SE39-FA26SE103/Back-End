@@ -23,3 +23,17 @@ Local initialization was run successfully and created `FA26SE103_MF01_Local`. Ad
 The local API was started on port 5080, liveness returned UP, SQL readiness returned READY, and the Swagger contract was exported to `docs/openapi.json`. The smoke-test process was then stopped so the first Admin can be bootstrapped on the user's next start.
 
 Not verified in this workspace: real CCTV/RTSP connectivity, continuous browser streaming, AI pipeline integration, React integration, Docker image build, GitHub Actions execution or VPS deployment. This dated evidence predates the ERD v3 documentation baseline; MonitoringRule/IncidentType persistence remains outside this MF-01 increment even though ERD v3 now defines their physical structures.
+
+## Floor-plan upload and camera placement validation 2026-10-03
+
+Verified after implementing authenticated floor-plan storage and the real Store Layout placement flow:
+
+- `dotnet build Supermarket.sln --no-restore`: **PASS**, 0 warnings, 0 errors.
+- Focused backend floor-plan tests: **11 passed**. Coverage includes ADMIN/STAFF/anonymous authorization, binary retrieval and Content-Type, empty/oversized/unsupported/signature-mismatched rejection, serialized concurrent replacement, replacement cleanup, and preservation of the previous stored file after persistence failure.
+- Backend Domain + floor-plan test selection: **59 passed**.
+- Frontend `npm run build`: **PASS**. Vite emitted only the existing bundle-size advisory; type-check and production bundle completed.
+- Frontend `npm run lint`: **PASS**, no warnings.
+- Frontend `npm run test -- --run`: **37 passed across 9 files**. Coverage includes multipart/bearer contract, authenticated Blob download, complete camera PATCH, normalized geometry, drag/rotate/keyboard interaction, API-backed Store Layout loading, replacement upload, successful save, and save-failure dirty-state retention.
+- Runtime Development Swagger export: **PASS** (`GET /swagger/v1/swagger.json` returned 200); `docs/openapi.json` was regenerated from the running controller contract.
+
+The complete SQL integration suite was not rerun because the approved shared SQL schema file is not present in this checkout. No live browser-to-database acceptance, real PDF visual inspection, object-storage deployment, S3/MinIO integration, or concurrent multi-process storage validation is claimed here.
