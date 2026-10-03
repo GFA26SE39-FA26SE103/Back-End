@@ -10,6 +10,7 @@ using Xunit;
 namespace Supermarket.Tests;
 
 [Collection("SqlApi")]
+[Trait("Category", "SqlIntegration")]
 public sealed class ConcurrencyTests(SqlApiFixture fixture)
 {
     [Fact]

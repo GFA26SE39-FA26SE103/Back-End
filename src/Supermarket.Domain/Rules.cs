@@ -21,6 +21,8 @@ public static class Rules
     public static void Status(string value, params string[] allowed) => Require(allowed.Contains(value), "INVALID_STATUS", "The requested status is not supported.");
     public static void Coordinate(decimal? value) => Require(value is null or >= 0 and <= 1, "INVALID_COORDINATE", "Coordinates must be normalized to [0,1].");
     public static void MapSize(int? width, int? height) => Require((width is null && height is null) || (width > 0 && height > 0), "INVALID_MAP_SIZE", "Map width and height must both be absent or positive.");
+    public static void ZoneColor(string? value) => Require(value is null || value.Length == 7 && value[0] == '#' && value.Skip(1).All(Uri.IsHexDigit), "INVALID_COLOR", "Zone color must use #RRGGBB format.");
+    public static void ZoneArea(decimal? value) => Require(value is null || value is > 0 and <= 9999999999.99m && decimal.Round(value.Value, 2) == value.Value, "INVALID_AREA", "Zone area must be positive, use at most two decimal places, and fit decimal(12,2).");
     public static void Polygon(IReadOnlyList<Point>? points)
     {
         Require(points is { Count: >= 3 and <= 1000 }, "INVALID_POLYGON", "A polygon requires 3 to 1000 points.");

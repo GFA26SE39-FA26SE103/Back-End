@@ -23,5 +23,7 @@ public partial class MonitoringConfiguration
 
     public virtual UserAccount CreatedByUser { get; set; } = null!;
 
+    public virtual ICollection<MonitoringRule> MonitoringRules { get; set; } = new List<MonitoringRule>();
+
     public virtual Zone Zone { get; set; } = null!;
 }

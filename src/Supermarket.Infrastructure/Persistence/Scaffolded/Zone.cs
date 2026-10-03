@@ -23,9 +23,17 @@ public partial class Zone
 
     public DateTime UpdatedAt { get; set; }
 
+    public decimal? AreaM2 { get; set; }
+
+    public string? ColorHex { get; set; }
+
     public virtual ICollection<CameraZoneMapping> CameraZoneMappings { get; set; } = new List<CameraZoneMapping>();
 
     public virtual Floor Floor { get; set; } = null!;
 
+    public virtual ICollection<Incident> Incidents { get; set; } = new List<Incident>();
+
     public virtual MonitoringConfiguration? MonitoringConfiguration { get; set; }
+
+    public virtual ICollection<OperationalEvent> OperationalEvents { get; set; } = new List<OperationalEvent>();
 }

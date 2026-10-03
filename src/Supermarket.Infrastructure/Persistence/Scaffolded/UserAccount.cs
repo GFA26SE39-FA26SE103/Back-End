@@ -23,6 +23,8 @@ public partial class UserAccount
 
     public virtual ICollection<CameraHealthEvent> CameraHealthEvents { get; set; } = new List<CameraHealthEvent>();
 
+    public virtual ICollection<Incident> Incidents { get; set; } = new List<Incident>();
+
     public virtual ICollection<MonitoringConfiguration> MonitoringConfigurations { get; set; } = new List<MonitoringConfiguration>();
 
     public virtual Role Role { get; set; } = null!;

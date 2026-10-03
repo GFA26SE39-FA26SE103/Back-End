@@ -1,6 +1,16 @@
 # FA26SE103 MF-01 backend
 
-Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo RP1/RP2 và `Project/AGENT/AGENTS.md`. SQL Server là nguồn dữ liệu chính. Frontend hiện vẫn dùng mocks; thay đổi này dựng backend và hợp đồng API để frontend tích hợp tiếp.
+Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.md](AGENTS.md) và [context đầy đủ của team](docs/PROJECT_CONTEXT.md), baseline **02/10/2026**. SQL Server là nguồn dữ liệu chính. Backend có API setup, floor-plan upload, upload MP4 và AI preview; mức độ nối frontend cần đối chiếu với checkout frontend hiện tại. Phạm vi làm việc trước mắt là **MF-01**.
+
+## Context chung khi clone backend
+
+- Đọc [AGENTS.md](AGENTS.md) trước khi làm việc; đây là hướng dẫn ngắn ở root để coding agent tự nạp khi mở repo backend.
+- Đọc [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) đầy đủ trước khi triển khai. File này là snapshot triển khai được đồng bộ trong repository, gồm MF-01..MF-04, BR, kiến trúc, ERD v3 facts, các quyết định còn mở và link RP1/RP2/BR/ERD. Các Mainflow sau là context thiết kế; phần đang tập trung triển khai là MF-01.
+- Đối chiếu phần đã triển khai và các gap trong README, [API contract](docs/API.md), [OpenAPI](docs/openapi.json) và source liên quan. [VALIDATION.md](docs/VALIDATION.md) là bằng chứng kiểm tra tại ngày ghi trong file.
+
+Bản hướng dẫn đầy đủ khoảng 63 KiB nên được tách khỏi file tự nạp; `AGENTS.md` yêu cầu agent đọc nó qua công cụ đọc file. Hai file đều nằm trong repo, không cần thư mục `AGENT` bên ngoài khi clone backend riêng.
+
+Khi team chốt BR/Mainflow/ERD mới, cập nhật `docs/PROJECT_CONTEXT.md`, ngày baseline và những quy tắc tương ứng trong `AGENTS.md` trong cùng PR. Context được chia sẻ qua Git; link tài liệu ngoài không tự đồng bộ nội dung vào repo.
 
 ## Thành viên mới clone về cần gì?
 
@@ -10,7 +20,7 @@ Bạn chỉ cần cung cấp thông tin kết nối DB và tài khoản đăng n
 
 **Nếu cùng đọc mật khẩu camera đã mã hóa trong DB Dev:** các backend cần dùng chung Data Protection key ring của môi trường Dev. Chia sẻ riêng bộ key Dev tương ứng với dữ liệu đó, đặt trên máy từng người và cấu hình `DataProtection:KeyPath` trong file local tới thư mục vừa đặt key. Đồng bộ key ring khi có key mới; không lấy key production để dùng cho Dev và không commit key vào Git. Chỉ copy `appsettings.Local.json` không đủ để giải mã camera credentials đã được backend khác lưu.
 
-Data Protection key được backend tự sinh khi cần bảo vệ dữ liệu và nằm tại đường dẫn `DataProtection:KeyPath`; mặc định là `src/Supermarket.Api/.local/keys` khi chạy local bằng launch profile `http`. Script tạo DB SQL Express đặt đường dẫn riêng tại `.local/keys` ở root backend. Key này phục vụ `CameraConnection.credential_secret_ref`; mật khẩu tài khoản API được hash bằng PasswordHasher, JWT dùng `Jwt:Key`. Giữ các key đã dùng cùng bản backup DB có camera credentials; mất key sẽ phải nhập lại mật khẩu camera. Tham khảo [cấu hình Data Protection của ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview?view=aspnetcore-10.0).
+Data Protection key được backend tự sinh khi cần bảo vệ dữ liệu và nằm tại đường dẫn `DataProtection:KeyPath`; mặc định là `src/Supermarket.Api/.local/keys` khi chạy local bằng launch profile `http`. Key này phục vụ `CameraConnection.credential_secret_ref`; mật khẩu tài khoản API được hash bằng PasswordHasher, JWT dùng `Jwt:Key`. Giữ các key đã dùng cùng bản backup DB có camera credentials; mất key sẽ phải nhập lại mật khẩu camera. Tham khảo [cấu hình Data Protection của ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview?view=aspnetcore-10.0).
 
 | Thư mục/file trên máy | Cần gửi cho người clone? |
 | --- | --- |
@@ -54,13 +64,17 @@ dotnet restore --configfile NuGet.Config
 .\scripts\Start-Local.ps1
 ```
 
-Nếu DB chưa có tài khoản Admin, dùng `Start-Local.ps1 -BootstrapAdmin` để nhập mật khẩu và tạo tài khoản đầu tiên. Bootstrap chỉ tạo Admin khi database chưa có tài khoản. Với DB có sẵn của team, không cần chạy `Initialize-Local.ps1` hoặc scaffold lại chỉ để đổi connection string.
+Nếu DB chưa có tài khoản Admin, dùng `Start-Local.ps1 -BootstrapAdmin` để nhập mật khẩu và tạo tài khoản đầu tiên. Bootstrap chỉ tạo Admin khi database chưa có tài khoản. Với DB có sẵn của team, không cần scaffold lại chỉ để đổi connection string.
 
 API: `http://localhost:5080`; Swagger: `http://localhost:5080/swagger`. Đăng nhập bằng `POST /api/auth/login`, sao chép `accessToken` vào **Authorize** của Swagger. Configuration API chỉ dành cho ADMIN. Token của tài khoản đã disable hoặc đổi role bị từ chối ngay ở request tiếp theo.
 
 ### Cấu hình khi tự host trên VPS
 
-Chưa deploy backend lên VPS. GitHub Actions chạy build/test và tạo publish artifact; workflow hiện không upload hoặc khởi động backend trên server.
+Backend Dev đã có [bộ cấu hình Docker/Compose và hướng dẫn deploy](docs/DEPLOY_DEV.md), dùng SQL `FA26SE103_Dev` hiện có, GitHub-hosted runner → GHCR → Tailscale/SSH và NPM. Workflow **Deploy backend Dev** tự chạy khi code được push/merge vào nhánh `dev`; có thể chạy lại thủ công nhưng chỉ chấp nhận ref `dev`. Workflow kiểm thử trước khi build/push và cập nhật API theo image digest, có readiness check và rollback. Cấu hình thật nằm trong `api.env` riêng trên VM, key ring/video/map local nằm trong named volumes. Chưa chạy deploy thực tế; cần thiết lập secrets, DNS/NPM và acceptance trên server.
+
+Môi trường Dev trên server dùng `ASPNETCORE_ENVIRONMENT=Staging` với `Swagger__Enabled=true`, không bật route demo Development. `ReverseProxy__Enabled=true` chỉ đọc forwarded HTTPS/IP từ `ReverseProxy__KnownProxies` đã cấu hình; đặt middleware trước rate limit/auth để login limit theo IP client và URL map có đúng scheme. Xem hướng dẫn deploy cho IP NPM và các giới hạn upload.
+
+Nếu host production riêng bằng publish output:
 
 ```powershell
 dotnet publish src/Supermarket.Api -c Release -o .local/publish
@@ -70,21 +84,18 @@ Khi bạn đưa publish output lên VPS, đặt `ASPNETCORE_ENVIRONMENT=Producti
 
 Thứ tự ghi đè cấu hình hiện tại: `appsettings.json` → `appsettings.{Environment}.json` → `appsettings.Local.json` nếu có → biến môi trường. Khi chạy bản publish trên VPS, file production cùng biến môi trường cung cấp cấu hình thật.
 
-## Tạo DB SQL Express độc lập để thử local
+## Tạo Admin đầu tiên trên DB đã có sẵn
 
-Cần .NET SDK 10, SQL Server Express và `sqlcmd`. Từ thư mục `Project/Back-End`:
-
-Khi clone repository backend riêng, đặt checkout tại `Project/Back-End` và giữ script SQL của team tại `Project/DB/FA26SE103_Database_V0.1.sql`. Script SQL không được lưu trong repository backend.
+Sau khi cấu hình connection string và JWT key cho database đã có sẵn, chạy từ `Project/Back-End`:
 
 ```powershell
 dotnet restore --configfile NuGet.Config
-.\scripts\Initialize-Local.ps1
 .\scripts\Start-Local.ps1 -BootstrapAdmin
 ```
 
 Lần đầu nhập mật khẩu Admin dài 12–128 ký tự. Email mặc định `admin@mf01.local`; có thể đổi bằng `-AdminEmail`. Bootstrap chỉ tạo Admin khi database chưa có tài khoản; mật khẩu bootstrap chỉ truyền qua môi trường process, không ghi vào file. Các lần sau chạy `Start-Local.ps1` không có `-BootstrapAdmin`.
 
-`Initialize-Local.ps1` tạo database **FA26SE103_MF01_Local** độc lập, không import lại nếu database đã tồn tại. Script sinh JWT key vào `appsettings.Local.json` đã được gitignore. Nếu muốn dùng instance/database khác, truyền `-Server` và `-Database`; tên database phải bắt đầu bằng `FA26SE103_MF01_`.
+Backend không cung cấp script tự khởi tạo DB local. `Start-Local.ps1` chạy API với cấu hình hiện tại; `Scaffold.ps1` dành cho đồng bộ EF sau khi team đã duyệt và áp dụng thay đổi schema.
 
 ## Kiến trúc
 
@@ -101,22 +112,58 @@ Domain không phụ thuộc ASP.NET/EF. Controller không truy cập DbContext. 
 
 - Login JWT, `/auth/me`, roles, Admin tạo/sửa/enable/disable tài khoản, bảo vệ Admin cuối cùng.
 - Supermarket, floors, map URL/dimensions, zones với polygon normalized `[0,1]`.
+- Upload/replace floor plan PNG, JPEG hoặc PDF qua `POST /api/floors/{id}/map` (multipart `file`, ADMIN, mặc định tối đa 20 MB); asset được lưu ngoài `wwwroot` và chỉ đọc qua authenticated `GET /api/floors/{id}/map`.
 - Camera thuộc Floor; metadata lắp đặt/bảo hành, vị trí và rotation trên map.
 - Connection 1:1: configure → test → preview → enable/disable. Mỗi lần PUT configuration sẽ disable và xóa kết quả test cũ.
+- Upload MP4 làm nguồn RECORDED/FILE qua `POST /api/cameras/{id}/recorded-video` (multipart `file`, ADMIN, tối đa 200 MB). Kiểm tra header và decode frame bằng FFmpeg; server sinh filename, lưu ngoài wwwroot. Không sửa schema DB.
+- Proxy AI preview start/status/frame/stop tới native YOLO + ByteTrack, hỗ trợ LIVE HTTP/RTSP/HLS và RECORDED FILE. React nhận JPEG đã vẽ person box/track ID, không gọi Python trực tiếp.
 - Camera N:M Zone qua mapping; cùng tầng; ROI normalized; PUT idempotent.
-- MonitoringConfiguration per-zone, confidence `[0,1]`, DRAFT/ACTIVE/INACTIVE. Activation yêu cầu zone active và camera mapped active có connection enabled/tested.
+- MonitoringConfiguration và MonitoringRule per-zone được lưu SQL: confidence `[0,1]`, incident type AI-detected, warning/critical/unit, sustain/cooldown/enabled, DRAFT/ACTIVE/INACTIVE. Review và activation kiểm tra lại zone, rule, diện tích density, camera/source/test/enable và ROI. Cấu hình ACTIVE phải deactivate trước khi sửa rule, confidence, source hoặc mapping/ROI.
 - Health worker, check thủ công, OPEN → INVESTIGATING → RESOLVED. Khi có lại frame, worker tự resolve event và cập nhật last seen; Admin có thể thêm resolution note.
 - Swagger/OpenAPI, ProblemDetails với `code` và `requestId`, rate limit login, CORS, liveness/readiness.
 
-Floor map được tham chiếu bằng HTTP(S) asset URL. PATCH ở increment này nhận toàn bộ DTO chỉnh sửa, không phải JSON Patch hay merge patch. Camera không được chuyển sang tầng khác bằng PATCH; việc chuyển tầng cần use case xử lý mappings riêng.
+Floor-map upload chọn storage bằng `FloorPlan:Provider`: `Local` (mặc định) hoặc `Cloudinary`. Local root mặc định là `src/Supermarket.Api/.local/floor-plans`, cấu hình bằng `FloorPlan:Root`; giới hạn mặc định `FloorPlan:MaxBytes=20971520` (có thể giảm, tối đa 20 MB theo endpoint hiện tại). Storage name do server sinh, không dùng original filename làm path, không serve static, và thư mục `.local` không được commit. SQL vẫn lưu tham chiếu map/kích thước; không có migration hoặc thay scaffold cho storage provider.
+
+### Cloudinary cho floor plans
+
+Thêm/merge các mục sau vào `src/Supermarket.Api/appsettings.Local.json`, giữ các cấu hình DB/JWT/AI đang có. File local đã được ignore; không commit API secret. File example trong Git chứa giá trị trống. Điền key rồi đổi Provider và restart backend:
+
+```json
+{
+  "FloorPlan": { "Provider": "Cloudinary" },
+  "Cloudinary": {
+    "CloudName": "YOUR_CLOUD_NAME",
+    "ApiKey": "YOUR_API_KEY",
+    "ApiSecret": "YOUR_API_SECRET",
+    "Folder": "fa26se103/floor-plans",
+    "TimeoutSeconds": 30
+  }
+}
+```
+
+Trên VPS, có thể dùng `FloorPlan__Provider=Cloudinary`, `Cloudinary__CloudName`, `Cloudinary__ApiKey`, `Cloudinary__ApiSecret`, `Cloudinary__Folder` và `Cloudinary__TimeoutSeconds` thay cho file local. Cloud name/key/secret lấy trong Cloudinary Console; không thêm chúng vào frontend hoặc URL DB. Bật Cloudinary khi thiếu key, folder không hợp lệ hoặc timeout ngoài 1–120 giây sẽ fail startup với hướng dẫn cấu hình, không in giá trị secret. Xem [Cloudinary signed API calls](https://cloudinary.com/documentation/authentication_signatures) và [Upload API](https://cloudinary.com/documentation/image_upload_api_reference).
+
+Store Layout giữ nút Upload/Replace hiện tại. Backend kiểm tra PNG/JPEG/PDF, MIME/extension/signature/size trước khi gọi Cloudinary qua HTTPS. PNG/JPEG dùng resource `image`; PDF dùng `raw` để giữ file PDF nguyên gốc cho PDF.js. Mọi asset dùng delivery type `authenticated`, public ID riêng theo floor và `overwrite=false`; không gửi transformation/crop hay dùng upload preset. Cần giữ cấu hình Cloudinary không có incoming transformation cho floor plans. Cloudinary account có thể có giới hạn upload/delivery riêng; lỗi provider trả thông báo đã sanitize.
+
+`Cloudinary:Folder` được gửi bằng `asset_folder` để ảnh mới nằm trong đúng thư mục Media Library ở chế độ dynamic folders, đồng thời vẫn là prefix của public ID theo floor. Chỉ có dấu `/` trong public ID không tạo thư mục Media Library ở chế độ này. Các ảnh upload trước bản sửa này có thể nằm ở Home và vẫn đọc được; có thể chuyển chúng vào folder trong Console mà không đổi public ID/asset ID. Thay cấu hình Folder không tự di chuyển ảnh cũ. Xem [Cloudinary folder modes](https://cloudinary.com/documentation/folder_modes_in_integrations).
+
+SQL lưu URL của API map với version token chứa cloud/floor/immutable asset ID/format, không lưu URL có chữ ký hết hạn hay secret. `GET /api/floors/{id}/map` vẫn kiểm tra quyền ADMIN/OPERATOR/MANAGER, tải file gốc từ signed Cloudinary API bằng asset ID và trả bytes/Content-Type với `Cache-Control: no-store`; không redirect browser tới ảnh public. Đổi folder không làm mất tham chiếu đã lưu; đổi CloudName sang product environment khác không tự chuyển các ảnh cũ. Các API instance đọc cùng DB cần được cấu hình credential cho đúng cloud đã lưu.
+
+Đổi Provider sang Cloudinary không tự upload các file cũ: router vẫn đọc được token local nếu file còn ở `FloorPlan:Root`. Để ảnh cũ dùng được trên máy khác/VPS, dùng **Replace floor plan** một lần với đúng file gốc sau khi cấu hình key; zone/camera/ROI vẫn giữ nguyên. Upload mới từ đó lưu trên Cloudinary. Không xóa thư mục local trước khi chuyển các floor còn tham chiếu nó.
+
+Thay ảnh tạo asset mới, cập nhật DB trong transaction, rồi chỉ xóa đúng tham chiếu cũ. Lỗi DB giữ tham chiếu cũ và dọn asset mới. Cleanup remote/local không thành công chỉ ghi warning đã sanitize và có thể để lại asset không được tham chiếu; không biến commit thành lỗi hay xóa theo prefix toàn floor. Không tự retry upload hoặc tự migrate ảnh khi app startup. Timeout/network failure trước khi nhận asset ID cũng có thể để lại upload không được tham chiếu; kiểm tra thư mục Cloudinary của floor nếu cần dọn. Không có key thật thì tests chỉ xác minh contract qua HTTP handler giả, chưa chứng minh live Cloudinary acceptance.
+
+Store Layout frontend tải floor/camera thật, lấy map dưới dạng authenticated Blob, render trang PDF đầu tiên bằng PDF.js, và đặt camera bằng sprite body/muzzle/FOV. **Create floor / Edit floor** mở dialog có Cancel/close/Escape. Create dùng default store đã seed; Edit chỉ gửi name/floorNumber qua `PATCH /api/floors/{id}/details`, giữ map hiện tại, zone/camera/ROI. Số tầng unique trong store; lỗi giữ input. Drag hoặc keyboard chỉ sửa draft; **Save placement** mới gửi full camera DTO với `mapX/mapY` normalized và `mapRotationDeg`. Lưu placement không tự test/enable connection hay activate monitoring.
+
+PATCH ở increment này nhận toàn bộ DTO chỉnh sửa, không phải JSON Patch hay merge patch. Camera không được chuyển sang tầng khác bằng PATCH; việc chuyển tầng cần use case xử lý mappings riêng.
 
 ## Demo MF-01
 
-1. Login Admin, tạo supermarket, floor và zone với `mapPolygon` gồm ít nhất 3 điểm.
+1. Login Admin, dùng default supermarket đã seed, tạo floor trong Store Layout và zone với `mapPolygon` gồm ít nhất 3 điểm.
 2. Tạo camera với `status: "ACTIVE"`, installation/warranty dates.
 3. PUT connection với `{ "sourceType": "DEMO", "protocol": "HTTP", "streamUri": "demo://camera/main" }`.
 4. POST connection/test, GET preview, POST connection/enable.
-5. PUT camera/zones/{zoneId} với `roiPolygon`; PUT zone/monitoring và POST activate.
+5. PUT camera/zones/{zoneId} với `roiPolygon`. DEMO chỉ kiểm thử connection/health; không activate cấu hình AI từ nguồn DEMO.
 6. POST camera/health/check để thấy ONLINE.
 7. Trong Development, POST `/api/demo/cameras/{id}/state?online=false`, rồi check health để mở event.
 8. Investigate event; đổi demo state về true và check để thấy RESOLVED.
@@ -125,25 +172,61 @@ Preview hiện là ảnh frame (demo SVG hoặc JPEG), dùng được để vẽ
 
 ## Video và credential
 
+### Upload video thay camera để test YOLO + ByteTrack
+
+Từ `C:\FPT University\CAPSTONE\Backend\Back-End`, chạy backend như bình thường. Nếu FFmpeg chưa có trên PATH, đặt đường dẫn portable trong cửa sổ PowerShell chạy BE:
+
+```powershell
+$env:Video__FfmpegPath = 'C:\FPT University\CAPSTONE\setup\tools\ffmpeg\ffmpeg-9.0.2-essentials_build\bin\ffmpeg.exe'
+.\scripts\Start-Local.ps1
+```
+
+`Video:RecordedRoot` mặc định `.local/videos`, resolve theo API content root thay vì thư mục terminal. Từ source, mặc định là `C:\FPT University\CAPSTONE\Backend\Back-End\src\Supermarket.Api\.local\videos`. AI service mặc định đọc đúng thư mục đó. Nếu đổi folder/di chuyển checkout/publish, đặt `Video:RecordedRoot` và `AI_RECORDED_ROOT` tới cùng đường dẫn tuyệt đối. Chạy ở máy/container khác phải share/mount storage; URI file trên laptop không tự truy cập được từ server khác.
+
+React: **Cameras → Add camera → Uploaded video** (hoặc chọn camera ACTIVE → **Upload video**) → chọn MP4 → **Save video source → Test & enable → Start AI preview**. Default store phải được seed; tạo floor qua **Store Layout → Create floor** nếu chưa có.
+
+Upload dừng session AI cũ, lưu filename ngẫu nhiên, configure RECORDED/FILE, xóa credentials/test và disable connection. Response upload không trả local URI; connection view hiện có vẫn trả URI cho Admin. File không public qua static files. Upload lỗi/canceled hoặc configure thất bại cleanup file mới. File upload thành công được giữ, kể cả sau khi bị thay nguồn; chưa có retention/delete API, cần quản lý dung lượng và backup riêng. Không commit video, `.local`, keys hoặc secret.
+
+Không thay nguồn (upload hoặc PUT connection) khi camera map tới monitoring ACTIVE; deactivate trước. Mapping/ROI được giữ, phải xem lại ROI nếu cảnh đổi. Upload là controlled fallback/evaluation; live CCTV vẫn là mục tiêu chính.
+
+AI đọc tuần tự mọi frame, pace theo FPS và tốc độ inference (có thể chậm hơn thời gian thật), không tự loop. EOF trả `COMPLETED`, giữ JPEG cuối; preview-only stop/start replay với tracker mới. Preview-only không ghi measurement, OperationalEvent hay Incident; cấu hình ACTIVE dùng monitoring worker riêng bên dưới. Public Stop không replay/stop monitoring-owned session. Health worker hiện probe khả năng đọc một frame của file, không phản ánh GPU/tiến độ/EOF; file còn đọc được có thể vẫn ONLINE sau playback.
+
+Proxy: `POST /api/cameras/{id}/ai-preview/start`, `GET .../status`, `GET .../frame`, `POST .../stop`; ADMIN/OPERATOR JWT. `AiPreview:BaseUrl` mặc định `http://127.0.0.1:8090`. Internal key nếu dùng phải khớp `AI_INTERNAL_SERVICE_KEY`. Model/device/default confidence từ `AiPreview`; Admin có thể dùng `start?zoneId=<uuid>` để restart preview-only camera session với confidence của cấu hình zone đã lưu. Zone phải có mapping/ROI cùng tầng hợp lệ; chưa cần Activate để kiểm thử Draft. Nếu camera đang monitoring ACTIVE, active preview chỉ attach; Draft restart bị từ chối để không ngắt monitoring.
+
 RTSP, HTTP/HLS và recorded video dùng FFmpeg để đọc/giải mã một frame; thành công chỉ khi nhận được frame, không chỉ khi mở được TCP. Cấu hình `Video:FfmpegPath` trỏ tới FFmpeg trên máy. Recorded FILE phải nằm dưới `Video:RecordedRoot`. Dockerfile bao gồm FFmpeg. WebRTC yêu cầu adapter media gateway, hiện trả lỗi rõ ràng.
 
 Camera URI không được chứa userinfo, query hay fragment. Gửi `username`/`password` riêng; password được mã hóa bằng ASP.NET Data Protection trong `credential_secret_ref`, DTO chỉ trả `hasCredentials`. PUT thay toàn bộ credentials; bỏ password sẽ xóa credentials cũ. Không trả secret reference, không log FFmpeg stderr hay SQL exception detail. Key ring phải được giữ qua restart; production cần volume riêng, ACL phù hợp và cấu hình bảo vệ key ring at rest. Giữ JWT key/DB credentials trong secrets môi trường, đặt HTTPS tại reverse proxy.
 
+## Configure monitoring → Review & activate (2026-10-03)
+
+Sau khi camera LIVE hoặc MP4 đã **Test & enable**, vào **Store Layout → Camera coverage**, map camera với zone và lưu ROI trên frame. Chọn **Configure monitoring for …** ở ROI editor hoặc **Configure monitoring: …** trong Cameras để mở AI Config đúng zone.
+
+1. AI Config hiển thị tổng quan config theo Floor/Zone. Chọn zone để xem detail read-only; bấm **Create configuration** hoặc **Edit configuration** mới mở form đặt tên/confidence (0–1, tối đa 4 chữ số thập phân). **Cancel** bỏ local draft, không gọi API lưu.
+2. **Add rule** từ catalog AI thật. Long Queue dùng PEOPLE (gợi ý 3/5): người phải ở ROI liên tục ≥5 giây mới vào queue count, rồi áp dụng sustain. Overcrowding tạm dùng **People count in ROI**: nhập warning/critical mới và chọn **Use people count (temporary)**; lưu PEOPLE + `parametersJson.measurementMode=PEOPLE_COUNT`. Không cần m². Rule mật độ PEOPLE_PER_M2 cũ không bị đổi ngầm; density, Waiting Time và Checkout runtime còn hoãn, chỉ giữ disabled Draft. Warning < critical; PEOPLE là số nguyên.
+3. Đặt sustain/cooldown theo giây, bật/tắt rule → **Save configuration** (Draft). Mặc định 30/300 theo PROJECT_CONTEXT §24. Save bắt buộc có ít nhất một incident rule; array rỗng trả 422 `RULES_REQUIRED` và không tạo/thay config. Save thay toàn bộ tập rule; remove trên UI chỉ có hiệu lực khi lưu và phải giữ ít nhất một rule. Save thành công đóng form và cập nhật overview/detail.
+4. **Review & activate** đọc lại SQL: cần đúng **một** ACTIVE camera mapping cho zone, ROI hợp lệ, camera ACTIVE, LIVE HTTP/RTSP/HLS hoặc RECORDED FILE tested-success/enabled, ít nhất một enabled rule có runtime. Không cộng counts nhiều camera/ReID. Preview Draft chỉ restart preview-only; camera đang monitoring từ chối Draft restart. Preview active chỉ attach, không reset tracking.
+5. **Activate configuration** kiểm tra lại trong transaction; expectedUpdatedAt chống activate bản cũ. **Deactivate configuration** trước khi sửa rule/confidence/source/mapping/ROI. Có lỗi concurrency thì dùng **Reload saved configuration**, không ghi đè thay đổi của người khác.
+6. **Delete configuration** mở hộp xác nhận, chỉ DRAFT/INACTIVE mới được xóa. ACTIVE phải Deactivate trước. DELETE kiểm tra configId và expectedUpdatedAt để không xóa config đã thay đổi/tạo lại. Chỉ config/rules bị xóa, giữ Zone/Camera/ROI; zone trở về Not configured và có thể tạo Draft mới.
+
+Draft lưu DB thật, không phải trạng thái React. Checkout Capacity chưa có counter/composite definition nên chỉ lưu rule disabled với đơn vị placeholder do Admin nhập; không được enable. Recorded source được đánh dấu test/fallback. Review kiểm tra trạng thái cấu hình và kết quả test đã lưu, không thực hiện một FFmpeg probe mới; dùng Test & enable/health check để xác nhận khả năng đọc video hiện tại.
+
+**Runtime increment 03/10:** Activate yêu cầu worker BE chạy liên tục, không cần browser. Confidence lọc trước ByteTrack; footpoint (giữa đáy bbox) trong/trên ROI được đếm. Warning/Critical có sustain độc lập theo thời gian nguồn video. Worker giữ cursor thứ tự, reset khi gap/reconnect/version đổi; persist aggregate OperationalEvent theo giây nguồn và tại trigger. Incident mới là **DETECTED — chưa dispatch**, dedup zone/type, không downgrade/tự close; cooldown tính từ lần kết thúc gần nhất. Live page có runtime/count/progress/incident feed; recorded là DEMO. Stop live view không dừng worker. EOF giữ frame cuối, không loop; deactivate toàn bộ cấu hình active trên camera, chờ worker trả STOPPED rồi reactivate để phát lại. Density/m², Waiting Time, Checkout, dispatch/task/close endpoints/media/analytics chưa có. Dashboard dùng saved-readiness chung với Review/Activate, nhưng ACTIVE không khẳng định worker đang RUNNING.
+
+Trước khi dùng: review rồi chạy **toàn bộ** `Database/migrations/20261003_02_monitoring_runtime_erd_v3.sql` trong SSMS với **FA26SE103_Dev** (migration01 đã có), sau backup và dừng writers. Chưa chạy script trên DB chung. Thiếu schema trả503 `MONITORING_SCHEMA_NOT_READY`. Restart AI/BE/FE bằng các lệnh native ở trên; density ACTIVE cũ cần Deactivate → Edit → nhập count mới → Save → Review → Activate. Model/device/native storage không đổi.
+
 ## Database-first
 
-Schema SQL chỉ nằm tại `Project/DB/FA26SE103_Database_V0.1.sql`, bên cạnh thư mục `Project/Back-End`. Backend không giữ bản sao schema riêng. Script khởi tạo đọc file này trực tiếp; test project liên kết cùng file và chỉ sao chép vào build output để test runner đọc.
+Database SQL Server đã được team cấu hình là nguồn persistence. Entities scaffold hiện có trong source đủ để chạy API với database tương ứng; không dùng script SQL V0.1 cũ để suy ra contract mới. Backend không giữ bản sao schema riêng. Test project vẫn có cấu hình liên kết file SQL bên ngoài để tạo database test tạm; đây là prerequisite của SQL tests, không phải bước khởi động API.
 
-Scaffold local dùng Windows Authentication (`Integrated Security=True`) trên `.\SQLEXPRESS`, không dùng SQL username/password. Bản SQL hiện tại đã có UserAccount ACTIVE/DISABLED, không có cột account review và connection mặc định disabled; EF của các bảng đã implement được scaffold theo bản này.
-
-Khi team phê duyệt schema mới: cập nhật file SQL trong `Project/DB`, áp dụng vào database, rồi scaffold lại:
+Khi team phê duyệt schema mới: áp dụng thay đổi đã duyệt vào database, trỏ connection scaffold tới đúng database, rồi scaffold lại:
 
 ```powershell
-$env:MF01_SCAFFOLD_CONNECTION = 'Server=.\SQLEXPRESS;Database=FA26SE103_MF01_Local;Integrated Security=True;TrustServerCertificate=True'
+$env:MF01_SCAFFOLD_CONNECTION = '<connection string tới database đã duyệt>'
 .\scripts\Scaffold.ps1
 dotnet test --settings coverage.runsettings --collect:'XPlat Code Coverage'
 ```
 
-Generated files nằm tại `Infrastructure/Persistence/Scaffolded`; custom EF configuration nằm ở partial extension bên ngoài thư mục generated. Script chỉ scaffold 10 bảng stable, bỏ MonitoringRule. Không dùng `EnsureCreated` hoặc code-first migrations. Tham khảo [EF Core reverse engineering](https://learn.microsoft.com/en-us/ef/core/managing-schemas/scaffolding/).
+Generated files nằm tại `Infrastructure/Persistence/Scaffolded`; custom EF configuration nằm ngoài thư mục generated. Script scaffold **14 bảng**, thêm Incident/OperationalEvent, mặc định build Release. Increment01→02 ở Database repo; đã re-scaffold từ SQL fixture cục bộ riêng, không sửa generated bằng tay. Không chạy V0.1 installer lên DB hiện có, không `EnsureCreated`/code-first migration. Tham khảo [EF Core reverse engineering](https://learn.microsoft.com/en-us/ef/core/managing-schemas/scaffolding/).
 
 ## Kiểm thử
 
@@ -152,17 +235,18 @@ dotnet test --settings coverage.runsettings --collect:'XPlat Code Coverage' --re
 dotnet publish src/Supermarket.Api -c Release
 ```
 
-Integration tests tạo database ngẫu nhiên `FA26SE103_MF01_Test_<guid>` từ file SQL trong `Project/DB` và xóa đúng database đó sau test. Mặc định dùng Windows auth trên `.\SQLEXPRESS`. Đổi instance bằng `MF01_TEST_SERVER`, hoặc dùng SQL auth qua `MF01_TEST_CONNECTION`. Không trỏ vào database chứa dữ liệu cần giữ: tests luôn chọn catalog tạm riêng và cần quyền tạo/xóa database. Không bỏ qua SQL tests nếu thiếu kết nối; test sẽ báo fail.
+Integration tests tạo database ngẫu nhiên `FA26SE103_MF01_Test_<guid>` từ baseline SQL và migration monitoring trong repo Database, rồi xóa đúng database đó sau test. Mặc định tìm repo sibling `CAPSTONE/Database`, dùng Windows auth trên `.\SQLEXPRESS`. Đổi instance bằng `MF01_TEST_SERVER`, hoặc dùng SQL auth qua `MF01_TEST_CONNECTION`. Không trỏ vào môi trường dùng chung: tests cần quyền tạo/xóa database riêng. Không bỏ qua SQL tests nếu thiếu kết nối/schema/migration; test sẽ báo fail.
 
-GitHub Actions mặc định chạy build, domain unit tests và Release publish cho repository backend độc lập. Job SQL integration được bật khi repository variable `MF01_SCHEMA_REPOSITORY` trỏ tới repository chứa SQL authoritative của team. Có thể đặt `MF01_SCHEMA_REF` (mặc định main), `MF01_SCHEMA_FILE` (mặc định tên file SQL) và secret read-only `MF01_SCHEMA_READ_TOKEN` nếu repository schema là private. Khi chưa cấu hình nguồn schema, job integration hiển thị skipped; đó không phải bằng chứng đã kiểm tra SQL trên GitHub.
+GitHub Actions mặc định chạy build, các test không cần SQL và Release publish cho repository backend độc lập. Test dùng `SqlApiFixture` phải có `[Trait("Category", "SqlIntegration")]` trên class; các phần `partial` của `ApiFlowTests` dùng chung trait này. Job `verify` chạy `Category!=SqlIntegration`, job SQL chạy `Category=SqlIntegration`, gồm cả concurrency tests. Job SQL integration được bật khi variable `MF01_SCHEMA_REPOSITORY` trỏ tới repo Database. Đặt `MF01_SCHEMA_REF` tới branch/commit đã có migration (hiện `feature/mf01-monitoring-rules`), `MF01_SCHEMA_FILE` (mặc định baseline V0.1), `MF01_MONITORING_MIGRATION_FILE` (mặc định `migrations/20261003_01_monitoring_rules_erd_v3.sql`) và secret read-only `MF01_SCHEMA_READ_TOKEN` nếu private. Job skipped không phải bằng chứng SQL đã được kiểm tra trên GitHub.
 
-Nếu SQL nằm ở vị trí khác khi chạy local, truyền `-p:Mf01SchemaPath=<đường dẫn SQL>` cho `dotnet test`. Unit tests có thể build/chạy độc lập bằng `--filter FullyQualifiedName~Supermarket.Tests.DomainTests`; full integration tests vẫn báo fail rõ ràng nếu thiếu schema. Dockerfile/workflow được cung cấp để tích hợp, chưa deploy lên VPS.
+Nếu SQL nằm ở vị trí khác, truyền `-p:Mf01SchemaPath=<baseline SQL>`, `-p:Mf01MonitoringMigrationPath=<migration01 SQL>` và `-p:Mf02MonitoringRuntimeMigrationPath=<migration02 SQL>`. CI có `MF02_RUNTIME_MIGRATION_FILE` tương ứng; Schema repo/ref cần chứa cả01/02. Test không cần SQL: `dotnet test -c Release --filter "Category!=SqlIntegration"`; toàn bộ test SQL có Category=SqlIntegration. Full suite cần đủ schema/migrations/SQL Server. [Deploy Dev](docs/DEPLOY_DEV.md) tự chạy từ nhánh `dev`; chưa xác minh rollout thực tế trên VPS.
 
 ## Các điểm còn chờ team đồng bộ
 
-- RP1/RP2/BR local vẫn có mô tả camera thuộc zone và confidence-based incident review đã lỗi thời. Backend theo quyết định cập nhật trong AGENTS.md: camera thuộc floor, N:M zone, model confidence chỉ là input filter.
-- MonitoringRule/IncidentType chỉ có DTO contract; chưa tạo endpoint hay persistence theo phạm vi triển khai hiện tại trong AGENTS.md. Bảng MonitoringRule trong file SQL của `Project/DB` chưa được backend sử dụng.
-- `area_m2`, measurement-source selection và most-recent-maintenance field chưa có trong schema stable; backend không tự thêm cột.
-- Activation hiện bật configuration trong backend; pipeline YOLO/ByteTrack và OperationalEvents thuộc MF-02, chưa chạy ở increment này.
-- Nối các trang React với API, live CCTV cụ thể và playback gateway là các bước tích hợp tiếp theo. Chưa xác nhận full MF-01 UI acceptance hoặc hiệu năng live stream.
+- Context baseline 02/10 xác định camera thuộc floor, N:M zone và model confidence chỉ là input filter. Đối chiếu các tài liệu/source cũ với [guide đầy đủ](docs/PROJECT_CONTEXT.md) trước khi mở rộng hành vi.
+- MonitoringRule/IncidentType đã persistence theo migration ERD v3 đã duyệt; catalog baseline do Database repo seed (4 AI + 6 staff). API monitoring chỉ trả loại AI. Cờ "requires Operator review", measurement-source, checkout-counter và Manager-on-duty vẫn chờ team; không tự thêm schema.
+- Store Layout đã có tạo/sửa floor, zone editing, camera→zone selector và camera-frame ROI editor. Cameras/ROI editor có link tới AI Config đúng zone. AI Config có Review/Activate/Deactivate và Delete với xác nhận/version guard. Dashboard đã nối `GET /api/setup/overview` để hiển thị saved setup counts, readiness dùng chung Review/Activate, camera health và unresolved events; action links chọn đúng floor/camera/zone. Health-event Investigation/Resolve UI và mini-map Cameras geometry vẫn cần hoàn thiện. Store mặc định từ seed; không thêm flow tạo/chọn store.
+- Rule CRUD Draft và review/activate MF-01 đã có. Checkout capacity chỉ lưu disabled Draft vì chưa có counter/composite measurement. Waiting-time rule lưu đơn vị MINUTES nhưng preview chưa đo entry-to-counter; runtime cần thiết kế counter khi triển khai MF-02.
+- Increment runtime đã có ROI counts, evaluator, OperationalEvent/Incident, dedup/cooldown và worker. Chỉ hỗ trợ count/queue, đúng một ACTIVE camera mapping per-zone. Health events vẫn tách biệt Operational Incidents; dispatch/tasks và close workflow chưa triển khai.
+- Multiple-camera measurement-source selection và một số operational limits còn mở ([PROJECT_CONTEXT §33](docs/PROJECT_CONTEXT.md#33-implementation-questions-that-are-currently-open)); không tự cộng người từ các camera nhìn cùng zone hay suy ra cross-camera identity. Chưa xác nhận full MF-01 UI acceptance hoặc hiệu năng live stream.
 - Backend dùng repository riêng `GFA26SE39-FA26SE103/Back-End`: `main` là stable, `dev` là integration, feature branches qua PR vào dev và cần review trước khi merge.

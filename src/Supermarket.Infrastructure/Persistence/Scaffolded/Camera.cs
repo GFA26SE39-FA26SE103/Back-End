@@ -46,4 +46,8 @@ public partial class Camera
     public virtual ICollection<CameraZoneMapping> CameraZoneMappings { get; set; } = new List<CameraZoneMapping>();
 
     public virtual Floor Floor { get; set; } = null!;
+
+    public virtual ICollection<Incident> Incidents { get; set; } = new List<Incident>();
+
+    public virtual ICollection<OperationalEvent> OperationalEvents { get; set; } = new List<OperationalEvent>();
 }

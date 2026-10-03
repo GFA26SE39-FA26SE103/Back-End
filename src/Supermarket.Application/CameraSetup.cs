@@ -6,12 +6,12 @@ public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICamera
 {
     public async Task<Camera> Get(Guid id, CancellationToken ct)
     {
-        UseCase.Admin(current);
+        UseCase.Viewer(current);
         return UseCase.Found(await store.Find<Camera>(id, ct));
     }
     public async Task<List<Camera>> List(Guid floorId, CancellationToken ct)
     {
-        UseCase.Admin(current);
+        UseCase.Viewer(current);
         UseCase.Found(await store.Find<Floor>(floorId, ct));
         return await store.List<Camera>(c => c.FloorId == floorId, ct);
     }
@@ -58,6 +58,8 @@ public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICamera
     private static DateTime Utc(DateTime value) => value.Kind == DateTimeKind.Local ? value.ToUniversalTime() : DateTime.SpecifyKind(value, DateTimeKind.Utc);
     public async Task<ConnectionView> Connection(Guid cameraId, CancellationToken ct)
     {
+        // Connection details include the stream URI; keep them Admin-only.
+        UseCase.Admin(current);
         await Get(cameraId, ct);
         return View(await LoadConnection(cameraId, ct));
     }
@@ -68,6 +70,9 @@ public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICamera
         return store.Transaction(async () =>
         {
             var camera = await Get(id, ct);
+            foreach (var mapping in await store.List<CameraZoneMapping>(m => m.CameraId == id && m.Status == "ACTIVE", ct))
+                if ((await store.List<MonitoringConfiguration>(m => m.ZoneId == mapping.ZoneId && m.Status == "ACTIVE", ct)).Count > 0)
+                    throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before replacing the camera source.");
             var x = (await store.List<CameraConnection>(c => c.CameraId == id, ct)).SingleOrDefault();
             var isNew = x is null;
             x ??= new CameraConnection { ConnectionId = Guid.NewGuid(), CameraId = id };
@@ -97,6 +102,7 @@ public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICamera
     }
     public async Task<ConnectionView> Test(Guid id, CancellationToken ct)
     {
+        UseCase.Admin(current);
         await Get(id, ct);
         var snapshot = await LoadConnection(id, ct);
         var result = await streams.Test(snapshot, ct);
@@ -155,8 +161,8 @@ public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICamera
             Rules.Status(r.Status, "ACTIVE", "INACTIVE");
             var x = (await store.List<CameraZoneMapping>(m => m.CameraId == id && m.ZoneId == zoneId, ct)).SingleOrDefault();
             var isNew = x is null;
-            if (r.Status == "INACTIVE" && (await store.List<MonitoringConfiguration>(m => m.ZoneId == zoneId && m.Status == "ACTIVE", ct)).Count > 0)
-                throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before disabling a mapping.");
+            if ((await store.List<MonitoringConfiguration>(m => m.ZoneId == zoneId && m.Status == "ACTIVE", ct)).Count > 0)
+                throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before changing camera mapping or ROI.");
             x ??= new CameraZoneMapping { CameraZoneId = Guid.NewGuid(), CameraId = id, ZoneId = zoneId };
             x.RoiPolygon = JsonSerializer.Serialize(r.RoiPolygon);
             x.Status = r.Status;

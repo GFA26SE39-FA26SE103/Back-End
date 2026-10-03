@@ -7,12 +7,12 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current)
 {
     public Task<List<Store>> Stores(CancellationToken ct)
     {
-        UseCase.Admin(current);
+        UseCase.Viewer(current);
         return store.List<Store>(ct: ct);
     }
     public async Task<T> Get<T>(Guid id, CancellationToken ct) where T : Entity, new()
     {
-        UseCase.Admin(current);
+        UseCase.Viewer(current);
         return UseCase.Found(await store.Find<T>(id, ct));
     }
     public Task<Store> SaveStore(Guid? id, StoreRequest r, CancellationToken ct)
@@ -65,6 +65,22 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current)
         await Get<Floor>(floorId, ct);
         return (await store.List<Zone>(z => z.FloorId == floorId, ct)).Select(View).ToList();
     }
+    public Task<Floor> UpdateFloorDetails(Guid id, FloorDetailsRequest request, CancellationToken ct)
+    {
+        UseCase.Admin(current);
+        return store.Transaction(async () =>
+        {
+            var floor = UseCase.Found(await store.Find<Floor>(id, ct));
+            UseCase.Unique((await store.List<Floor>(f => f.SupermarketId == floor.SupermarketId
+                && f.FloorNumber == request.FloorNumber && f.FloorId != id, ct)).Count > 0);
+            var name = Rules.Text(request.Name, 100, "Name");
+            floor.FloorNumber = request.FloorNumber;
+            floor.Name = name;
+            // Read and retain the current map metadata; the editor never submits an old asset URL/dimensions.
+            await store.Update(floor, ct);
+            return floor;
+        }, ct);
+    }
     public async Task<ZoneView> Zone(Guid id, CancellationToken ct) => View(await Get<Zone>(id, ct));
     public Task<ZoneView> SaveZone(Guid? id, Guid? floorId, ZoneRequest r, CancellationToken ct)
     {
@@ -73,13 +89,20 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current)
         {
             var x = id is null ? new Zone { ZoneId = Guid.NewGuid(), FloorId = floorId!.Value } : UseCase.Found(await store.Find<Zone>(id.Value, ct));
             UseCase.Found(await store.Find<Floor>(x.FloorId, ct));
+            if (id is not null && x.AreaM2 != r.AreaM2
+                && (await store.List<MonitoringConfiguration>(m => m.ZoneId == x.ZoneId && m.Status == "ACTIVE", ct)).Count > 0)
+                throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before changing the physical zone area used by its measurements.");
             x.Code = Rules.Text(r.Code, 50, "Code");
             UseCase.Unique((await store.List<Zone>(z => z.FloorId == x.FloorId && z.Code == x.Code && z.ZoneId != x.ZoneId, ct)).Count > 0);
             Rules.Polygon(r.MapPolygon);
             Rules.Status(r.Status, "ACTIVE", "INACTIVE");
             Rules.Optional(r.ZoneType, 50, "ZoneType");
+            Rules.ZoneColor(r.ColorHex);
+            Rules.ZoneArea(r.AreaM2);
             x.Name = Rules.Text(r.Name, 100, "Name");
             x.ZoneType = r.ZoneType;
+            x.ColorHex = r.ColorHex?.ToUpperInvariant();
+            x.AreaM2 = r.AreaM2;
             x.MapPolygon = JsonSerializer.Serialize(r.MapPolygon);
             x.Status = r.Status;
             if (x.Status != "ACTIVE")
@@ -92,6 +115,6 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current)
             return View(x);
         }, ct);
     }
-    public static ZoneView View(Zone x) => new(x.ZoneId, x.FloorId, x.Code, x.Name, x.ZoneType, JsonSerializer.Deserialize<Point[]>(x.MapPolygon)!, x.Status, x.UpdatedAt);
+    public static ZoneView View(Zone x) => new(x.ZoneId, x.FloorId, x.Code, x.Name, x.ZoneType, JsonSerializer.Deserialize<Point[]>(x.MapPolygon)!, x.ColorHex, x.AreaM2, x.Status, x.UpdatedAt);
     private Task Save<T>(T x, Guid? id, CancellationToken ct) where T : Entity, new() => id is null ? store.Add(x, ct) : store.Update(x, ct);
 }
