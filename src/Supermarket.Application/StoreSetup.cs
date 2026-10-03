@@ -7,12 +7,12 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current)
 {
     public Task<List<Store>> Stores(CancellationToken ct)
     {
-        UseCase.Admin(current);
+        UseCase.Viewer(current);
         return store.List<Store>(ct: ct);
     }
     public async Task<T> Get<T>(Guid id, CancellationToken ct) where T : Entity, new()
     {
-        UseCase.Admin(current);
+        UseCase.Viewer(current);
         return UseCase.Found(await store.Find<T>(id, ct));
     }
     public Task<Store> SaveStore(Guid? id, StoreRequest r, CancellationToken ct)

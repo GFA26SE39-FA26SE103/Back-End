@@ -1,6 +1,16 @@
 # MF-01 API contract
 
-Base URL local: `http://localhost:5080/api`. JSON dùng camelCase; IDs là UUID; dates/timestamps gửi theo ISO 8601 UTC. Tất cả configuration endpoints yêu cầu JWT role ADMIN. `POST /auth/login` public; `GET /auth/me` dành cho mọi account ACTIVE đã đăng nhập.
+Base URL local: `http://localhost:5080/api`. JSON dùng camelCase; IDs là UUID; dates/timestamps gửi theo ISO 8601 UTC. Mọi thao tác ghi cấu hình yêu cầu JWT role ADMIN. `POST /auth/login` public; `GET /auth/me` dành cho mọi account ACTIVE đã đăng nhập.
+
+Quyền đọc cho màn vận hành (Operator floor map, camera live):
+
+| Quyền | Endpoints |
+|---|---|
+| ADMIN, OPERATOR, MANAGER | `GET /supermarkets`, `GET /supermarkets/{id}`, `GET /supermarkets/{id}/floors`, `GET /floors/{id}`, `GET /floors/{id}/map`, `GET /floors/{id}/zones`, `GET /zones/{id}`, `GET /floors/{id}/cameras`, `GET /cameras/{id}`, `GET /cameras/{id}/zones`, `GET /cameras/{id}/preview` |
+| ADMIN, OPERATOR | `/cameras/{id}/ai-preview/start`, `status`, `frame`, `stop` (một phiên GPU dùng chung; người sau có thể nhận `AI_SESSION_CAPACITY`) |
+| Chỉ ADMIN | Mọi POST/PUT/PATCH/DELETE, `GET /cameras/{id}/connection` (có stream URI), `POST .../connection/test`, accounts, monitoring, camera health |
+
+Controller và use case cùng kiểm tra quyền; STAFF không đọc được dữ liệu setup.
 
 | Capability | Routes |
 |---|---|
@@ -52,7 +62,7 @@ Floor plan upload dùng `POST /api/floors/{id}/map` với `multipart/form-data`,
 {"floorId":"<uuid>","mapUrl":"http://localhost:5080/api/floors/<uuid>/map?v=<generated-token>","mapWidth":1200,"mapHeight":800,"contentType":"image/png","updatedAt":"2026-10-03T00:00:00Z"}
 ```
 
-`GET /api/floors/{id}/map` yêu cầu JWT ADMIN và stream bytes với Content-Type đã lưu. Asset không được public qua static files và response local dùng `Cache-Control: no-store`. File mặc định nằm ngoài `wwwroot` tại `src/Supermarket.Api/.local/floor-plans`; client không được biết hoặc gửi đường dẫn này. Upload thay thế cùng một floor được serialize để tránh hai request đồng thời xóa nhầm asset hiện hành.
+`GET /api/floors/{id}/map` yêu cầu JWT ADMIN, OPERATOR hoặc MANAGER và stream bytes với Content-Type đã lưu. Asset không được public qua static files và response local dùng `Cache-Control: no-store`. File mặc định nằm ngoài `wwwroot` tại `src/Supermarket.Api/.local/floor-plans`; client không được biết hoặc gửi đường dẫn này. Upload thay thế cùng một floor được serialize để tránh hai request đồng thời xóa nhầm asset hiện hành.
 
 Camera placement dùng contract camera hiện có: `mapX` và `mapY` normalized trong `[0,1]`, `mapRotationDeg` trong `[0,360)`. `PATCH /api/cameras/{id}` vẫn nhận full edit DTO; client phải giữ nguyên metadata, dates và status khi chỉ đổi placement. Lưu placement không tự test/enable connection hoặc activate monitoring.
 

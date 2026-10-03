@@ -18,13 +18,13 @@ namespace Supermarket.Tests;
 public sealed class AiPreviewApiTests
 {
     [Fact]
-    public void ControllerRequiresAdminAndDocumentsExpectedRoutes()
+    public void ControllerRequiresAdminOrOperatorAndDocumentsExpectedRoutes()
     {
         var type = typeof(AiPreviewController);
         var authorize = Assert.Single(type.GetCustomAttributes(typeof(AuthorizeAttribute), true).Cast<AuthorizeAttribute>());
         var route = Assert.Single(type.GetCustomAttributes(typeof(RouteAttribute), true).Cast<RouteAttribute>());
 
-        Assert.Equal("ADMIN", authorize.Roles);
+        Assert.Equal("ADMIN,OPERATOR", authorize.Roles);
         Assert.Equal("api/cameras/{id:guid}/ai-preview", route.Template);
         Assert.Equal("start", type.GetMethod("Start")!.GetCustomAttributes(typeof(HttpPostAttribute), true).Cast<HttpPostAttribute>().Single().Template);
         Assert.NotNull(type.GetMethod("Status")!.GetCustomAttributes(typeof(HttpGetAttribute), true).Single());

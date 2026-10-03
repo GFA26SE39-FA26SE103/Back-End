@@ -6,7 +6,7 @@ public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPrevie
 {
     public async Task<AiPreviewStatusView> Start(Guid cameraId, CancellationToken ct)
     {
-        UseCase.Admin(current);
+        UseCase.LiveView(current);
         var camera = UseCase.Found(await store.Find<Camera>(cameraId, ct));
         if (camera.Status != "ACTIVE")
             throw new ApplicationException("CAMERA_NOT_ACTIVE", "The camera must be active before AI preview can start.");
@@ -43,7 +43,7 @@ public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPrevie
 
     private async Task<Camera> Camera(Guid cameraId, CancellationToken ct)
     {
-        UseCase.Admin(current);
+        UseCase.LiveView(current);
         return UseCase.Found(await store.Find<Camera>(cameraId, ct));
     }
 

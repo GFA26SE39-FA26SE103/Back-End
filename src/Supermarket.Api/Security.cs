@@ -6,6 +6,13 @@ using Microsoft.IdentityModel.Tokens;
 using Supermarket.Application;
 namespace Supermarket.Api;
 
+/// <summary>Role lists for [Authorize(Roles = ...)]. Mutations stay Admin-only; use cases enforce the same rules.</summary>
+public static class AccessRoles
+{
+    public const string Admin = "ADMIN";
+    public const string Viewer = "ADMIN,OPERATOR,MANAGER";
+    public const string LiveView = "ADMIN,OPERATOR";
+}
 public sealed class JwtOptions
 {
     public string Issuer { get; set; } = "FA26SE103";

@@ -60,6 +60,18 @@ public static class UseCase
         if (user.Role != "ADMIN")
             throw new ApplicationException("FORBIDDEN", "Admin permission is required.", 403);
     }
+    /// <summary>Read-only store, floor, zone and camera data used by operational screens.</summary>
+    public static void Viewer(ICurrentUser user)
+    {
+        if (user.Role is not ("ADMIN" or "OPERATOR" or "MANAGER"))
+            throw new ApplicationException("FORBIDDEN", "Operational read access is required.", 403);
+    }
+    /// <summary>Live AI camera view; it uses a limited AI-service session, so only Admin and Operator.</summary>
+    public static void LiveView(ICurrentUser user)
+    {
+        if (user.Role is not ("ADMIN" or "OPERATOR"))
+            throw new ApplicationException("FORBIDDEN", "Live camera access is required.", 403);
+    }
     public static T Found<T>(T? entity) where T : class => entity ?? throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
     public static void Unique(bool duplicate)
     {

@@ -56,7 +56,7 @@ public sealed class FloorPlanUpload(ISetupStore store, ICurrentUser current, IFl
 
     public async Task<FloorPlanFile> Open(Guid floorId, CancellationToken ct)
     {
-        UseCase.Admin(current);
+        UseCase.Viewer(current);
         var floor = UseCase.Found(await store.Find<Floor>(floorId, ct));
         if (floor.MapAssetUrl is null)
             throw new ApplicationException("FLOOR_MAP_NOT_FOUND", "The floor has no uploaded map.", 404);

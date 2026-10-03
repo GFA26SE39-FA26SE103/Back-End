@@ -4,7 +4,7 @@ using Supermarket.Application;
 
 namespace Supermarket.Api.Controllers;
 
-[ApiController, Authorize(Roles = "ADMIN"), Route("api/cameras/{id:guid}/ai-preview")]
+[ApiController, Authorize(Roles = AccessRoles.LiveView), Route("api/cameras/{id:guid}/ai-preview")]
 public sealed class AiPreviewController(AiPreview preview) : ControllerBase
 {
     [HttpPost("start")]
