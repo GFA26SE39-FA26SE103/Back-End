@@ -54,7 +54,9 @@ public sealed partial class ApiFlowTests
                 Assert.Equal(HttpStatusCode.ServiceUnavailable,response.StatusCode);
                 var body=await response.Content.ReadAsStringAsync(); Assert.Contains("MONITORING_SCHEMA_NOT_READY",body); Assert.DoesNotContain("SqlException",body);
             }
-            var removal=await client.PutAsJsonAsync(route,new MonitoringRequest("Remove rule",Rules:[],ExpectedUpdatedAt:draft.UpdatedAt));
+            using var deletion = new HttpRequestMessage(HttpMethod.Delete, route)
+            { Content = JsonContent.Create(new MonitoringDeleteRequest(draft.ConfigId, draft.UpdatedAt)) };
+            var removal=await client.SendAsync(deletion);
             Assert.Equal(HttpStatusCode.ServiceUnavailable,removal.StatusCode);
             Assert.Contains("MONITORING_SCHEMA_NOT_READY",await removal.Content.ReadAsStringAsync());
         } finally { await isolated.DisposeAsync(); }

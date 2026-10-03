@@ -25,9 +25,16 @@ builder.Services.AddOptions<JwtOptions>().Bind(builder.Configuration.GetSection(
 builder.Services.Configure<VideoOptions>(builder.Configuration.GetSection("Video"));
 builder.Services.PostConfigure<VideoOptions>(options =>
     options.RecordedRoot = Path.GetFullPath(options.RecordedRoot, builder.Environment.ContentRootPath));
-builder.Services.Configure<FloorPlanOptions>(builder.Configuration.GetSection("FloorPlan"));
+builder.Services.AddOptions<FloorPlanOptions>().Bind(builder.Configuration.GetSection("FloorPlan"))
+    .Validate(o => o.Provider.Equals("Local", StringComparison.OrdinalIgnoreCase) || o.Provider.Equals("Cloudinary", StringComparison.OrdinalIgnoreCase), "FloorPlan:Provider must be Local or Cloudinary.")
+    .Validate(o => o.MaxBytes is > 0 and <= 20971520, "FloorPlan:MaxBytes must be between 1 and 20971520.")
+    .ValidateOnStart();
 builder.Services.PostConfigure<FloorPlanOptions>(options =>
     options.Root = Path.GetFullPath(options.Root, builder.Environment.ContentRootPath));
+builder.Services.AddOptions<CloudinaryOptions>().Bind(builder.Configuration.GetSection("Cloudinary"))
+    .Validate(o => !string.Equals(builder.Configuration["FloorPlan:Provider"], "Cloudinary", StringComparison.OrdinalIgnoreCase) || o.IsValid(),
+        "Set Cloudinary:CloudName, ApiKey, ApiSecret, Folder and TimeoutSeconds (1-120) before enabling the Cloudinary floor-plan provider.")
+    .ValidateOnStart();
 builder.Services.Configure<HealthWorkerOptions>(builder.Configuration.GetSection("CameraHealth"));
 builder.Services.Configure<MonitoringWorkerOptions>(builder.Configuration.GetSection("Monitoring"));
 builder.Services.AddOptions<AiPreviewOptions>().Bind(builder.Configuration.GetSection("AiPreview"))
@@ -51,7 +58,10 @@ builder.Services.AddSingleton<DemoCameraState>();
 builder.Services.AddScoped<ICameraStream, CameraStream>();
 builder.Services.AddScoped<IRecordedVideoStorage, RecordedVideoStorage>();
 builder.Services.AddScoped<RecordedVideoUpload>();
-builder.Services.AddScoped<IFloorPlanStorage, LocalFloorPlanStorage>();
+builder.Services.AddScoped<LocalFloorPlanStorage>();
+builder.Services.AddHttpClient<CloudinaryFloorPlanStorage>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<IFloorPlanStorage, FloorPlanStorage>();
 builder.Services.AddScoped<FloorPlanUpload>();
 builder.Services.AddScoped<ISetupStore, EfSetupStore>();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
@@ -67,6 +77,7 @@ builder.Services.AddScoped<MonitoringLive>();
 builder.Services.AddSingleton<MonitoringCameraCoordinator>();
 builder.Services.AddSingleton<IMonitoringRuntimeState>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());
 builder.Services.AddSingleton<IMonitoringSessionOwnership>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());
+builder.Services.AddScoped<SetupOverview>();
 builder.Services.AddScoped<CameraHealth>();
 builder.Services.AddScoped<AiPreview>();
 builder.Services.AddHttpClient<IAiPreviewClient, AiPreviewClient>((services, client) =>

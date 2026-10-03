@@ -28,5 +28,25 @@ public sealed partial class ApiFlowTests
             var row=(await scope.ServiceProvider.GetRequiredService<ISetupStore>().Find<OperationalEvent>(evidence.EventId))!;
             Assert.Null(row.RuleId); Assert.Equal(evidence.MetadataJson,row.MetadataJson);
         }
+        var retainedRuleEvidence = new OperationalEvent { EventId = Guid.NewGuid(), CameraId = camera.CameraId,
+            ZoneId = zone.ZoneId, RuleId = changed.Rules[0].RuleId, EventType = "QUEUE_LENGTH", MetricValue = 2,
+            DetectedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, MetadataJson = "{\"configurationVersion\":\"before-delete\"}" };
+        using (var scope = fixture.Factory.Services.CreateScope()) {
+            var store = scope.ServiceProvider.GetRequiredService<ISetupStore>();
+            await store.Transaction(async () => { await store.Add(retainedRuleEvidence); return true; });
+        }
+        using var deletion = new HttpRequestMessage(HttpMethod.Delete, url)
+        { Content = JsonContent.Create(new MonitoringDeleteRequest(changed.ConfigId, changed.UpdatedAt)) };
+        var deleted = await client.SendAsync(deletion);
+        Assert.Equal(System.Net.HttpStatusCode.NoContent, deleted.StatusCode);
+        using (var scope = fixture.Factory.Services.CreateScope()) {
+            var store = scope.ServiceProvider.GetRequiredService<ISetupStore>();
+            Assert.Null(await store.Find<MonitoringConfiguration>(changed.ConfigId));
+            Assert.Empty(await store.List<MonitoringRule>(r => r.ConfigId == changed.ConfigId));
+            var row = (await store.Find<OperationalEvent>(retainedRuleEvidence.EventId))!;
+            Assert.Null(row.RuleId);
+            Assert.Equal("{\"configurationVersion\":\"before-delete\"}", row.MetadataJson);
+            Assert.NotNull(await store.Find<OperationalEvent>(evidence.EventId));
+        }
     }
 }

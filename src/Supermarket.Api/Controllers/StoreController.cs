@@ -27,6 +27,7 @@ public sealed class StoreController(StoreSetup setup, FloorPlanUpload floorPlans
     }
     [Authorize(Roles = AccessRoles.Viewer), HttpGet("/api/floors/{id:guid}")] public Task<Floor> Floor(Guid id, CancellationToken ct) => setup.Get<Floor>(id, ct);
     [Authorize(Roles = AccessRoles.Admin), HttpPatch("/api/floors/{id:guid}")] public Task<Floor> UpdateFloor(Guid id, FloorRequest r, CancellationToken ct) => setup.SaveFloor(id, null, r, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpPatch("/api/floors/{id:guid}/details")] public Task<Floor> UpdateFloorDetails(Guid id, FloorDetailsRequest r, CancellationToken ct) => setup.UpdateFloorDetails(id, r, ct);
     [Authorize(Roles = AccessRoles.Admin), HttpPost("/api/floors/{id:guid}/map")]
     [RequestSizeLimit(21L * 1024 * 1024)]
     [RequestFormLimits(MultipartBodyLengthLimit = 21L * 1024 * 1024)]

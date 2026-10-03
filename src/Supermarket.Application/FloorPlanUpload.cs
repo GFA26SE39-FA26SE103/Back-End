@@ -11,8 +11,8 @@ public interface IFloorPlanStorage
 {
     Task<StoredFloorPlan> Save(Guid floorId, Stream content, string filename, string contentType, long length, CancellationToken ct);
     Task<FloorPlanFile?> Open(Guid floorId, string token, CancellationToken ct);
-    void Delete(Guid floorId, string token);
-    void DeleteOthers(Guid floorId, string token);
+    // Delete one exact asset asynchronously; the configured storage router makes cleanup best-effort.
+    Task Delete(Guid floorId, string token, CancellationToken ct);
 }
 
 public sealed class FloorPlanUpload(ISetupStore store, ICurrentUser current, IFloorPlanStorage files)
@@ -28,6 +28,11 @@ public sealed class FloorPlanUpload(ISetupStore store, ICurrentUser current, IFl
         try
         {
             var floor = UseCase.Found(await store.Find<Floor>(floorId, ct));
+            var previousUrl = floor.MapAssetUrl;
+            var previousWidth = floor.MapWidth;
+            var previousHeight = floor.MapHeight;
+            var previousUpdatedAt = floor.UpdatedAt;
+            var previousToken = Token(previousUrl);
             var saved = await files.Save(floorId, content, filename, contentType, length, ct);
             try
             {
@@ -42,10 +47,16 @@ public sealed class FloorPlanUpload(ISetupStore store, ICurrentUser current, IFl
             }
             catch
             {
-                files.Delete(floorId, saved.Token);
+                floor.MapAssetUrl = previousUrl;
+                floor.MapWidth = previousWidth;
+                floor.MapHeight = previousHeight;
+                floor.UpdatedAt = previousUpdatedAt;
+                await files.Delete(floorId, saved.Token, CancellationToken.None);
                 throw;
             }
-            files.DeleteOthers(floorId, saved.Token);
+            // Delete only the exact prior reference, never all assets under the floor's prefix.
+            if (previousToken is not null && previousToken != saved.Token)
+                await files.Delete(floorId, previousToken, CancellationToken.None);
             return new(floor.FloorId, floor.MapAssetUrl!, floor.MapWidth, floor.MapHeight, saved.ContentType, floor.UpdatedAt);
         }
         finally
@@ -60,14 +71,20 @@ public sealed class FloorPlanUpload(ISetupStore store, ICurrentUser current, IFl
         var floor = UseCase.Found(await store.Find<Floor>(floorId, ct));
         if (floor.MapAssetUrl is null)
             throw new ApplicationException("FLOOR_MAP_NOT_FOUND", "The floor has no uploaded map.", 404);
-        var uri = new Uri(floor.MapAssetUrl, UriKind.Absolute);
-        var token = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
-            .Select(part => part.Split('=', 2))
-            .Where(parts => parts.Length == 2 && parts[0] == "v")
-            .Select(parts => Uri.UnescapeDataString(parts[1]))
-            .SingleOrDefault();
+        var token = Token(floor.MapAssetUrl);
         if (string.IsNullOrWhiteSpace(token))
             throw new ApplicationException("FLOOR_MAP_NOT_FOUND", "The floor map reference is invalid.", 404);
         return UseCase.Found(await files.Open(floorId, token, ct));
+    }
+
+    private static string? Token(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;
+        var tokens = uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries)
+            .Select(part => part.Split('=', 2))
+            .Where(parts => parts.Length == 2 && parts[0] == "v")
+            .Select(parts => Uri.UnescapeDataString(parts[1]))
+            .ToArray();
+        return tokens.Length == 1 ? tokens[0] : null;
     }
 }

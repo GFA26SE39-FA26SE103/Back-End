@@ -9,6 +9,7 @@ using Xunit;
 namespace Supermarket.Tests;
 
 [Collection("SqlApi")]
+[Trait("Category", "SqlIntegration")]
 public sealed partial class ApiFlowTests(SqlApiFixture fixture)
 {
     private static Point[] Triangle => [new(.1m, .1m), new(.8m, .1m), new(.1m, .8m)];
@@ -129,7 +130,10 @@ public sealed partial class ApiFlowTests(SqlApiFixture fixture)
         var zone = await Zone(client, floor);
         var monitoring = $"/api/zones/{zone.ZoneId}/monitoring";
         var connection = $"/api/cameras/{camera.CameraId}/connection";
-        var draft = await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(monitoring, new MonitoringRequest("Queue monitoring", Rules: [])));
+        var incidentTypes = (await client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!;
+        var queueType = incidentTypes.Single(t => t.Code == "LONG_QUEUE");
+        var draft = await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(monitoring, new MonitoringRequest("Queue monitoring",
+            Rules: [new MonitoringRuleRequest(queueType.IncidentTypeId, 3, 5, "PEOPLE", 30, 300)])));
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync(monitoring + "/activate", new MonitoringActivationRequest(draft.UpdatedAt))).StatusCode);
         await Read<ConnectionView>(await client.PutAsJsonAsync(connection, new ConnectionRequest("DEMO", "HTTP", "demo://camera/main")));
         await Read<ConnectionView>(await client.PostAsync(connection + "/test", null));

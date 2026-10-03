@@ -35,7 +35,8 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             else if (request.ExpectedUpdatedAt is not null) throw new ApplicationException("CONFIGURATION_CHANGED", "Configuration changed; reload before saving.");
             MonitoringPolicy.Confidence(request.ConfidenceThreshold);
             var name = Rules.Text(request.Name, 100, "Name");
-            var input = request.Rules ?? throw new ApplicationException("RULES_REQUIRED", "Provide the complete rules array; use [] for an empty Draft.", 400);
+            var input = request.Rules ?? throw new ApplicationException("RULES_REQUIRED", "Add at least one incident rule before saving the AI configuration.", 400);
+            Rules.Require(input.Length > 0, "RULES_REQUIRED", "Add at least one incident rule before saving the AI configuration.");
             Rules.Require(input.Length <= 32, "TOO_MANY_RULES", "A configuration supports at most 32 rules.");
             Rules.Require(input.All(r => r is not null), "INVALID_RULE", "Rules cannot contain null entries.");
             Rules.Require(input.Select(r => r.IncidentTypeId).Distinct().Count() == input.Length, "DUPLICATE_RULE", "Only one rule per incident type is allowed.");
@@ -60,12 +61,7 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             configuration.Status = "DRAFT";
             if (existing is null) await store.Add(configuration, ct); else await store.Update(configuration, ct);
             foreach (var old in oldRules.Where(r => !input.Any(x => x.IncidentTypeId == r.IncidentTypeId)))
-            {
-                // Keep immutable aggregate evidence when its optional rule is removed.
-                foreach(var evidence in await store.List<OperationalEvent>(e=>e.RuleId==old.RuleId,ct))
-                { evidence.RuleId=null; await store.Update(evidence,ct); }
-                await store.Remove(old, ct);
-            }
+                await RemoveRulePreservingHistory(old, ct);
             foreach (var (rule, isNew) in prepared)
                 if (isNew) await store.Add(rule, ct); else await store.Update(rule, ct);
             return await View(configuration, ct, prepared.Select(r => r.Rule).ToArray());
@@ -75,6 +71,26 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
     {
         UseCase.Admin(current);
         return store.Transaction(() => BuildReview(zoneId, ct), ct);
+    }
+    public Task Delete(Guid zoneId, MonitoringDeleteRequest request, CancellationToken ct)
+    {
+        UseCase.Admin(current);
+        return store.Transaction(async () =>
+        {
+            var configuration = await Configuration(zoneId, ct);
+            if (configuration.ConfigId != request.ConfigId)
+                throw new ApplicationException("CONFIGURATION_CHANGED", "Configuration changed; reload before deleting.");
+            CheckVersion(configuration, request.ExpectedUpdatedAt);
+            if (configuration.Status == "ACTIVE")
+                throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before deleting its configuration.");
+            Rules.Status(configuration.Status, "DRAFT", "INACTIVE");
+            var rules = await store.List<MonitoringRule>(r => r.ConfigId == configuration.ConfigId, ct);
+            if (runtimeQueries is not null && rules.Count > 0) await runtimeQueries.EnsureSchema(ct);
+            foreach (var rule in rules) await RemoveRulePreservingHistory(rule, ct);
+            // Retain historical events and incidents; remove only their optional rule references.
+            await store.Remove(configuration, ct);
+            return true;
+        }, ct);
     }
     public Task<MonitoringConfigurationView> Activate(Guid zoneId, bool active, CancellationToken ct) => Activate(zoneId, active, null, ct);
     public Task<MonitoringConfigurationView> Activate(Guid zoneId, bool active, DateTime? expectedUpdatedAt, CancellationToken ct)
@@ -104,10 +120,23 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
     }
     private async Task<MonitoringConfiguration> Configuration(Guid zoneId, CancellationToken ct)
         => UseCase.Found((await store.List<MonitoringConfiguration>(m => m.ZoneId == zoneId, ct)).SingleOrDefault());
+    private async Task RemoveRulePreservingHistory(MonitoringRule rule, CancellationToken ct)
+    {
+        foreach (var evidence in await store.List<OperationalEvent>(e => e.RuleId == rule.RuleId, ct))
+        {
+            evidence.RuleId = null;
+            await store.Update(evidence, ct);
+        }
+        await store.Remove(rule, ct);
+    }
     private async Task<MonitoringConfigurationView> View(MonitoringConfiguration configuration, CancellationToken ct, MonitoringRule[]? rows = null)
     {
         rows ??= (await store.List<MonitoringRule>(r => r.ConfigId == configuration.ConfigId, ct)).ToArray();
         var types = (await store.List<IncidentType>(ct: ct)).ToDictionary(t => t.IncidentTypeId);
+        return ConfigurationView(configuration, rows, types);
+    }
+    internal static MonitoringConfigurationView ConfigurationView(MonitoringConfiguration configuration, MonitoringRule[] rows, IReadOnlyDictionary<Guid, IncidentType> types)
+    {
         var views = rows.Select(r => new MonitoringRuleView(r.RuleId,r.IncidentTypeId,
             types.GetValueOrDefault(r.IncidentTypeId)?.Code ?? "UNKNOWN",types.GetValueOrDefault(r.IncidentTypeId)?.Name ?? "Unknown type",
             r.WarningThreshold,r.CriticalThreshold,r.ThresholdUnit,r.SustainSec,r.CooldownSec,r.Enabled,r.ParametersJson)).OrderBy(r => r.IncidentCode).ToArray();

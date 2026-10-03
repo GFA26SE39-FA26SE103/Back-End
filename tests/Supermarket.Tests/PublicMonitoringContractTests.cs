@@ -3,6 +3,7 @@ using Xunit;
 using Xunit.Abstractions;
 namespace Supermarket.Tests;
 [Collection("SqlApi")]
+[Trait("Category", "SqlIntegration")]
 public sealed class PublicMonitoringContractApiFlowTests(SqlApiFixture fixture,ITestOutputHelper output)
 {
     [Fact]

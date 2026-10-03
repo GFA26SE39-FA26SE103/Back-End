@@ -41,12 +41,22 @@ public sealed partial class ApiFlowTests
             new MonitoringRuleRequest(checkout.IncidentTypeId, 0, 1, "PENDING", Enabled: false)
         };
         var route = $"/api/zones/{zone.ZoneId}/monitoring";
+        var emptyCreate = await client.PutAsJsonAsync(route, new MonitoringRequest("Missing incidents", Rules: []));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, emptyCreate.StatusCode);
+        Assert.Contains("RULES_REQUIRED", await emptyCreate.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(route)).StatusCode);
         var draft = await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(route, new MonitoringRequest("Real SQL draft", .7123m, input)));
         Assert.Equal("DRAFT", draft.Status);
         var loaded = (await client.GetFromJsonAsync<MonitoringConfigurationView>(route))!;
         Assert.Equal(.7123m, loaded.ConfidenceThreshold);
         Assert.False(loaded.Rules.Single(r => r.IncidentTypeId == checkout.IncidentTypeId).Enabled);
         Assert.Equal(0, loaded.Rules.Single(r => r.IncidentTypeId == queue.IncidentTypeId).CooldownSec);
+        var emptyUpdate = await client.PutAsJsonAsync(route, new MonitoringRequest("Remove every incident", Rules: [], ExpectedUpdatedAt: loaded.UpdatedAt));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, emptyUpdate.StatusCode);
+        var afterRejectedSave = (await client.GetFromJsonAsync<MonitoringConfigurationView>(route))!;
+        Assert.Equal(loaded.Name, afterRejectedSave.Name);
+        Assert.Equal(loaded.UpdatedAt, afterRejectedSave.UpdatedAt);
+        Assert.Equal(loaded.Rules.Length, afterRejectedSave.Rules.Length);
         Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(route, new MonitoringRequest("Stale", Rules: input, ExpectedUpdatedAt: draft.UpdatedAt.AddSeconds(-1)))).StatusCode);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, (await client.PutAsJsonAsync(route, new MonitoringRequest("Invalid", Rules: [input[0], input[0]], ExpectedUpdatedAt: draft.UpdatedAt))).StatusCode);
         Assert.Equal("Real SQL draft", (await client.GetFromJsonAsync<MonitoringConfigurationView>(route))!.Name);

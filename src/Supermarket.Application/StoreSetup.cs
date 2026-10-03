@@ -65,6 +65,22 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current)
         await Get<Floor>(floorId, ct);
         return (await store.List<Zone>(z => z.FloorId == floorId, ct)).Select(View).ToList();
     }
+    public Task<Floor> UpdateFloorDetails(Guid id, FloorDetailsRequest request, CancellationToken ct)
+    {
+        UseCase.Admin(current);
+        return store.Transaction(async () =>
+        {
+            var floor = UseCase.Found(await store.Find<Floor>(id, ct));
+            UseCase.Unique((await store.List<Floor>(f => f.SupermarketId == floor.SupermarketId
+                && f.FloorNumber == request.FloorNumber && f.FloorId != id, ct)).Count > 0);
+            var name = Rules.Text(request.Name, 100, "Name");
+            floor.FloorNumber = request.FloorNumber;
+            floor.Name = name;
+            // Read and retain the current map metadata; the editor never submits an old asset URL/dimensions.
+            await store.Update(floor, ct);
+            return floor;
+        }, ct);
+    }
     public async Task<ZoneView> Zone(Guid id, CancellationToken ct) => View(await Get<Zone>(id, ct));
     public Task<ZoneView> SaveZone(Guid? id, Guid? floorId, ZoneRequest r, CancellationToken ct)
     {
