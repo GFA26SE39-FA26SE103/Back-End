@@ -3013,6 +3013,8 @@
           },
           "rules": {
             "type": "array",
+            "minItems": 1,
+            "description": "At least one incident rule is required when saving; an empty array returns RULES_REQUIRED.",
             "items": {
               "$ref": "#/components/schemas/MonitoringRuleRequest"
             },

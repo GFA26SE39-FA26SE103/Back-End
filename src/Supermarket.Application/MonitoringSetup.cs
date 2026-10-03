@@ -31,7 +31,8 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             else if (request.ExpectedUpdatedAt is not null) throw new ApplicationException("CONFIGURATION_CHANGED", "Configuration changed; reload before saving.");
             MonitoringPolicy.Confidence(request.ConfidenceThreshold);
             var name = Rules.Text(request.Name, 100, "Name");
-            var input = request.Rules ?? throw new ApplicationException("RULES_REQUIRED", "Provide the complete rules array; use [] for an empty Draft.", 400);
+            var input = request.Rules ?? throw new ApplicationException("RULES_REQUIRED", "Add at least one incident rule before saving the AI configuration.", 400);
+            Rules.Require(input.Length > 0, "RULES_REQUIRED", "Add at least one incident rule before saving the AI configuration.");
             Rules.Require(input.Length <= 32, "TOO_MANY_RULES", "A configuration supports at most 32 rules.");
             Rules.Require(input.All(r => r is not null), "INVALID_RULE", "Rules cannot contain null entries.");
             Rules.Require(input.Select(r => r.IncidentTypeId).Distinct().Count() == input.Length, "DUPLICATE_RULE", "Only one rule per incident type is allowed.");

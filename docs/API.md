@@ -55,7 +55,7 @@ Ví dụ mapping:
 
 `GET /api/incident-types` trả baseline AI types với `supported`, `thresholdUnit`, configurable defaults và `unsupportedReason`. Catalog read-only, không gồm staff-reported types. Checkout Capacity chưa supported vì counter/composite measurement chưa được chốt.
 
-`PUT /zones/{zoneId}/monitoring` tạo hoặc thay toàn bộ Draft + rules trong transaction. `rules` bắt buộc; `[]` hợp lệ cho Draft nhưng không activate. Omit rule khỏi array để xóa. Mỗi type tối đa một rule/config. Khi cấu hình đã tồn tại, gửi `expectedUpdatedAt` từ GET/Save gần nhất; thiếu/stale trả 409 `CONFIGURATION_CHANGED`. ACTIVE trả 409 `MONITORING_ACTIVE`, không tự deactivate khi Save.
+`PUT /zones/{zoneId}/monitoring` tạo hoặc thay toàn bộ Draft + rules trong transaction. `rules` bắt buộc và phải có ít nhất một incident rule; `[]` trả 422 `RULES_REQUIRED`, không tạo hoặc thay cấu hình đã lưu. Omit rule khỏi array để xóa nhưng phải giữ ít nhất một rule. Mỗi type tối đa một rule/config. Khi cấu hình đã tồn tại, gửi `expectedUpdatedAt` từ GET/Save gần nhất; thiếu/stale trả 409 `CONFIGURATION_CHANGED`. ACTIVE trả 409 `MONITORING_ACTIVE`, không tự deactivate khi Save. Disabled Draft rules vẫn được lưu; Activate cần ít nhất một enabled supported rule và readiness hợp lệ.
 
 Confidence 0–1 và threshold tối đa 4 decimal places; `0 <= warning < critical` (decimal(18,4)). PEOPLE phải nguyên, MINUTES/PEOPLE_PER_M2 có thể thập phân. Sustain/cooldown là int không âm theo giây; 0 được lưu đúng. Rule phải tham chiếu AI type; enabled type phải ACTIVE/supported. Disabled Checkout Draft vẫn cần explicit non-empty unit/valid thresholds. `parametersJson` null hoặc JSON object/array, tối đa 16000 ký tự; bảo toàn tham số mở rộng, không đánh giá trong MF-01.
 

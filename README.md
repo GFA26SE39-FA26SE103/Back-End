@@ -168,9 +168,9 @@ Camera URI không được chứa userinfo, query hay fragment. Gửi `username`
 
 Sau khi camera LIVE hoặc MP4 đã **Test & enable**, vào **Store Layout → Camera coverage**, map camera với zone và lưu ROI trên frame. Chọn **Configure monitoring for …** ở ROI editor hoặc **Configure monitoring: …** trong Cameras để mở AI Config đúng zone.
 
-1. Chọn zone, đặt tên cấu hình và confidence (0–1, tối đa 4 chữ số thập phân).
+1. AI Config hiển thị tổng quan config theo Floor/Zone. Chọn zone để xem detail read-only; bấm **Create configuration** hoặc **Edit configuration** mới mở form đặt tên/confidence (0–1, tối đa 4 chữ số thập phân). **Cancel** bỏ local draft, không gọi API lưu.
 2. **Add rule** từ catalog AI thật. Long Queue dùng PEOPLE (3/5), Excessive Waiting Time dùng MINUTES (4/8), Overcrowding dùng PEOPLE_PER_M2 (2/3). Đây là giá trị gợi ý theo PROJECT_CONTEXT §26, có thể sửa. Warning phải nhỏ hơn critical; PEOPLE phải là số nguyên.
-3. Đặt sustain/cooldown theo giây, bật/tắt rule → **Save Draft**. Mặc định 30/300 theo PROJECT_CONTEXT §24. Save thay toàn bộ tập rule; remove trên UI chỉ có hiệu lực khi lưu.
+3. Đặt sustain/cooldown theo giây, bật/tắt rule → **Save Draft**. Mặc định 30/300 theo PROJECT_CONTEXT §24. Save bắt buộc có ít nhất một incident rule; array rỗng trả 422 `RULES_REQUIRED` và không tạo/thay config. Save thay toàn bộ tập rule; remove trên UI chỉ có hiệu lực khi lưu và phải giữ ít nhất một rule. Save thành công đóng form và cập nhật overview/detail.
 4. **Review configuration** đọc lại SQL, hiển thị zone/config/version/confidence, camera/source, ROI, từng rule và blockers. Density enabled cần `Zone.area_m2 > 0`; cần ít nhất một camera cùng tầng ACTIVE, mapping/ROI hợp lệ, nguồn LIVE HTTP/RTSP/HLS hoặc RECORDED FILE đã test thành công và enabled, cùng ít nhất một rule supported enabled.
    Có thể chọn **Preview zone confidence: [camera]** để chạy YOLO/ByteTrack bằng confidence đã lưu. Thao tác restart phiên camera dùng chung, reset track IDs và có thể gián đoạn viewer khác; boxes toàn frame, chưa tính ROI measurements.
 5. **Activate configuration** kiểm tra lại trong transaction; expectedUpdatedAt chống activate bản cũ. **Deactivate configuration** trước khi sửa rule/confidence/source/mapping/ROI. Có lỗi concurrency thì dùng **Reload saved configuration**, không ghi đè thay đổi của người khác.

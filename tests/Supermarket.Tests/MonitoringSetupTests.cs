@@ -59,9 +59,28 @@ public sealed class MonitoringSetupTests
         var active = await h.Setup.Activate(h.Zone.ZoneId, true, saved.UpdatedAt, default);
         Assert.Equal("ACTIVE", active.Status);
         var inactive = await h.Setup.Activate(h.Zone.ZoneId, false, active.UpdatedAt, default);
-        var empty = await h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Empty", Rules: [], ExpectedUpdatedAt: inactive.UpdatedAt), default);
-        Assert.Empty(empty.Rules);
-        Assert.False((await h.Setup.Review(h.Zone.ZoneId, default)).CanActivate);
+        var empty = await Assert.ThrowsAsync<DomainException>(() => h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Empty", Rules: [], ExpectedUpdatedAt: inactive.UpdatedAt), default));
+        Assert.Equal("RULES_REQUIRED", empty.Code);
+        var unchanged = await h.Setup.Get(h.Zone.ZoneId, default);
+        Assert.Equal("Saved", unchanged.Name);
+        Assert.Single(unchanged.Rules);
+        Assert.Equal("INACTIVE", unchanged.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SavingWithoutIncidentRulesDoesNotCreateConfiguration(bool omitRules)
+    {
+        var h = new Harness();
+        h.Store.Values.Remove(h.Configuration);
+        var request = new MonitoringRequest("Missing incidents", Rules: omitRules ? null : []);
+        if (omitRules)
+            Assert.Equal("RULES_REQUIRED", (await Assert.ThrowsAsync<AppError>(() => h.Setup.Save(h.Zone.ZoneId, request, default))).Code);
+        else
+            Assert.Equal("RULES_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() => h.Setup.Save(h.Zone.ZoneId, request, default))).Code);
+        Assert.Empty(h.Store.Values.OfType<MonitoringConfiguration>());
+        Assert.Empty(h.Store.Values.OfType<MonitoringRule>());
     }
 
     [Theory]
