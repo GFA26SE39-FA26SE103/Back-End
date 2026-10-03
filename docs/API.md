@@ -23,7 +23,8 @@ Controller và use case cùng kiểm tra quyền; STAFF không đọc được d
 | Connection | GET/PUT /cameras/{id}/connection; POST .../test, .../enable, .../disable |
 | Preview | GET /cameras/{id}/preview: image/svg+xml cho demo, image/jpeg cho FFmpeg |
 | Geometry | GET /cameras/{id}/zones; PUT/DELETE /cameras/{id}/zones/{zoneId} |
-| Monitoring | GET/PUT /zones/{zoneId}/monitoring; POST .../activate, .../deactivate |
+| AI catalog | GET /incident-types (ADMIN, read-only AI types) |
+| Monitoring | GET/PUT /zones/{zoneId}/monitoring; GET .../review; POST .../activate, .../deactivate |
 | Health | GET /cameras/{id}/health; POST /cameras/{id}/health/check; GET /camera-health-events?cameraId=...&status=... |
 | Investigation | POST /camera-health-events/{id}/investigate; POST .../resolve |
 | Development demo | POST /demo/cameras/{id}/state?online=false hoặc true |
@@ -50,11 +51,43 @@ Ví dụ mapping:
 {"roiPolygon":[{"x":0.1,"y":0.1},{"x":0.8,"y":0.1},{"x":0.1,"y":0.8}],"status":"ACTIVE"}
 ```
 
-Ví dụ monitoring:
+### Monitoring Draft / Review / Activate
+
+`GET /api/incident-types` trả baseline AI types với `supported`, `thresholdUnit`, configurable defaults và `unsupportedReason`. Catalog read-only, không gồm staff-reported types. Checkout Capacity chưa supported vì counter/composite measurement chưa được chốt.
+
+`PUT /zones/{zoneId}/monitoring` tạo hoặc thay toàn bộ Draft + rules trong transaction. `rules` bắt buộc; `[]` hợp lệ cho Draft nhưng không activate. Omit rule khỏi array để xóa. Mỗi type tối đa một rule/config. Khi cấu hình đã tồn tại, gửi `expectedUpdatedAt` từ GET/Save gần nhất; thiếu/stale trả 409 `CONFIGURATION_CHANGED`. ACTIVE trả 409 `MONITORING_ACTIVE`, không tự deactivate khi Save.
+
+Confidence 0–1 và threshold tối đa 4 decimal places; `0 <= warning < critical` (decimal(18,4)). PEOPLE phải nguyên, MINUTES/PEOPLE_PER_M2 có thể thập phân. Sustain/cooldown là int không âm theo giây; 0 được lưu đúng. Rule phải tham chiếu AI type; enabled type phải ACTIVE/supported. Disabled Checkout Draft vẫn cần explicit non-empty unit/valid thresholds. `parametersJson` null hoặc JSON object/array, tối đa 16000 ký tự; bảo toàn tham số mở rộng, không đánh giá trong MF-01.
+
+Response gồm `configId, zoneId, name, confidenceThreshold, status, createdByUserId, createdAt, updatedAt, rules[]`; từng rule có `ruleId, incidentTypeId, incidentCode, incidentName` và toàn bộ fields cấu hình.
+
+Ví dụ tạo Draft:
 
 ```json
-{"name":"Checkout person monitoring","confidenceThreshold":0.5}
+{
+  "name": "Queue monitoring",
+  "confidenceThreshold": 0.5,
+  "rules": [{
+    "incidentTypeId": "<AI incident-type UUID from GET /api/incident-types>",
+    "warningThreshold": 3, "criticalThreshold": 5, "thresholdUnit": "PEOPLE",
+    "sustainSec": 30, "cooldownSec": 300, "enabled": true, "parametersJson": null
+  }]
+}
 ```
+
+`GET .../review` trả `configuration, zone, cameras[], issues[], warnings[], canActivate`. Camera summary gồm mapping/ROI, source type/protocol, enabled, test result/time, readiness và issues; không trả stream URI, username hoặc camera credentials. Cần zone ACTIVE, ít nhất một supported rule enabled và một mapped camera ACTIVE cùng tầng có ROI hợp lệ, nguồn LIVE HTTP/RTSP/HLS hoặc RECORDED FILE tested-success/enabled. Density enabled cần area_m2 > 0; DEMO không là AI source. Review kiểm tra dữ liệu đã lưu, không thay một connection probe mới. Multi-camera selection/overlap còn mở, recorded source là test/fallback, MF-02 runtime chưa chạy: trả warnings rõ ràng.
+
+`POST .../activate` và `POST .../deactivate` nhận:
+
+```json
+{"expectedUpdatedAt":"<updatedAt from reviewed/saved configuration, ISO UTC>"}
+```
+
+Activate revalidates readiness trong Serializable transaction (409 `MONITORING_NOT_READY` nếu blocker), không tin kết quả review cũ. Response là ConfigurationView status ACTIVE/INACTIVE và updatedAt mới. Mọi thao tác chỉ ADMIN. Deactivate trước khi thay rule/confidence/source/mapping/ROI. Activate chưa tạo AI worker, measurements hay incidents.
+
+Admin kiểm thử confidence đã lưu bằng `POST /api/cameras/{id}/ai-preview/start?zoneId=<uuid>`: backend yêu cầu zone tồn tại, mapping ACTIVE cùng tầng và valid ROI/config confidence, stop session cũ trước khi start Python với zone confidence. Cấu hình có thể DRAFT, không cần Activate. Không có query thì preview ADMIN/OPERATOR giữ hành vi cũ/default `AiPreview:Confidence`; query có zone chỉ ADMIN. Restart reset camera-local track IDs và có thể ảnh hưởng viewer khác. Preview chỉ vẽ detections/tracks toàn frame, không đánh giá rule/ROI metrics. Source vẫn phải test-success/enabled, camera ACTIVE.
+
+Rule validation codes: `INVALID_CONFIDENCE`, `INVALID_THRESHOLDS`, `INVALID_RULE_UNIT`, `INVALID_RULE_TIMING`, `INVALID_RULE_PARAMETERS`, `INCIDENT_TYPE_NOT_AI`, `INCIDENT_TYPE_INACTIVE`, `RULE_UNSUPPORTED`, `DUPLICATE_RULE`. Review issues thêm `NO_ENABLED_RULES`, `ZONE_AREA_REQUIRED`, `CAMERA_NOT_READY`, `AI_SOURCE_UNSUPPORTED`.
 
 Floor plan upload dùng `POST /api/floors/{id}/map` với `multipart/form-data`, field bắt buộc tên `file`. Chấp nhận PNG, JPEG hoặc PDF tối đa 20 MB theo mặc định (`FloorPlan:MaxBytes`); server kiểm tra extension, MIME và file signature, sinh storage name, cập nhật `Floor.mapAssetUrl/mapWidth/mapHeight`, rồi xóa asset cũ sau khi commit thành công. Response:
 

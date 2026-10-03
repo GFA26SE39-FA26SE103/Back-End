@@ -218,7 +218,7 @@ public sealed class OperatorAccessTests
         {
             get; private set;
         }
-        public Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct) => View(connection.CameraId, "LIVE");
+        public Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct, decimal? confidence = null) => View(connection.CameraId, "LIVE");
         public Task<AiPreviewStatusView> Status(Guid cameraId, CancellationToken ct) => View(cameraId, "LIVE");
         public Task<PreviewFrame> Frame(Guid cameraId, CancellationToken ct)
         {

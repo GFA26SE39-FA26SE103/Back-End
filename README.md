@@ -114,7 +114,7 @@ Domain không phụ thuộc ASP.NET/EF. Controller không truy cập DbContext. 
 - Upload MP4 làm nguồn RECORDED/FILE qua `POST /api/cameras/{id}/recorded-video` (multipart `file`, ADMIN, tối đa 200 MB). Kiểm tra header và decode frame bằng FFmpeg; server sinh filename, lưu ngoài wwwroot. Không sửa schema DB.
 - Proxy AI preview start/status/frame/stop tới native YOLO + ByteTrack, hỗ trợ LIVE HTTP/RTSP/HLS và RECORDED FILE. React nhận JPEG đã vẽ person box/track ID, không gọi Python trực tiếp.
 - Camera N:M Zone qua mapping; cùng tầng; ROI normalized; PUT idempotent.
-- MonitoringConfiguration per-zone, confidence `[0,1]`, DRAFT/ACTIVE/INACTIVE. Activation yêu cầu zone active và camera mapped active có connection enabled/tested.
+- MonitoringConfiguration và MonitoringRule per-zone được lưu SQL: confidence `[0,1]`, incident type AI-detected, warning/critical/unit, sustain/cooldown/enabled, DRAFT/ACTIVE/INACTIVE. Review và activation kiểm tra lại zone, rule, diện tích density, camera/source/test/enable và ROI. Cấu hình ACTIVE phải deactivate trước khi sửa rule, confidence, source hoặc mapping/ROI.
 - Health worker, check thủ công, OPEN → INVESTIGATING → RESOLVED. Khi có lại frame, worker tự resolve event và cập nhật last seen; Admin có thể thêm resolution note.
 - Swagger/OpenAPI, ProblemDetails với `code` và `requestId`, rate limit login, CORS, liveness/readiness.
 
@@ -130,7 +130,7 @@ PATCH ở increment này nhận toàn bộ DTO chỉnh sửa, không phải JSON
 2. Tạo camera với `status: "ACTIVE"`, installation/warranty dates.
 3. PUT connection với `{ "sourceType": "DEMO", "protocol": "HTTP", "streamUri": "demo://camera/main" }`.
 4. POST connection/test, GET preview, POST connection/enable.
-5. PUT camera/zones/{zoneId} với `roiPolygon`; PUT zone/monitoring và POST activate.
+5. PUT camera/zones/{zoneId} với `roiPolygon`. DEMO chỉ kiểm thử connection/health; không activate cấu hình AI từ nguồn DEMO.
 6. POST camera/health/check để thấy ONLINE.
 7. Trong Development, POST `/api/demo/cameras/{id}/state?online=false`, rồi check health để mở event.
 8. Investigate event; đổi demo state về true và check để thấy RESOLVED.
@@ -158,11 +158,26 @@ Không thay nguồn (upload hoặc PUT connection) khi camera map tới monitori
 
 AI đọc tuần tự mọi frame, pace theo FPS và tốc độ inference (có thể chậm hơn thời gian thật), không tự loop. EOF trả `COMPLETED`, giữ JPEG cuối; stop/start replay với tracker mới. Preview chưa ghi measurement, OperationalEvent hay Incident. Health worker hiện probe khả năng đọc một frame của file, không phản ánh GPU/tiến độ/EOF; file còn đọc được có thể vẫn ONLINE sau playback.
 
-Proxy: `POST /api/cameras/{id}/ai-preview/start`, `GET .../status`, `GET .../frame`, `POST .../stop`; ADMIN JWT. `AiPreview:BaseUrl` mặc định `http://127.0.0.1:8090`. Internal key nếu dùng phải khớp `AI_INTERNAL_SERVICE_KEY`. Model/device/confidence từ `AiPreview` được gửi tới Python; chưa lấy từ rule của zone.
+Proxy: `POST /api/cameras/{id}/ai-preview/start`, `GET .../status`, `GET .../frame`, `POST .../stop`; ADMIN/OPERATOR JWT. `AiPreview:BaseUrl` mặc định `http://127.0.0.1:8090`. Internal key nếu dùng phải khớp `AI_INTERNAL_SERVICE_KEY`. Model/device/default confidence từ `AiPreview`; Admin có thể dùng `start?zoneId=<uuid>` để restart camera session với confidence của cấu hình zone đã lưu. Zone phải có mapping/ROI cùng tầng hợp lệ; chưa cần Activate để kiểm thử Draft.
 
 RTSP, HTTP/HLS và recorded video dùng FFmpeg để đọc/giải mã một frame; thành công chỉ khi nhận được frame, không chỉ khi mở được TCP. Cấu hình `Video:FfmpegPath` trỏ tới FFmpeg trên máy. Recorded FILE phải nằm dưới `Video:RecordedRoot`. Dockerfile bao gồm FFmpeg. WebRTC yêu cầu adapter media gateway, hiện trả lỗi rõ ràng.
 
 Camera URI không được chứa userinfo, query hay fragment. Gửi `username`/`password` riêng; password được mã hóa bằng ASP.NET Data Protection trong `credential_secret_ref`, DTO chỉ trả `hasCredentials`. PUT thay toàn bộ credentials; bỏ password sẽ xóa credentials cũ. Không trả secret reference, không log FFmpeg stderr hay SQL exception detail. Key ring phải được giữ qua restart; production cần volume riêng, ACL phù hợp và cấu hình bảo vệ key ring at rest. Giữ JWT key/DB credentials trong secrets môi trường, đặt HTTPS tại reverse proxy.
+
+## Configure monitoring → Review & activate (2026-10-03)
+
+Sau khi camera LIVE hoặc MP4 đã **Test & enable**, vào **Store Layout → Camera coverage**, map camera với zone và lưu ROI trên frame. Chọn **Configure monitoring for …** ở ROI editor hoặc **Configure monitoring: …** trong Cameras để mở AI Config đúng zone.
+
+1. Chọn zone, đặt tên cấu hình và confidence (0–1, tối đa 4 chữ số thập phân).
+2. **Add rule** từ catalog AI thật. Long Queue dùng PEOPLE (3/5), Excessive Waiting Time dùng MINUTES (4/8), Overcrowding dùng PEOPLE_PER_M2 (2/3). Đây là giá trị gợi ý theo PROJECT_CONTEXT §26, có thể sửa. Warning phải nhỏ hơn critical; PEOPLE phải là số nguyên.
+3. Đặt sustain/cooldown theo giây, bật/tắt rule → **Save Draft**. Mặc định 30/300 theo PROJECT_CONTEXT §24. Save thay toàn bộ tập rule; remove trên UI chỉ có hiệu lực khi lưu.
+4. **Review configuration** đọc lại SQL, hiển thị zone/config/version/confidence, camera/source, ROI, từng rule và blockers. Density enabled cần `Zone.area_m2 > 0`; cần ít nhất một camera cùng tầng ACTIVE, mapping/ROI hợp lệ, nguồn LIVE HTTP/RTSP/HLS hoặc RECORDED FILE đã test thành công và enabled, cùng ít nhất một rule supported enabled.
+   Có thể chọn **Preview zone confidence: [camera]** để chạy YOLO/ByteTrack bằng confidence đã lưu. Thao tác restart phiên camera dùng chung, reset track IDs và có thể gián đoạn viewer khác; boxes toàn frame, chưa tính ROI measurements.
+5. **Activate configuration** kiểm tra lại trong transaction; expectedUpdatedAt chống activate bản cũ. **Deactivate configuration** trước khi sửa rule/confidence/source/mapping/ROI. Có lỗi concurrency thì dùng **Reload saved configuration**, không ghi đè thay đổi của người khác.
+
+Draft lưu DB thật, không phải trạng thái React. Checkout Capacity chưa có counter/composite definition nên chỉ lưu rule disabled với đơn vị placeholder do Admin nhập; không được enable. Recorded source được đánh dấu test/fallback. Review kiểm tra trạng thái cấu hình và kết quả test đã lưu, không thực hiện một FFmpeg probe mới; dùng Test & enable/health check để xác nhận khả năng đọc video hiện tại.
+
+**Giới hạn rõ ràng:** MF-01 Activate đánh dấu cấu hình áp dụng; chưa chạy sustained-threshold evaluator, ROI measurements, OperationalEvent/Incident/dispatch của MF-02. AI Config có zone-confidence preview; nút preview thường ở Cameras vẫn dùng `AiPreview:Confidence` (hoặc session đang chạy). Với N:M camera-zone, selection nguồn đo vẫn chờ team; không cộng counts chồng lấn hoặc ReID. Dashboard Activate mẫu không thay thế thao tác thật ở AI Config.
 
 ## Database-first
 
@@ -176,7 +191,7 @@ $env:MF01_SCAFFOLD_CONNECTION = '<connection string tới database đã duyệt>
 dotnet test --settings coverage.runsettings --collect:'XPlat Code Coverage'
 ```
 
-Generated files nằm tại `Infrastructure/Persistence/Scaffolded`; custom EF configuration nằm ở partial extension bên ngoài thư mục generated. Script hiện chỉ scaffold 10 bảng stable của MF-01 và chưa đưa đầy đủ MonitoringRule/IncidentType persistence vào increment này, dù ERD v3 đã định nghĩa cấu trúc vật lý của chúng. Không dùng `EnsureCreated` hoặc code-first migrations. Tham khảo [EF Core reverse engineering](https://learn.microsoft.com/en-us/ef/core/managing-schemas/scaffolding/).
+Generated files nằm tại `Infrastructure/Persistence/Scaffolded`; custom EF configuration nằm ở partial extension bên ngoài thư mục generated. Script scaffold 12 bảng, gồm MonitoringRule và IncidentType, mặc định build Release để không đụng Debug API đang chạy. Increment dùng migration đã duyệt `Database/migrations/20261003_01_monitoring_rules_erd_v3.sql`; không chạy V0.1 installer lên DB hiện có. Không dùng `EnsureCreated` hoặc code-first migrations. Tham khảo [EF Core reverse engineering](https://learn.microsoft.com/en-us/ef/core/managing-schemas/scaffolding/).
 
 ## Kiểm thử
 
@@ -185,18 +200,18 @@ dotnet test --settings coverage.runsettings --collect:'XPlat Code Coverage' --re
 dotnet publish src/Supermarket.Api -c Release
 ```
 
-Integration tests tạo database ngẫu nhiên `FA26SE103_MF01_Test_<guid>` từ file SQL trong `Project/DB` và xóa đúng database đó sau test. Mặc định dùng Windows auth trên `.\SQLEXPRESS`. Đổi instance bằng `MF01_TEST_SERVER`, hoặc dùng SQL auth qua `MF01_TEST_CONNECTION`. Không trỏ vào database chứa dữ liệu cần giữ: tests luôn chọn catalog tạm riêng và cần quyền tạo/xóa database. Không bỏ qua SQL tests nếu thiếu kết nối; test sẽ báo fail.
+Integration tests tạo database ngẫu nhiên `FA26SE103_MF01_Test_<guid>` từ baseline SQL và migration monitoring trong repo Database, rồi xóa đúng database đó sau test. Mặc định tìm repo sibling `CAPSTONE/Database`, dùng Windows auth trên `.\SQLEXPRESS`. Đổi instance bằng `MF01_TEST_SERVER`, hoặc dùng SQL auth qua `MF01_TEST_CONNECTION`. Không trỏ vào môi trường dùng chung: tests cần quyền tạo/xóa database riêng. Không bỏ qua SQL tests nếu thiếu kết nối/schema/migration; test sẽ báo fail.
 
-GitHub Actions mặc định chạy build, domain unit tests và Release publish cho repository backend độc lập. Job SQL integration được bật khi repository variable `MF01_SCHEMA_REPOSITORY` trỏ tới repository chứa SQL authoritative của team. Có thể đặt `MF01_SCHEMA_REF` (mặc định main), `MF01_SCHEMA_FILE` (mặc định tên file SQL) và secret read-only `MF01_SCHEMA_READ_TOKEN` nếu repository schema là private. Khi chưa cấu hình nguồn schema, job integration hiển thị skipped; đó không phải bằng chứng đã kiểm tra SQL trên GitHub.
+GitHub Actions mặc định chạy build, các test không cần SQL và Release publish cho repository backend độc lập. Job SQL integration được bật khi variable `MF01_SCHEMA_REPOSITORY` trỏ tới repo Database. Đặt `MF01_SCHEMA_REF` tới branch/commit đã có migration (hiện `feature/mf01-monitoring-rules`), `MF01_SCHEMA_FILE` (mặc định baseline V0.1), `MF01_MONITORING_MIGRATION_FILE` (mặc định `migrations/20261003_01_monitoring_rules_erd_v3.sql`) và secret read-only `MF01_SCHEMA_READ_TOKEN` nếu private. Job skipped không phải bằng chứng SQL đã được kiểm tra trên GitHub.
 
-Nếu SQL nằm ở vị trí khác khi chạy local, truyền `-p:Mf01SchemaPath=<đường dẫn SQL>` cho `dotnet test`. Unit tests có thể build/chạy độc lập bằng `--filter FullyQualifiedName~Supermarket.Tests.DomainTests`; full integration tests vẫn báo fail rõ ràng nếu thiếu schema. Dockerfile/workflow được cung cấp để tích hợp, chưa deploy lên VPS.
+Nếu SQL nằm ở vị trí khác, truyền cả `-p:Mf01SchemaPath=<baseline SQL>` và `-p:Mf01MonitoringMigrationPath=<migration SQL>`. Các test không cần SQL chạy bằng `dotnet test -c Release --filter "FullyQualifiedName!~ApiFlowTests"`; full suite cần đủ schema/migration/SQL Server. Dockerfile/workflow chưa deploy lên VPS.
 
 ## Các điểm còn chờ team đồng bộ
 
 - Context baseline 02/10 xác định camera thuộc floor, N:M zone và model confidence chỉ là input filter. Đối chiếu các tài liệu/source cũ với [guide đầy đủ](docs/PROJECT_CONTEXT.md) trước khi mở rộng hành vi.
-- ERD v3 là baseline vật lý hiện tại và đã định nghĩa `Zone.area_m2`, MonitoringRule, IncidentType và ZoneAdjacency. Code chỉ scaffold 10 bảng stable; MonitoringRuleContract là DTO tham khảo, chưa có endpoint/persistence/seed IncidentType. BR vẫn cần đồng bộ với ERD v3 về cách lưu cờ "requires Operator review" của IncidentType, cùng measurement-source, checkout-counter và Manager-on-duty. Không tự sửa generated EF hoặc tạo schema phỏng đoán. Full SQL tests cần file SQL authoritative đúng phiên bản.
-- Store Layout đã nối read/upload floor map và camera placement thật. Phần tạo/sửa store, floor, zone, camera→zone selector và camera-frame ROI editor qua mapping API vẫn cần hoàn thiện. Floor map polygon khác ROI trên frame; không dùng sample geometry thay tọa độ thật.
-- Khi MF-02 được giao, đồng bộ SQL/scaffold theo ERD v3 và triển khai rule CRUD per-zone: chỉ IncidentType AI-detected, warning < critical, unit/measurement đúng loại, sustain/cooldown >= 0, enabled. `Zone.area_m2` đã có trong ERD v3; nếu dùng density people/m² thì cần diện tích vật lý > 0. Không tính people/m² khi thiếu diện tích.
-- Activation hiện chỉ bật configuration, kiểm tra zone ACTIVE và ít nhất một mapped camera ACTIVE/tested/enabled; chưa kiểm tra đủ rule/measurement readiness, chưa khởi động continuous AI worker. Preview đã chạy nhưng chưa ROI measurements, sustained-threshold evaluator, OperationalEvents, incident dedup/cooldown. Nối runtime và lifecycle activate/deactivate trước khi gọi là monitoring thật. Health events tách biệt Operational Incidents.
+- MonitoringRule/IncidentType đã persistence theo migration ERD v3 đã duyệt; catalog baseline do Database repo seed (4 AI + 6 staff). API monitoring chỉ trả loại AI. Cờ "requires Operator review", measurement-source, checkout-counter và Manager-on-duty vẫn chờ team; không tự thêm schema.
+- Store Layout đã có zone editing, camera→zone selector và camera-frame ROI editor. Cameras/ROI editor có link tới AI Config đúng zone. Tạo/sửa store/floor và dashboard setup vẫn còn phần chưa nối đầy đủ; mini-map Cameras còn geometry mẫu.
+- Rule CRUD Draft và review/activate MF-01 đã có. Checkout capacity chỉ lưu disabled Draft vì chưa có counter/composite measurement. Waiting-time rule lưu đơn vị MINUTES nhưng preview chưa đo entry-to-counter; runtime cần thiết kế counter khi triển khai MF-02.
+- Activation kiểm tra cấu hình và ít nhất một camera hợp lệ; không khởi động continuous AI worker. Preview chưa ROI measurements, sustained-threshold evaluator, OperationalEvents, incident dedup/cooldown hay dispatch. Health events tách biệt Operational Incidents. Zone confidence đã nối cho preview có chọn zone, chưa có runtime monitoring.
 - Multiple-camera measurement-source selection và một số operational limits còn mở ([PROJECT_CONTEXT §33](docs/PROJECT_CONTEXT.md#33-implementation-questions-that-are-currently-open)); không tự cộng người từ các camera nhìn cùng zone hay suy ra cross-camera identity. Chưa xác nhận full MF-01 UI acceptance hoặc hiệu năng live stream.
 - Backend dùng repository riêng `GFA26SE39-FA26SE103/Back-End`: `main` là stable, `dev` là integration, feature branches qua PR vào dev và cần review trước khi merge.

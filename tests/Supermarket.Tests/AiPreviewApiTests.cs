@@ -174,7 +174,7 @@ public sealed class AiPreviewApiTests
 
     private sealed class StubClient : IAiPreviewClient
     {
-        public Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct) => Task.FromResult(View(connection.CameraId, "LIVE"));
+        public Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct, decimal? confidence = null) => Task.FromResult(View(connection.CameraId, "LIVE"));
         public Task<AiPreviewStatusView> Status(Guid cameraId, CancellationToken ct) => Task.FromResult(View(cameraId, "LIVE"));
         public Task<PreviewFrame> Frame(Guid cameraId, CancellationToken ct) => Task.FromResult(new PreviewFrame([0xFF, 0xD8, 0xFF, 0xD9], "image/jpeg"));
         public Task<AiPreviewStatusView> Stop(Guid cameraId, CancellationToken ct) => Task.FromResult(View(cameraId, "STOPPED"));

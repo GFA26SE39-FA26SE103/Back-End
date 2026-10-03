@@ -4,9 +4,10 @@ namespace Supermarket.Application;
 
 public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPreviewClient client)
 {
-    public async Task<AiPreviewStatusView> Start(Guid cameraId, CancellationToken ct)
+    public async Task<AiPreviewStatusView> Start(Guid cameraId, CancellationToken ct, Guid? zoneId = null)
     {
         UseCase.LiveView(current);
+        if (zoneId is not null) UseCase.Admin(current);
         var camera = UseCase.Found(await store.Find<Camera>(cameraId, ct));
         if (camera.Status != "ACTIVE")
             throw new ApplicationException("CAMERA_NOT_ACTIVE", "The camera must be active before AI preview can start.");
@@ -20,7 +21,22 @@ public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPrevie
             && !(connection.SourceType == "RECORDED" && connection.Protocol == "FILE"))
             throw new ApplicationException("AI_SOURCE_UNSUPPORTED", "AI preview supports live HTTP/RTSP/HLS or uploaded recorded video.");
 
-        return await client.Start(connection, ct);
+        decimal? confidence = null;
+        if (zoneId is not null)
+        {
+            var zone = UseCase.Found(await store.Find<Zone>(zoneId.Value, ct));
+            Rules.SameFloor(camera, zone);
+            var mapping = (await store.List<CameraZoneMapping>(m => m.CameraId == cameraId && m.ZoneId == zoneId.Value && m.Status == "ACTIVE", ct)).SingleOrDefault()
+                ?? throw new ApplicationException("ZONE_NOT_MAPPED", "Map this camera to the selected zone before testing its confidence.");
+            try { Rules.Polygon(System.Text.Json.JsonSerializer.Deserialize<Point[]>(mapping.RoiPolygon)); }
+            catch (System.Text.Json.JsonException) { throw new ApplicationException("ROI_INVALID", "Save a valid camera-frame ROI before zone preview."); }
+            var configuration = UseCase.Found((await store.List<MonitoringConfiguration>(c => c.ZoneId == zoneId.Value, ct)).SingleOrDefault());
+            MonitoringPolicy.Confidence(configuration.ConfidenceThreshold);
+            confidence = configuration.ConfidenceThreshold;
+            // Python reuses a running camera session. Restart so the saved confidence is actually applied.
+            await client.Stop(cameraId, ct);
+        }
+        return await client.Start(connection, ct, confidence);
     }
 
     public async Task<AiPreviewStatusView> Status(Guid cameraId, CancellationToken ct)

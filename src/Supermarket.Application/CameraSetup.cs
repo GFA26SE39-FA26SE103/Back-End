@@ -161,8 +161,8 @@ public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICamera
             Rules.Status(r.Status, "ACTIVE", "INACTIVE");
             var x = (await store.List<CameraZoneMapping>(m => m.CameraId == id && m.ZoneId == zoneId, ct)).SingleOrDefault();
             var isNew = x is null;
-            if (r.Status == "INACTIVE" && (await store.List<MonitoringConfiguration>(m => m.ZoneId == zoneId && m.Status == "ACTIVE", ct)).Count > 0)
-                throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before disabling a mapping.");
+            if ((await store.List<MonitoringConfiguration>(m => m.ZoneId == zoneId && m.Status == "ACTIVE", ct)).Count > 0)
+                throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before changing camera mapping or ROI.");
             x ??= new CameraZoneMapping { CameraZoneId = Guid.NewGuid(), CameraId = id, ZoneId = zoneId };
             x.RoiPolygon = JsonSerializer.Serialize(r.RoiPolygon);
             x.Status = r.Status;

@@ -21,7 +21,11 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<Floor> Floors { get; set; }
 
+    public virtual DbSet<IncidentType> IncidentTypes { get; set; }
+
     public virtual DbSet<MonitoringConfiguration> MonitoringConfigurations { get; set; }
+
+    public virtual DbSet<MonitoringRule> MonitoringRules { get; set; }
 
     public virtual DbSet<Role> Roles { get; set; }
 
@@ -282,6 +286,49 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("FK_Floor_Supermarket");
         });
 
+        modelBuilder.Entity<IncidentType>(entity =>
+        {
+            entity.ToTable("IncidentType");
+
+            entity.HasIndex(e => e.Code, "UQ_IncidentType_Code").IsUnique();
+
+            entity.Property(e => e.IncidentTypeId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_IncidentType_Id")
+                .HasColumnName("incident_type_id");
+            entity.Property(e => e.Code)
+                .HasMaxLength(50)
+                .HasColumnName("code");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_IncidentType_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.DefaultSeverity)
+                .HasMaxLength(20)
+                .HasDefaultValue("WARNING", "DF_IncidentType_Severity")
+                .HasColumnName("default_severity");
+            entity.Property(e => e.Description)
+                .HasMaxLength(500)
+                .HasColumnName("description");
+            entity.Property(e => e.MeasurementType)
+                .HasMaxLength(50)
+                .HasColumnName("measurement_type");
+            entity.Property(e => e.Name)
+                .HasMaxLength(100)
+                .HasColumnName("name");
+            entity.Property(e => e.RequiresBeforePhoto).HasColumnName("requires_before_photo");
+            entity.Property(e => e.SourceType)
+                .HasMaxLength(20)
+                .HasColumnName("source_type");
+            entity.Property(e => e.Status)
+                .HasMaxLength(20)
+                .HasDefaultValue("ACTIVE", "DF_IncidentType_Status")
+                .HasColumnName("status");
+            entity.Property(e => e.UpdatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_IncidentType_UpdatedAt")
+                .HasColumnName("updated_at");
+        });
+
         modelBuilder.Entity<MonitoringConfiguration>(entity =>
         {
             entity.HasKey(e => e.ConfigId);
@@ -324,6 +371,62 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey<MonitoringConfiguration>(d => d.ZoneId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_MonitoringConfiguration_Zone");
+        });
+
+        modelBuilder.Entity<MonitoringRule>(entity =>
+        {
+            entity.HasKey(e => e.RuleId);
+
+            entity.ToTable("MonitoringRule");
+
+            entity.HasIndex(e => e.ConfigId, "IX_MonitoringRule_ConfigId");
+
+            entity.HasIndex(e => e.IncidentTypeId, "IX_MonitoringRule_IncidentTypeId");
+
+            entity.HasIndex(e => new { e.ConfigId, e.IncidentTypeId }, "UQ_MonitoringRule_Config_IncidentType").IsUnique();
+
+            entity.Property(e => e.RuleId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_MonitoringRule_Id")
+                .HasColumnName("rule_id");
+            entity.Property(e => e.ConfigId).HasColumnName("config_id");
+            entity.Property(e => e.CooldownSec)
+                .HasDefaultValue(300, "DF_MonitoringRule_Cooldown")
+                .HasColumnName("cooldown_sec");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_MonitoringRule_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.CriticalThreshold)
+                .HasColumnType("decimal(18, 4)")
+                .HasColumnName("critical_threshold");
+            entity.Property(e => e.Enabled)
+                .HasDefaultValue(true, "DF_MonitoringRule_Enabled")
+                .HasColumnName("enabled");
+            entity.Property(e => e.IncidentTypeId).HasColumnName("incident_type_id");
+            entity.Property(e => e.ParametersJson).HasColumnName("parameters_json");
+            entity.Property(e => e.SustainSec)
+                .HasDefaultValue(30, "DF_MonitoringRule_Sustain")
+                .HasColumnName("sustain_sec");
+            entity.Property(e => e.ThresholdUnit)
+                .HasMaxLength(30)
+                .HasColumnName("threshold_unit");
+            entity.Property(e => e.UpdatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_MonitoringRule_UpdatedAt")
+                .HasColumnName("updated_at");
+            entity.Property(e => e.WarningThreshold)
+                .HasColumnType("decimal(18, 4)")
+                .HasColumnName("warning_threshold");
+
+            entity.HasOne(d => d.Config).WithMany(p => p.MonitoringRules)
+                .HasForeignKey(d => d.ConfigId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_MonitoringRule_Configuration");
+
+            entity.HasOne(d => d.IncidentType).WithMany(p => p.MonitoringRules)
+                .HasForeignKey(d => d.IncidentTypeId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_MonitoringRule_IncidentType");
         });
 
         modelBuilder.Entity<Role>(entity =>

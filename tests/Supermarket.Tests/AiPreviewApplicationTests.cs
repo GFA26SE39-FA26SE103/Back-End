@@ -201,7 +201,7 @@ public sealed class AiPreviewApplicationTests
         private readonly Dictionary<Guid, AiPreviewStatusView> states = [];
         public List<CameraConnection> StartedConnections { get; } = [];
 
-        public Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct)
+        public Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct, decimal? confidence = null)
         {
             if (!states.TryGetValue(connection.CameraId, out var status) || status.State == "STOPPED")
             {

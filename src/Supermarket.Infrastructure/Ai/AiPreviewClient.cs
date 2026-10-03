@@ -29,7 +29,7 @@ public sealed class AiPreviewClient(
     ];
     private readonly AiPreviewOptions options = configured.Value;
 
-    public async Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct)
+    public async Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct, decimal? confidence = null)
     {
         using (var health = await Send(new HttpRequestMessage(HttpMethod.Get, "/health"), ct))
         {
@@ -44,7 +44,7 @@ public sealed class AiPreviewClient(
             options.Model,
             options.Tracker,
             options.Classes,
-            options.Confidence,
+            confidence ?? options.Confidence,
             options.Device,
             options.Half);
         return await SendStatus(HttpMethod.Post, $"/sessions/{connection.CameraId}/start", body, ct);

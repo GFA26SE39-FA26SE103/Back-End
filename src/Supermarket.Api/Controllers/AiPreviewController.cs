@@ -8,7 +8,7 @@ namespace Supermarket.Api.Controllers;
 public sealed class AiPreviewController(AiPreview preview) : ControllerBase
 {
     [HttpPost("start")]
-    public Task<AiPreviewStatusView> Start(Guid id, CancellationToken ct) => preview.Start(id, ct);
+    public Task<AiPreviewStatusView> Start(Guid id, CancellationToken ct, [FromQuery] Guid? zoneId = null) => preview.Start(id, ct, zoneId);
 
     [HttpGet("status")]
     public Task<AiPreviewStatusView> Status(Guid id, CancellationToken ct) => preview.Status(id, ct);

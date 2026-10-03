@@ -16,7 +16,6 @@ public sealed record ConnectionView(Guid ConnectionId, Guid CameraId, string Sou
 public sealed record MappingRequest([Required] Point[] RoiPolygon, string Status = "ACTIVE");
 public sealed record MappingView(Guid CameraZoneId, Guid CameraId, Guid ZoneId, Point[] RoiPolygon, string Status);
 public sealed record ZoneView(Guid ZoneId, Guid FloorId, string Code, string Name, string? ZoneType, Point[] MapPolygon, string? ColorHex, decimal? AreaM2, string Status, DateTime UpdatedAt);
-public sealed record MonitoringRequest([Required, MaxLength(100)] string Name, decimal ConfidenceThreshold = .5m);
+public sealed record MonitoringRequest([Required, MaxLength(100)] string Name, decimal ConfidenceThreshold = .5m,
+    [Required] MonitoringRuleRequest[]? Rules = null, DateTime? ExpectedUpdatedAt = null);
 public sealed record ResolveRequest([Required, MaxLength(1000)] string ResolutionNote);
-// Legacy contract only. ERD v3 freezes the schema; persistence/endpoints still need SQL synchronization.
-public sealed record MonitoringRuleContract(Guid IncidentTypeId, decimal WarningThreshold, decimal CriticalThreshold, string Unit, int SustainSeconds, int CooldownSeconds, bool Enabled);

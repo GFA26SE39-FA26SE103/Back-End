@@ -73,6 +73,9 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current)
         {
             var x = id is null ? new Zone { ZoneId = Guid.NewGuid(), FloorId = floorId!.Value } : UseCase.Found(await store.Find<Zone>(id.Value, ct));
             UseCase.Found(await store.Find<Floor>(x.FloorId, ct));
+            if (id is not null && x.AreaM2 != r.AreaM2
+                && (await store.List<MonitoringConfiguration>(m => m.ZoneId == x.ZoneId && m.Status == "ACTIVE", ct)).Count > 0)
+                throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before changing the physical zone area used by its measurements.");
             x.Code = Rules.Text(r.Code, 50, "Code");
             UseCase.Unique((await store.List<Zone>(z => z.FloorId == x.FloorId && z.Code == x.Code && z.ZoneId != x.ZoneId, ct)).Count > 0);
             Rules.Polygon(r.MapPolygon);

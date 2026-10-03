@@ -9,7 +9,7 @@ using Xunit;
 namespace Supermarket.Tests;
 
 [Collection("SqlApi")]
-public sealed class ApiFlowTests(SqlApiFixture fixture)
+public sealed partial class ApiFlowTests(SqlApiFixture fixture)
 {
     private static Point[] Triangle => [new(.1m, .1m), new(.8m, .1m), new(.1m, .8m)];
     private async Task<HttpClient> Admin()
@@ -129,7 +129,7 @@ public sealed class ApiFlowTests(SqlApiFixture fixture)
         Assert.Contains("CROSS_FLOOR_MAPPING", await invalid.Content.ReadAsStringAsync());
     }
     [Fact]
-    public async Task MonitoringAndCameraFailureRecoveryFlow()
+    public async Task DemoCameraFailureRecoveryAndMonitoringSourceRejection()
     {
         using var client = await Admin();
         var floor = await Floor(client);
@@ -137,13 +137,15 @@ public sealed class ApiFlowTests(SqlApiFixture fixture)
         var zone = await Zone(client, floor);
         var monitoring = $"/api/zones/{zone.ZoneId}/monitoring";
         var connection = $"/api/cameras/{camera.CameraId}/connection";
-        await Read<MonitoringConfiguration>(await client.PutAsJsonAsync(monitoring, new MonitoringRequest("Queue monitoring")));
-        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsync(monitoring + "/activate", null)).StatusCode);
+        var draft = await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(monitoring, new MonitoringRequest("Queue monitoring", Rules: [])));
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync(monitoring + "/activate", new MonitoringActivationRequest(draft.UpdatedAt))).StatusCode);
         await Read<ConnectionView>(await client.PutAsJsonAsync(connection, new ConnectionRequest("DEMO", "HTTP", "demo://camera/main")));
         await Read<ConnectionView>(await client.PostAsync(connection + "/test", null));
         await Read<ConnectionView>(await client.PostAsync(connection + "/enable", null));
         await Read<MappingView>(await client.PutAsJsonAsync($"/api/cameras/{camera.CameraId}/zones/{zone.ZoneId}", new MappingRequest(Triangle)));
-        Assert.Equal("ACTIVE", (await Read<MonitoringConfiguration>(await client.PostAsync(monitoring + "/activate", null))).Status);
+        var review = (await client.GetFromJsonAsync<MonitoringReviewView>(monitoring + "/review"))!;
+        Assert.False(review.CanActivate);
+        Assert.Contains(review.Cameras.Single().Issues, i => i.Code == "AI_SOURCE_UNSUPPORTED");
         var check = $"/api/cameras/{camera.CameraId}/health/check";
         Assert.Equal("ONLINE", (await Read<Camera>(await client.PostAsync(check, null))).HealthStatus);
         Assert.True((await client.PostAsync($"/api/demo/cameras/{camera.CameraId}/state?online=false", null)).IsSuccessStatusCode);
@@ -160,7 +162,7 @@ public sealed class ApiFlowTests(SqlApiFixture fixture)
         Assert.Equal("RESOLVED", resolved.Status);
         Assert.NotNull(resolved.ResolvedAt);
         Assert.NotNull(resolved.InvestigatedByUserId);
-        Assert.Equal(HttpStatusCode.Conflict, (await client.DeleteAsync($"/api/cameras/{camera.CameraId}/zones/{zone.ZoneId}")).StatusCode);
+        Assert.True((await client.DeleteAsync($"/api/cameras/{camera.CameraId}/zones/{zone.ZoneId}")).IsSuccessStatusCode);
     }
     [Fact]
     public async Task AuthenticationRbacLastAdminAndTokenRevocation()

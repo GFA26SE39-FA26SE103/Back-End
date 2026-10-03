@@ -19,6 +19,9 @@ public sealed class SqlApiFixture : IAsyncLifetime
         var schemaPath = Path.Combine(AppContext.BaseDirectory, "FA26SE103_Database_V0.1.sql");
         if (!File.Exists(schemaPath))
             throw new FileNotFoundException("SQL integration tests require the shared Project/DB schema. Build with -p:Mf01SchemaPath=<approved SQL file> if it is stored elsewhere.", schemaPath);
+        var migrationPath = Path.Combine(AppContext.BaseDirectory, "monitoring_rules_erd_v3.sql");
+        if (!File.Exists(migrationPath))
+            throw new FileNotFoundException("SQL tests require the Database team's approved monitoring migration. Build with -p:Mf01MonitoringMigrationPath=<approved migration>.", migrationPath);
         var server = Environment.GetEnvironmentVariable("MF01_TEST_SERVER") ?? @".\SQLEXPRESS";
         var configured = Environment.GetEnvironmentVariable("MF01_TEST_CONNECTION");
         var builder = configured is null ? new SqlConnectionStringBuilder { DataSource = server, IntegratedSecurity = true, TrustServerCertificate = true } : new SqlConnectionStringBuilder(configured);
@@ -46,6 +49,15 @@ public sealed class SqlApiFixture : IAsyncLifetime
                     ALTER TABLE dbo.[Zone] ADD area_m2 decimal(12,2) NULL;
                 """, testDatabase);
             await syncZone.ExecuteNonQueryAsync();
+            // Retarget only the migration's safety guard to this fixture-owned database.
+            // Never apply test DDL or API mutations to the shared Dev database.
+            var migration = (await File.ReadAllTextAsync(migrationPath)).Replace("DB_NAME() <> N'FA26SE103_Dev'", $"DB_NAME() <> N'{DatabaseName}'");
+            foreach (var batch in Regex.Split(migration, @"^\s*GO\s*$", RegexOptions.Multiline | RegexOptions.IgnoreCase))
+            {
+                if (string.IsNullOrWhiteSpace(batch)) continue;
+                await using var migrate = new SqlCommand(batch, testDatabase) { CommandTimeout = 60 };
+                await migrate.ExecuteNonQueryAsync();
+            }
         }
         Factory = new ApiFactory(new Dictionary<string, string?>
         {

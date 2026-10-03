@@ -198,7 +198,7 @@ public sealed class RecordedVideoTests
     {
         public int Stops;
         public Task<AiPreviewStatusView> Stop(Guid id, CancellationToken ct) { Stops++; return Task.FromResult(new AiPreviewStatusView(id, "STOPPED", null, DateTime.UtcNow, 0, null)); }
-        public Task<AiPreviewStatusView> Start(CameraConnection c, CancellationToken ct) => throw new NotSupportedException();
+        public Task<AiPreviewStatusView> Start(CameraConnection c, CancellationToken ct, decimal? confidence = null) => throw new NotSupportedException();
         public Task<AiPreviewStatusView> Status(Guid id, CancellationToken ct) => throw new NotSupportedException();
         public Task<PreviewFrame> Frame(Guid id, CancellationToken ct) => throw new NotSupportedException();
     }

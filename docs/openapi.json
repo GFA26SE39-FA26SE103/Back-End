@@ -19,6 +19,14 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "zoneId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
@@ -1032,6 +1040,44 @@
         }
       }
     },
+    "/api/incident-types": {
+      "get": {
+        "tags": [
+          "IncidentTypes"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IncidentTypeView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IncidentTypeView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IncidentTypeView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/zones/{zoneId}/monitoring": {
       "get": {
         "tags": [
@@ -1054,17 +1100,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/MonitoringConfiguration"
+                  "$ref": "#/components/schemas/MonitoringConfigurationView"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MonitoringConfiguration"
+                  "$ref": "#/components/schemas/MonitoringConfigurationView"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MonitoringConfiguration"
+                  "$ref": "#/components/schemas/MonitoringConfigurationView"
                 }
               }
             }
@@ -1111,17 +1157,57 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/MonitoringConfiguration"
+                  "$ref": "#/components/schemas/MonitoringConfigurationView"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MonitoringConfiguration"
+                  "$ref": "#/components/schemas/MonitoringConfigurationView"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MonitoringConfiguration"
+                  "$ref": "#/components/schemas/MonitoringConfigurationView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/zones/{zoneId}/monitoring/review": {
+      "get": {
+        "tags": [
+          "Monitoring"
+        ],
+        "parameters": [
+          {
+            "name": "zoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitoringReviewView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitoringReviewView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitoringReviewView"
                 }
               }
             }
@@ -1145,23 +1231,42 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonitoringActivationRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonitoringActivationRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonitoringActivationRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/MonitoringConfiguration"
+                  "$ref": "#/components/schemas/MonitoringConfigurationView"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MonitoringConfiguration"
+                  "$ref": "#/components/schemas/MonitoringConfigurationView"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MonitoringConfiguration"
+                  "$ref": "#/components/schemas/MonitoringConfigurationView"
                 }
               }
             }
@@ -1185,23 +1290,42 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonitoringActivationRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonitoringActivationRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonitoringActivationRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/MonitoringConfiguration"
+                  "$ref": "#/components/schemas/MonitoringConfigurationView"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MonitoringConfiguration"
+                  "$ref": "#/components/schemas/MonitoringConfigurationView"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MonitoringConfiguration"
+                  "$ref": "#/components/schemas/MonitoringConfigurationView"
                 }
               }
             }
@@ -2612,6 +2736,61 @@
         },
         "additionalProperties": false
       },
+      "IncidentTypeView": {
+        "type": "object",
+        "properties": {
+          "incidentTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceType": {
+            "type": "string",
+            "nullable": true
+          },
+          "measurementType": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "supported": {
+            "type": "boolean"
+          },
+          "thresholdUnit": {
+            "type": "string",
+            "nullable": true
+          },
+          "defaultWarningThreshold": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "defaultCriticalThreshold": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "unsupportedReason": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "LoginRequest": {
         "type": "object",
         "properties": {
@@ -2689,17 +2868,82 @@
         },
         "additionalProperties": false
       },
-      "MonitoringConfiguration": {
+      "MonitoringActivationRequest": {
         "type": "object",
         "properties": {
-          "createdAt": {
+          "expectedUpdatedAt": {
             "type": "string",
             "format": "date-time"
-          },
-          "updatedAt": {
+          }
+        },
+        "additionalProperties": false
+      },
+      "MonitoringCameraView": {
+        "type": "object",
+        "properties": {
+          "cameraId": {
             "type": "string",
-            "format": "date-time"
+            "format": "uuid"
           },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "mappingStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "roiPolygon": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "nullable": true
+          },
+          "sourceType": {
+            "type": "string",
+            "nullable": true
+          },
+          "protocol": {
+            "type": "string",
+            "nullable": true
+          },
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "lastTestResult": {
+            "type": "string",
+            "nullable": true
+          },
+          "lastTestedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonitoringIssue"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "MonitoringConfigurationView": {
+        "type": "object",
+        "properties": {
           "configId": {
             "type": "string",
             "format": "uuid"
@@ -2723,6 +2967,35 @@
           "createdByUserId": {
             "type": "string",
             "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonitoringRuleView"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "MonitoringIssue": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -2737,6 +3010,140 @@
           "confidenceThreshold": {
             "type": "number",
             "format": "double"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonitoringRuleRequest"
+            },
+            "nullable": true
+          },
+          "expectedUpdatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "MonitoringReviewView": {
+        "type": "object",
+        "properties": {
+          "configuration": {
+            "$ref": "#/components/schemas/MonitoringConfigurationView"
+          },
+          "zone": {
+            "$ref": "#/components/schemas/ZoneView"
+          },
+          "cameras": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonitoringCameraView"
+            },
+            "nullable": true
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonitoringIssue"
+            },
+            "nullable": true
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "canActivate": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MonitoringRuleRequest": {
+        "type": "object",
+        "properties": {
+          "incidentTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "warningThreshold": {
+            "type": "number",
+            "format": "double"
+          },
+          "criticalThreshold": {
+            "type": "number",
+            "format": "double"
+          },
+          "thresholdUnit": {
+            "type": "string",
+            "nullable": true
+          },
+          "sustainSec": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cooldownSec": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "parametersJson": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "MonitoringRuleView": {
+        "type": "object",
+        "properties": {
+          "ruleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incidentTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incidentCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "incidentName": {
+            "type": "string",
+            "nullable": true
+          },
+          "warningThreshold": {
+            "type": "number",
+            "format": "double"
+          },
+          "criticalThreshold": {
+            "type": "number",
+            "format": "double"
+          },
+          "thresholdUnit": {
+            "type": "string",
+            "nullable": true
+          },
+          "sustainSec": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cooldownSec": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "parametersJson": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -3004,7 +3411,7 @@
   },
   "security": [
     {
-      "Bearer": [ ]
+      "Bearer": []
     }
   ],
   "tags": [
@@ -3019,6 +3426,9 @@
     },
     {
       "name": "Health"
+    },
+    {
+      "name": "IncidentTypes"
     },
     {
       "name": "Monitoring"
