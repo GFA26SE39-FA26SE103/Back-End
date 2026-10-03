@@ -15,6 +15,67 @@ Deployment package prepared on **2026-10-04** from the user's server inspection.
 | Public Dev API | `https://supermarket-api-dev.kitsuracloud.com` |
 | Deploy directory | `/opt/capstone/backend-dev` |
 
+## Verified deployment checkpoint (2026-10-04)
+
+Backend Dev is live and was accepted from commit `4dff502` (`merge: deploy MF01 backend to dev`). The first successful rollout built and published an immutable GHCR digest, joined the tailnet from a GitHub-hosted runner, deployed through OpenSSH, and started `capstone-backend-dev` as a healthy container. This digest is a historical checkpoint only; `.active-release` on the VM is the source of truth for the currently running release after later deployments.
+
+Verified end-to-end path:
+
+```text
+push to dev
+→ GitHub Actions test/build
+→ GHCR image digest
+→ ephemeral Tailscale runner
+→ SSH to 100.105.191.20
+→ Docker on 192.168.1.206:5080
+→ NPM on 192.168.1.243
+→ https://supermarket-api-dev.kitsuracloud.com
+```
+
+Acceptance completed on 2026-10-04:
+
+- both `image` and `deploy` jobs passed;
+- `capstone-backend-dev` reported `running` and `healthy`;
+- internal readiness returned `200 {"status":"READY"}` when sent the allowed public Host;
+- the NPM host reached the upstream at `192.168.1.206:5080`;
+- public HTTPS readiness and Swagger returned successfully with the correct public scheme/host;
+- `POST /api/auth/login` and authenticated `GET /api/auth/me` returned the expected active ADMIN from `FA26SE103_Dev`;
+- CORS preflight from `http://localhost:5173` returned `204` with the expected origin/method/header;
+- the local frontend build accepted `VITE_API_URL=https://supermarket-api-dev.kitsuracloud.com` through an ignored `.env.local` file.
+
+Current hosted runtime posture:
+
+| Concern | Current state |
+| --- | --- |
+| ASP.NET environment | `Staging` |
+| Database | Existing `FA26SE103_Dev` |
+| Floor-plan storage | Cloudinary |
+| Reverse proxy | Enabled; trusts only NPM LAN IP `192.168.1.243` |
+| Swagger | Enabled for Dev acceptance |
+| Camera health worker | Disabled until recorded sources are re-uploaded/tested/enabled on Ubuntu |
+| Continuous monitoring worker | Disabled because the Python AI service is not part of this deployment |
+| Frontend hosting | Not deployed; only local Vite was pointed at this API |
+
+### What is automated now
+
+A push to `dev` runs non-SQL tests, validates deployment/recovery scripts, builds Linux amd64, pushes an immutable image to GHCR, joins Tailscale, verifies the pinned SSH host key, copies a numbered release, starts the API with Compose, waits for readiness, records the active release, and restores the previous image/Compose release if readiness fails. The VM reuses its private `api.env` and persistent named volumes. No self-hosted runner or public API-VM SSH port is used.
+
+### What remains manual or external
+
+- provision Docker, the external `capstone_default` network, SQL Server and `/opt/capstone/backend-dev` on a new VM;
+- create/rotate `/opt/capstone/backend-dev/api.env`; env changes require an explicit container recreation or another deployment;
+- maintain GitHub Environment secrets, the deploy public key, Tailscale `tag:ci`/OAuth client and access policy;
+- create and renew the DNS/DDNS/NPM path and its certificate; confirm the NPM upload/time-out overrides before testing large floor-plan or MP4 uploads;
+- provision, approve, back up and validate the database schema/data; deployment deliberately runs no SQL script, EF migration or bootstrap;
+- back up SQL, the Data Protection key volume, recorded-video volume and any local assets; image rollback does not roll back DB/env/data;
+- re-upload Windows-local recorded videos, then Test → Preview → Enable before turning on `CameraHealth__Enabled`;
+- deploy/configure the Python AI service and its runtime schema before turning on `Monitoring__Enabled`;
+- deploy the frontend and set its build-time `VITE_API_URL`; add its exact public origin to backend CORS;
+- perform camera/Cloudinary/large-upload acceptance, monitoring runtime acceptance, alerting/log collection and production hardening;
+- create the separate Production environment, domain, DB, secrets, container, volumes and approval workflow. Dev resources must not be relabeled as Production.
+
+Deployment is not zero-downtime. A docs-only push to `dev` also triggers the current workflow. Required reviewers are not enabled on the Dev GitHub Environment. Add path filtering or a separate release trigger later if the team wants to avoid unnecessary image deployments.
+
 ```mermaid
 flowchart LR
   G[GitHub-hosted runner] -->|Build and push| R[GHCR image]
@@ -189,4 +250,4 @@ flock -u 9
 
 These commands expect a previous successful rollout. Check `docker logs --tail 100 capstone-backend-dev` privately if startup/readiness fails; share only sanitized errors. `/health/live` checks process availability; `/health/ready` checks SQL connectivity. Neither proves NPM/DNS reachability, Cloudinary credentials, camera readiness or AI availability. Those require the acceptance steps above.
 
-This package has not accessed/deployed to either server. Actual GitHub/GHCR permissions, Tailscale ACL, SSH authorization, VM volume permissions, DNS, NPM HTTPS and live DB/Cloudinary/video acceptance remain to be exercised by the first rollout.
+The first Dev rollout and the health/auth path are verified as recorded in the checkpoint above. Cloudinary upload/download, large MP4 upload, camera retest/enable, camera health worker, Python AI integration and continuous monitoring remain separate acceptance work; health/auth success must not be presented as evidence that those capabilities are operational.
