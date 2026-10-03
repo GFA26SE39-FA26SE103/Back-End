@@ -238,8 +238,7 @@ public sealed class OperatorAccessTests
         public Task<StoredFloorPlan> Save(Guid floorId, Stream content, string filename, string contentType, long length, CancellationToken ct) => throw new NotSupportedException();
         public Task<FloorPlanFile?> Open(Guid floorId, string token, CancellationToken ct)
             => Task.FromResult<FloorPlanFile?>(new FloorPlanFile(new MemoryStream([1, 2, 3]), "image/png"));
-        public void Delete(Guid floorId, string token) => throw new NotSupportedException();
-        public void DeleteOthers(Guid floorId, string token) => throw new NotSupportedException();
+        public Task Delete(Guid floorId, string token, CancellationToken ct) => throw new NotSupportedException();
     }
 
     /// <summary>In-memory store; any Add/Update/Remove is recorded so tests can prove nothing changed.</summary>

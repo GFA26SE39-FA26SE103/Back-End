@@ -176,6 +176,9 @@ public sealed class FloorPlanTests
 
         Assert.Equal(500, (int)response.StatusCode);
         Assert.Equal(previous, Assert.Single(Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)));
+        var restored = await client.GetAsync($"/api/floors/{floor.FloorId}/map");
+        restored.EnsureSuccessStatusCode();
+        Assert.Equal(Png, await restored.Content.ReadAsByteArrayAsync());
     }
 
     [Fact]
@@ -224,6 +227,7 @@ public sealed class FloorPlanTests
             {
                 ["Bootstrap:Enabled"] = "false",
                 ["CameraHealth:Enabled"] = "false",
+                ["FloorPlan:Provider"] = "Local",
                 ["FloorPlan:Root"] = root,
                 ["FloorPlan:MaxBytes"] = maxBytes.ToString()
             }));

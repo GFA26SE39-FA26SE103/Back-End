@@ -118,7 +118,34 @@ Domain không phụ thuộc ASP.NET/EF. Controller không truy cập DbContext. 
 - Health worker, check thủ công, OPEN → INVESTIGATING → RESOLVED. Khi có lại frame, worker tự resolve event và cập nhật last seen; Admin có thể thêm resolution note.
 - Swagger/OpenAPI, ProblemDetails với `code` và `requestId`, rate limit login, CORS, liveness/readiness.
 
-Floor map có thể được khai báo bằng HTTP(S) asset URL khi chỉnh floor hoặc upload vào local storage qua API mới. Local storage mặc định là `src/Supermarket.Api/.local/floor-plans`, cấu hình bằng `FloorPlan:Root`; giới hạn mặc định `FloorPlan:MaxBytes=20971520`. Storage name do server sinh, không dùng original filename làm path, không serve static, và thư mục `.local` không được commit. Local storage chỉ dành cho increment development; `IFloorPlanStorage` là boundary để thay bằng S3/MinIO sau này mà không đổi controller/use case.
+Floor-map upload chọn storage bằng `FloorPlan:Provider`: `Local` (mặc định) hoặc `Cloudinary`. Local root mặc định là `src/Supermarket.Api/.local/floor-plans`, cấu hình bằng `FloorPlan:Root`; giới hạn mặc định `FloorPlan:MaxBytes=20971520` (có thể giảm, tối đa 20 MB theo endpoint hiện tại). Storage name do server sinh, không dùng original filename làm path, không serve static, và thư mục `.local` không được commit. SQL vẫn lưu tham chiếu map/kích thước; không có migration hoặc thay scaffold cho storage provider.
+
+### Cloudinary cho floor plans
+
+Thêm/merge các mục sau vào `src/Supermarket.Api/appsettings.Local.json`, giữ các cấu hình DB/JWT/AI đang có. File local đã được ignore; không commit API secret. File example trong Git chứa giá trị trống. Điền key rồi đổi Provider và restart backend:
+
+```json
+{
+  "FloorPlan": { "Provider": "Cloudinary" },
+  "Cloudinary": {
+    "CloudName": "YOUR_CLOUD_NAME",
+    "ApiKey": "YOUR_API_KEY",
+    "ApiSecret": "YOUR_API_SECRET",
+    "Folder": "fa26se103/floor-plans",
+    "TimeoutSeconds": 30
+  }
+}
+```
+
+Trên VPS, có thể dùng `FloorPlan__Provider=Cloudinary`, `Cloudinary__CloudName`, `Cloudinary__ApiKey`, `Cloudinary__ApiSecret`, `Cloudinary__Folder` và `Cloudinary__TimeoutSeconds` thay cho file local. Cloud name/key/secret lấy trong Cloudinary Console; không thêm chúng vào frontend hoặc URL DB. Bật Cloudinary khi thiếu key, folder không hợp lệ hoặc timeout ngoài 1–120 giây sẽ fail startup với hướng dẫn cấu hình, không in giá trị secret. Xem [Cloudinary signed API calls](https://cloudinary.com/documentation/authentication_signatures) và [Upload API](https://cloudinary.com/documentation/image_upload_api_reference).
+
+Store Layout giữ nút Upload/Replace hiện tại. Backend kiểm tra PNG/JPEG/PDF, MIME/extension/signature/size trước khi gọi Cloudinary qua HTTPS. PNG/JPEG dùng resource `image`; PDF dùng `raw` để giữ file PDF nguyên gốc cho PDF.js. Mọi asset dùng delivery type `authenticated`, public ID riêng theo floor và `overwrite=false`; không gửi transformation/crop hay dùng upload preset. Cần giữ cấu hình Cloudinary không có incoming transformation cho floor plans. Cloudinary account có thể có giới hạn upload/delivery riêng; lỗi provider trả thông báo đã sanitize.
+
+SQL lưu URL của API map với version token chứa cloud/floor/immutable asset ID/format, không lưu URL có chữ ký hết hạn hay secret. `GET /api/floors/{id}/map` vẫn kiểm tra quyền ADMIN/OPERATOR/MANAGER, tải file gốc từ signed Cloudinary API bằng asset ID và trả bytes/Content-Type với `Cache-Control: no-store`; không redirect browser tới ảnh public. Đổi folder không làm mất tham chiếu đã lưu; đổi CloudName sang product environment khác không tự chuyển các ảnh cũ. Các API instance đọc cùng DB cần được cấu hình credential cho đúng cloud đã lưu.
+
+Đổi Provider sang Cloudinary không tự upload các file cũ: router vẫn đọc được token local nếu file còn ở `FloorPlan:Root`. Để ảnh cũ dùng được trên máy khác/VPS, dùng **Replace floor plan** một lần với đúng file gốc sau khi cấu hình key; zone/camera/ROI vẫn giữ nguyên. Upload mới từ đó lưu trên Cloudinary. Không xóa thư mục local trước khi chuyển các floor còn tham chiếu nó.
+
+Thay ảnh tạo asset mới, cập nhật DB trong transaction, rồi chỉ xóa đúng tham chiếu cũ. Lỗi DB giữ tham chiếu cũ và dọn asset mới. Cleanup remote/local không thành công chỉ ghi warning đã sanitize và có thể để lại asset không được tham chiếu; không biến commit thành lỗi hay xóa theo prefix toàn floor. Không tự retry upload hoặc tự migrate ảnh khi app startup. Timeout/network failure trước khi nhận asset ID cũng có thể để lại upload không được tham chiếu; kiểm tra thư mục Cloudinary của floor nếu cần dọn. Không có key thật thì tests chỉ xác minh contract qua HTTP handler giả, chưa chứng minh live Cloudinary acceptance.
 
 Store Layout frontend tải floor/camera thật, lấy map dưới dạng authenticated Blob, render trang PDF đầu tiên bằng PDF.js, và đặt camera bằng sprite body/muzzle/FOV. **Create floor / Edit floor** mở dialog có Cancel/close/Escape. Create dùng default store đã seed; Edit chỉ gửi name/floorNumber qua `PATCH /api/floors/{id}/details`, giữ map hiện tại, zone/camera/ROI. Số tầng unique trong store; lỗi giữ input. Drag hoặc keyboard chỉ sửa draft; **Save placement** mới gửi full camera DTO với `mapX/mapY` normalized và `mapRotationDeg`. Lưu placement không tự test/enable connection hay activate monitoring.
 
