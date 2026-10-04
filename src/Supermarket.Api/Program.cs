@@ -39,9 +39,11 @@ builder.Services.AddOptions<CloudinaryOptions>().Bind(builder.Configuration.GetS
 builder.Services.Configure<HealthWorkerOptions>(builder.Configuration.GetSection("CameraHealth"));
 builder.Services.Configure<MonitoringWorkerOptions>(builder.Configuration.GetSection("Monitoring"));
 builder.Services.AddOptions<AiPreviewOptions>().Bind(builder.Configuration.GetSection("AiPreview"))
+    .PostConfigure(o => o.Classes = o.Classes.Distinct().ToArray())
     .Validate(o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https", "AiPreview:BaseUrl must be an absolute HTTP(S) URI.")
     .Validate(o => o.TimeoutSeconds is > 0 and <= 120, "AiPreview timeout must be 1 to 120 seconds.")
     .Validate(o => o.Confidence is >= 0 and <= 1, "AiPreview confidence must be in [0,1].")
+    .Validate(o => o.Classes.SequenceEqual([0]), "AiPreview:Classes must contain only the person class 0.")
     .ValidateOnStart();
 builder.Services.AddDbContext<AppDbContext>(o =>
 {
