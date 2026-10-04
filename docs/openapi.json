@@ -915,17 +915,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/Camera"
+                  "$ref": "#/components/schemas/CameraHealthView"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Camera"
+                  "$ref": "#/components/schemas/CameraHealthView"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Camera"
+                  "$ref": "#/components/schemas/CameraHealthView"
                 }
               }
             }
@@ -955,17 +955,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/Camera"
+                  "$ref": "#/components/schemas/CameraHealthView"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Camera"
+                  "$ref": "#/components/schemas/CameraHealthView"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Camera"
+                  "$ref": "#/components/schemas/CameraHealthView"
                 }
               }
             }
@@ -2899,6 +2899,45 @@
         },
         "additionalProperties": false
       },
+      "CameraHealthView": {
+        "type": "object",
+        "properties": {
+          "cameraId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "connectionStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "processingAvailability": {
+            "type": "string",
+            "nullable": true
+          },
+          "monitoringReadiness": {
+            "type": "string",
+            "nullable": true
+          },
+          "activeHealthIssues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "CameraHealthEvent": {
         "type": "object",
         "properties": {
@@ -4092,6 +4131,21 @@
           },
           "healthStatus": {
             "type": "string",
+            "nullable": true
+          },
+          "monitoringReadiness": {
+            "type": "string",
+            "nullable": true
+          },
+          "processingAvailability": {
+            "type": "string",
+            "nullable": true
+          },
+          "activeHealthIssues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "nullable": true
           },
           "lastSeenAt": {

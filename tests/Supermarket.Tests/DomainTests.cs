@@ -1,4 +1,5 @@
 using Supermarket.Domain;
+using Supermarket.Application;
 using Supermarket.Infrastructure;
 using Supermarket.Infrastructure.Video;
 using Microsoft.AspNetCore.DataProtection;
@@ -110,10 +111,10 @@ public sealed class DomainTests
         Rules.Investigate(e);
         e.Status = "INVESTIGATING";
         Assert.Throws<DomainException>(() => Rules.Investigate(e));
-        Assert.Throws<DomainException>(() => Rules.Resolve(e, new Camera { HealthStatus = "OFFLINE" }));
-        Rules.Resolve(e, new Camera { HealthStatus = "ONLINE" });
+        Assert.Throws<DomainException>(() => Rules.Resolve(e, recovered: false));
+        Rules.Resolve(e, recovered: true);
         e.Status = "RESOLVED";
-        Assert.Throws<DomainException>(() => Rules.Resolve(e, new Camera { HealthStatus = "ONLINE" }));
+        Assert.Throws<DomainException>(() => Rules.Resolve(e, recovered: true));
     }
     [Fact]
     public void HashesUserPassword()
@@ -137,12 +138,16 @@ public sealed class DomainTests
     public async Task DemoDisconnectIsDeterministic()
     {
         var state = new DemoCameraState();
-        var adapter = new CameraStream(new CredentialProtector(new EphemeralDataProtectionProvider()), Options.Create(new VideoOptions { AllowDemo = true }), state);
+        var adapter = new CameraStream(new CredentialProtector(new EphemeralDataProtectionProvider()), Options.Create(new VideoOptions { AllowDemo = true }), state, new ClearFrameAnalyzer());
         var c = new CameraConnection { CameraId = Guid.NewGuid(), SourceType = "DEMO", Protocol = "HTTP", StreamUri = "demo://camera/main" };
         Assert.True((await adapter.Test(c, default)).Success);
         state.Set(c.CameraId, false);
         Assert.False((await adapter.Test(c, default)).Success);
         state.Set(c.CameraId, true);
         Assert.True((await adapter.Test(c, default)).Success);
+    }
+    private sealed class ClearFrameAnalyzer : IFrameHealthAnalyzer
+    {
+        public Task<FrameAnalysisResult> Analyze(PreviewFrame frame, CancellationToken ct) => Task.FromResult(new FrameAnalysisResult(true, []));
     }
 }

@@ -46,10 +46,22 @@ Response gồm:
 - `totals`: floor/zone/camera counts, configured zones, ACTIVE configurations, configurations đủ điều kiện Review/Activate, cameras ONLINE trong nhóm ACTIVE + connection enabled và unresolved health events.
 - `steps[]`: `code, name, completed, total, description` cho floor-map/zone, source, test/enable, mapping/ROI, incident rules và activation. Mỗi bước đếm record đã lưu; `0/0` không có nghĩa setup hoàn tất. Test success không chứng minh Admin đã xem preview; preview completion chưa được lưu.
 - `floors[]`: thông tin floor, `hasMap`, `zones[]`. Từng zone có configuration summary hoặc null, `setupReady`, `canActivate`, sanitized mapped-camera/ROI summaries, issues và warnings. `setupReady` dùng chung policy với Monitoring Review/Activate; `canActivate` còn yêu cầu configuration chưa ACTIVE. Review và Activate vẫn phải đọc lại dữ liệu khi Admin thao tác.
-- `cameras[]`: lifecycle `status`, `healthStatus`, `lastSeenAt`, source type/protocol, connection validation/enabled/test result/time và issues. Không trả stream URI, username hoặc credentials. Test time và last received frame là hai thời điểm khác nhau.
+- `cameras[]`: lifecycle `status`, transport `healthStatus`, `monitoringReadiness`, `processingAvailability`, `activeHealthIssues`, `lastSeenAt`, source type/protocol, connection validation/enabled/test result/time và issues. Không trả stream URI, username hoặc credentials. Test time và last received frame là hai thời điểm khác nhau.
 - `healthEvents[]`: unresolved events, mới nhất trước, gồm ID/camera code/type/status/detectedAt; không chứa probe error hoặc secret.
 
-Configuration ACTIVE và camera health độc lập: camera OFFLINE không tự deactivate configuration. MF-01 activation không đồng nghĩa continuous AI/rule processing. Recorded-file health chỉ xác nhận frame readability, không xác nhận AI playback/GPU. Dashboard frontend polling snapshot mỗi 30 giây khi tab đang hiện; nút Refresh chỉ đọc. Check health gọi endpoint probe ADMIN hiện có; màn Cameras cung cấp sửa source và Test/Enable/Preview. Investigation/Resolve workflow vẫn dùng endpoints health-event hiện có, chưa được tích hợp thành form trên dashboard.
+Configuration ACTIVE và camera health độc lập: camera OFFLINE hoặc visual issue không tự deactivate configuration. `healthStatus` chỉ là `UNKNOWN/ONLINE/OFFLINE`; ONLINE không có nghĩa sẵn sàng cho monitoring. `monitoringReadiness` là `READY/NOT_READY`, còn `processingAvailability` là `AVAILABLE/UNAVAILABLE/UNKNOWN`. Dashboard frontend polling snapshot mỗi 30 giây khi tab đang hiện; nút Refresh chỉ đọc. Check health gọi endpoint probe ADMIN hiện có; màn Cameras cung cấp sửa source và Test/Enable/Preview. Investigation/Resolve workflow vẫn dùng endpoints health-event hiện có, chưa được tích hợp thành form trên dashboard.
+
+### Camera health và monitoring readiness
+
+Worker chạy một lượt ngay khi backend khởi động, sau đó theo `CameraHealth:IntervalSeconds`, chỉ với connection enabled. `MaxConcurrentChecks` giới hạn số probe song song. Mỗi probe lấy một frame nhỏ; AI service endpoint nội bộ `/frame-health` chỉ decode/đo contrast, edge density và Laplacian blur trên CPU, không chạy YOLO/GPU. Không có darkness classifier. Frozen event được contract hỗ trợ nhưng chưa tự phát hiện nếu source không cung cấp freshness/sequence đáng tin cậy.
+
+`GET /cameras/{id}/health` và `POST /cameras/{id}/health/check` trả:
+
+```json
+{"cameraId":"<uuid>","connectionStatus":"ONLINE","processingAvailability":"AVAILABLE","monitoringReadiness":"READY","activeHealthIssues":[],"lastSeenAt":"2026-10-03T12:00:00Z","observedAt":"2026-10-03T12:00:00Z"}
+```
+
+`STREAM_UNAVAILABLE` mở/resolve theo transport. Visual event dùng hysteresis cấu hình `BadObservationsToOpen` và `GoodObservationsToResolve`, unique theo camera + event type trong application runtime; các loại độc lập có thể đồng thời OPEN/INVESTIGATING. V1 gồm `CAMERA_VIEW_BLOCKED`, `CAMERA_VIEW_BLURRED`, `CAMERA_FRAME_INVALID`; `CAMERA_VIEW_FROZEN` dành cho adapter có freshness metadata đáng tin cậy. AI service unavailable chỉ làm processing unavailable/readiness NOT_READY, không tạo CameraHealthEvent và không đổi camera ONLINE thành OFFLINE. Health issue camera-wide; monitoring configuration vẫn ACTIVE. Monitoring runtime dùng readiness này làm fail-closed gate và không phát measurement/rule/event/incident khi camera `NOT_READY`.
 
 Ví dụ zone:
 

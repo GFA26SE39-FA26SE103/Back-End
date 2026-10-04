@@ -164,3 +164,14 @@ Actual Docker image build/run remains unverified locally because Docker Desktop'
 - Regression test `AiMonitoringBindsThePersonClassOnce` was observed RED with expected `[0]`, actual `[0,0]`, then GREEN after post-bind deduplication and fail-fast validation that the effective list is exactly `[0]`.
 - Backend non-SQL suite: **274 passed, 0 failed**. Release publish: **PASS**.
 - Local native integration after restarting the backend: `POST /monitoring/sessions/{cameraId}/start` returned **200**, repeated measurement requests returned **200**, and the AI session for `CAM-PHONE` reported `LIVE`, purpose `MONITORING`, confidence context `0.2`. This smoke used the existing active configuration and recorded source; it did not change SQL configuration or claim browser/incident acceptance.
+## MF-01 camera health/readiness validation 2026-10-03
+
+Separated transport status, visual-health events and processing availability. Added event-type-specific hysteresis, an immediate-start/bounded-concurrency worker, CPU-only frame analysis through the private AI service, derived `READY/NOT_READY`, and frontend presentation. No database/ERD migration was required; `CameraHealthEvent.event_type` already supports the new values. The camera-health branch originally exposed readiness as a fail-closed gate; after integration, the existing monitoring runtime consumes that gate before producing measurement/rule/event/incident results.
+
+- Backend non-SQL suite using isolated build artifacts: **241 passed, 0 failed, 0 skipped**.
+- Backend focused health + AI-client contract selection: **12 passed, 0 failed, 0 skipped**.
+- Backend Release publish: **PASS**.
+- Runtime Swagger comparison for health GET/check paths, `CameraHealthView`, and `SetupCamera`: **MATCH** with `docs/openapi.json`.
+- Frontend: **152 tests passed across 19 files**; lint and production build **PASS**. Existing Vite bundle-size advisory remains.
+- AI service CPU/API/session/recorded/redaction selection: **32 passed**. Focused frame-health tests: **4 passed**. A Starlette/httpx deprecation warning is dependency-owned and does not affect the result.
+- SQL integration was not rerun because this change does not alter schema or EF mappings.

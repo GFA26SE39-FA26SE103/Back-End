@@ -84,5 +84,5 @@ public static class Rules
     public static void Confidence(decimal value) => Require(value is >= 0 and <= 1, "INVALID_CONFIDENCE", "Model confidence must be in [0,1].");
     public static void ProtectAdmin(bool wasActiveAdmin, bool remainsActiveAdmin, int activeAdmins) => Require(!wasActiveAdmin || remainsActiveAdmin || activeAdmins > 1, "LAST_ACTIVE_ADMIN", "The last active Admin cannot be disabled or demoted.");
     public static void Investigate(CameraHealthEvent health) => Require(health.Status == "OPEN", "INVALID_TRANSITION", "Only an open event can be investigated.");
-    public static void Resolve(CameraHealthEvent health, Camera camera) => Require(health.Status is "OPEN" or "INVESTIGATING" && camera.HealthStatus == "ONLINE", "INVALID_TRANSITION", "Only an unresolved event for a restored online camera can be resolved.");
+    public static void Resolve(CameraHealthEvent health, bool recovered) => Require(health.Status is "OPEN" or "INVESTIGATING" && recovered, "INVALID_TRANSITION", "Only an unresolved event with confirmed recovery can be resolved.");
 }
