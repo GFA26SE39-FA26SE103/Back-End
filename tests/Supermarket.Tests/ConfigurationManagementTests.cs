@@ -32,7 +32,7 @@ public sealed class ConfigurationManagementTests
         Assert.DoesNotContain(h.Store.Values.OfType<MonitoringRule>(), r => r.ConfigId == h.Configuration.ConfigId);
         Assert.Contains(other, h.Store.Values); Assert.Contains(otherRule, h.Store.Values);
         Assert.Equal(spatial, JsonSerializer.Serialize(h.Store.Values.Where(e => e is Floor or Zone or Camera or CameraConnection or CameraZoneMapping)));
-        var overview = await new SetupOverview(h.Store, new MonitoringSetupTests.User("ADMIN"), new Clock()).Get(default);
+        var overview = await new SetupOverview(h.Store, new MonitoringSetupTests.User("ADMIN"), new Clock(), new CameraHealthRuntimeState()).Get(default);
         Assert.Null(overview.Floors.Single(f => f.FloorId == floor.FloorId).Zones.Single().Configuration);
     }
 

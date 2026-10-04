@@ -10,13 +10,14 @@ public sealed record SetupZone(Guid ZoneId, string Code, string Name, string Sta
     bool SetupReady, bool CanActivate, MonitoringCameraView[] Cameras, MonitoringIssue[] Issues, string[] Warnings);
 public sealed record SetupFloor(Guid FloorId, int FloorNumber, string Name, bool HasMap, SetupZone[] Zones);
 public sealed record SetupCamera(Guid CameraId, Guid FloorId, string FloorName, string Code, string Name, string Status,
-    string HealthStatus, DateTime? LastSeenAt, bool HasConnection, bool ConnectionValid, bool IsEnabled,
+    string HealthStatus, string MonitoringReadiness, string ProcessingAvailability, string[] ActiveHealthIssues,
+    DateTime? LastSeenAt, bool HasConnection, bool ConnectionValid, bool IsEnabled,
     string? SourceType, string? Protocol, string? LastTestResult, DateTime? LastTestedAt, MonitoringIssue[] Issues);
 public sealed record SetupHealthEvent(Guid HealthEventId, Guid CameraId, string CameraCode, string EventType, string Status, DateTime DetectedAt);
 public sealed record SetupOverviewView(DateTime GeneratedAt, bool HasDefaultStore, SetupTotals Totals,
     SetupStep[] Steps, SetupFloor[] Floors, SetupCamera[] Cameras, SetupHealthEvent[] HealthEvents);
 
-public sealed class SetupOverview(ISetupStore store, ICurrentUser current, IClock clock)
+public sealed class SetupOverview(ISetupStore store, ICurrentUser current, IClock clock, CameraHealthRuntimeState runtime)
 {
     public Task<SetupOverviewView> Get(CancellationToken ct)
     {
@@ -54,6 +55,8 @@ public sealed class SetupOverview(ISetupStore store, ICurrentUser current, ICloc
             var cameraViews = cameras.Values.OrderBy(c => c.Code).Select(c =>
             {
                 var connection = connections.GetValueOrDefault(c.CameraId);
+                var cameraEvents = events.Where(e => e.CameraId == c.CameraId).ToArray();
+                var health = runtime.Snapshot(c, cameraEvents.Select(e => e.EventType), connection?.IsEnabled == true);
                 var issues = new List<MonitoringIssue>();
                 if (c.Status != "ACTIVE") issues.Add(new("CAMERA_NOT_ACTIVE", "Camera is inactive."));
                 var valid = false;
@@ -67,9 +70,20 @@ public sealed class SetupOverview(ISetupStore store, ICurrentUser current, ICloc
                     if (!connection.IsEnabled) issues.Add(new("CONNECTION_DISABLED", "Enable the tested connection."));
                     if (connection.IsEnabled && c.Status == "ACTIVE" && c.HealthStatus != "ONLINE")
                         issues.Add(new("CAMERA_HEALTH_" + c.HealthStatus, c.HealthStatus == "UNKNOWN" ? "No successful health observation yet." : "Investigate camera connectivity."));
+                    if (connection.IsEnabled && c.Status == "ACTIVE" && health.ProcessingAvailability == "UNAVAILABLE")
+                        issues.Add(new("PROCESSING_UNAVAILABLE", "Camera frames are arriving, but visual-health processing is unavailable."));
+                    foreach (var eventType in health.ActiveHealthIssues.Where(CameraHealthEventTypes.IsVisual))
+                        issues.Add(new(eventType, eventType switch
+                        {
+                            CameraHealthEventTypes.ViewBlocked => "The camera view appears blocked.",
+                            CameraHealthEventTypes.ViewBlurred => "The camera view appears too blurred for reliable monitoring.",
+                            CameraHealthEventTypes.ViewFrozen => "The camera stream appears frozen.",
+                            _ => "The camera frame is invalid for monitoring."
+                        }));
                 }
                 return new SetupCamera(c.CameraId, c.FloorId, floors.Single(f => f.FloorId == c.FloorId).Name, c.Code, c.Name,
-                    c.Status, c.HealthStatus, c.LastSeenAt, connection is not null, valid, connection?.IsEnabled ?? false,
+                    c.Status, c.HealthStatus, health.MonitoringReadiness, health.ProcessingAvailability, health.ActiveHealthIssues,
+                    c.LastSeenAt, connection is not null, valid, connection?.IsEnabled ?? false,
                     connection?.SourceType, connection?.Protocol, connection?.LastTestResult, connection?.LastTestedAt, issues.ToArray());
             }).ToArray();
             var zoneViews = floorViews.SelectMany(f => f.Zones).ToArray();

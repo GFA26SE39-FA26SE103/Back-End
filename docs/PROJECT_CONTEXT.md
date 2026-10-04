@@ -276,7 +276,7 @@ System continuously checks Camera / Stream Health
 ```text
 Monitoring active
     ↓
-Camera / stream becomes OFFLINE / ERROR
+Camera transport becomes OFFLINE, or the stream becomes visually unusable
     ↓
 CameraHealthEvent / health issue reported
     ↓
@@ -1051,14 +1051,15 @@ Current important values include:
 
 Camera map x/y should be normalized `[0,1]`.
 
-Health states currently expected:
+Application transport-health states:
 
 ```text
 UNKNOWN
 ONLINE
 OFFLINE
-ERROR
 ```
+
+The current database constraint may still accept legacy `ERROR`, but application health checks do not emit it. Visual usability and processing readiness are separate from transport status and are represented by unresolved `CameraHealthEvent` types plus a derived `READY` / `NOT_READY` service projection.
 
 ### `CameraConnection`
 
@@ -1132,7 +1133,7 @@ Contains AI/runtime settings such as model detection confidence.
 
 ### `CameraHealthEvent`
 
-Separate system-health history for camera failures/recovery.
+Separate system-health history for camera/stream failures and recovery. Transport, visual usability, and processing availability are distinct: an ONLINE camera may still have `CAMERA_VIEW_BLOCKED`, `CAMERA_VIEW_BLURRED`, `CAMERA_VIEW_FROZEN`, or `CAMERA_FRAME_INVALID`. AI-service availability is broader pipeline health and must not be mislabeled as a camera failure.
 
 Example states:
 
@@ -1716,8 +1717,9 @@ Represents runtime health:
 UNKNOWN
 ONLINE
 OFFLINE
-ERROR
 ```
+
+This field is transport/connectivity-oriented. Visual health uses event-specific `CameraHealthEvent` records and monitoring usability is derived as `READY` / `NOT_READY`. Monitoring activation remains independent and is not automatically changed by temporary health failures.
 
 Do not use these interchangeably.
 
@@ -1768,7 +1770,7 @@ A clean end-to-end demo should be possible in this order:
 16. Admin activates monitoring.
 17. Camera health becomes ONLINE / last_seen is updated.
 18. Simulate camera failure.
-19. Health becomes OFFLINE/ERROR and a CameraHealthEvent opens.
+19. Transport becomes OFFLINE or a confirmed visual-health issue opens its event-specific CameraHealthEvent.
 20. Admin investigates/restores the connection.
 21. Health event resolves.
 

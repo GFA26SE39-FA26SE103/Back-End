@@ -113,3 +113,15 @@ After the user supplied credentials locally and reported a floor-plan image appe
 
 - Release build performed by focused tests: **PASS**. Cloudinary/floor-plan/Operator selection: **59 passed, 0 failed, 0 skipped**, including 36 Cloudinary cases. PNG/JPEG/PDF contract checks now assert `asset_folder`; an additional case verifies a custom Folder value and the signed request. `git diff --check`: **PASS**.
 - README and API storage notes explain new uploads, existing Home assets and folder moves. No frontend/API schema/SQL change. Live acceptance of the newly added folder parameter remains unverified; no real credentials were printed or used by these tests.
+
+## MF-01 camera health/readiness validation 2026-10-03
+
+Separated transport status, visual-health events and processing availability. Added event-type-specific hysteresis, an immediate-start/bounded-concurrency worker, CPU-only frame analysis through the private AI service, derived `READY/NOT_READY`, and frontend presentation. No database/ERD migration was required; `CameraHealthEvent.event_type` already supports the new values. No MF-02 measurement producer exists in this increment, so readiness is exposed as the fail-closed gate without inventing OperationalMeasurement/OperationalEvent behavior.
+
+- Backend non-SQL suite using isolated build artifacts: **241 passed, 0 failed, 0 skipped**.
+- Backend focused health + AI-client contract selection: **12 passed, 0 failed, 0 skipped**.
+- Backend Release publish: **PASS**.
+- Runtime Swagger comparison for health GET/check paths, `CameraHealthView`, and `SetupCamera`: **MATCH** with `docs/openapi.json`.
+- Frontend: **152 tests passed across 19 files**; lint and production build **PASS**. Existing Vite bundle-size advisory remains.
+- AI service CPU/API/session/recorded/redaction selection: **32 passed**. Focused frame-health tests: **4 passed**. A Starlette/httpx deprecation warning is dependency-owned and does not affect the result.
+- SQL integration was not rerun because this change does not alter schema or EF mappings.

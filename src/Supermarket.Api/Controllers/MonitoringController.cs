@@ -22,8 +22,8 @@ public sealed class MonitoringController(MonitoringSetup setup) : ControllerBase
 public sealed class HealthController(CameraHealth health) : ControllerBase
 {
     [HttpGet] public Task<List<CameraHealthEvent>> List([FromQuery] Guid? cameraId, [FromQuery] string? status, CancellationToken ct) => health.Events(cameraId, status, ct);
-    [HttpGet("/api/cameras/{id:guid}/health")] public Task<Camera> Get(Guid id, CancellationToken ct) => health.Get(id, ct);
-    [HttpPost("/api/cameras/{id:guid}/health/check")] public Task<Camera> Check(Guid id, CancellationToken ct) => health.Check(id, ct);
+    [HttpGet("/api/cameras/{id:guid}/health")] public Task<CameraHealthView> Get(Guid id, CancellationToken ct) => health.Get(id, ct);
+    [HttpPost("/api/cameras/{id:guid}/health/check")] public Task<CameraHealthView> Check(Guid id, CancellationToken ct) => health.Check(id, ct);
     [HttpPost("{id:guid}/investigate")] public Task<CameraHealthEvent> Investigate(Guid id, CancellationToken ct) => health.Investigate(id, ct);
     [HttpPost("{id:guid}/resolve")] public Task<CameraHealthEvent> Resolve(Guid id, ResolveRequest r, CancellationToken ct) => health.Resolve(id, r, ct);
 }

@@ -96,6 +96,37 @@ public sealed class AiPreviewApiTests
         Assert.DoesNotContain("viewer:", error.Message);
     }
 
+    [Fact]
+    public async Task FrameHealthClientSendsBoundedFrameAndAcceptsOnlyKnownIssues()
+    {
+        var handler = new RecordingHandler(_ => Json(HttpStatusCode.OK, "{\"issues\":[\"CAMERA_VIEW_BLOCKED\",\"UNSUPPORTED\"]}"));
+        var client = new AiFrameHealthClient(
+            new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:8090") },
+            Options.Create(new AiPreviewOptions { InternalServiceKey = "service-key" }));
+
+        var result = await client.Analyze(new PreviewFrame([0xFF, 0xD8, 0xFF, 0xD9], "image/jpeg"), default);
+
+        Assert.True(result.ProcessingAvailable);
+        Assert.Equal([CameraHealthEventTypes.ViewBlocked], result.Issues);
+        Assert.Equal(["/frame-health"], handler.RequestPaths);
+        Assert.Equal("service-key", handler.LastRequest!.Headers.GetValues("X-AI-Service-Key").Single());
+        Assert.Equal("image/jpeg", handler.LastRequest.Content!.Headers.ContentType!.MediaType);
+    }
+
+    [Fact]
+    public async Task FrameHealthClientReportsProcessingUnavailableWithoutCameraIssue()
+    {
+        var handler = new RecordingHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+        var client = new AiFrameHealthClient(
+            new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:8090") },
+            Options.Create(new AiPreviewOptions()));
+
+        var result = await client.Analyze(new PreviewFrame([1], "image/jpeg"), default);
+
+        Assert.False(result.ProcessingAvailable);
+        Assert.Empty(result.Issues);
+    }
+
     private static Camera ReadyCamera() => new() { CameraId = Guid.NewGuid(), Status = "ACTIVE" };
 
     private static CameraConnection ReadyConnection(Guid cameraId) => new()

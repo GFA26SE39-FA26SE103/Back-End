@@ -34,7 +34,12 @@ builder.Services.AddOptions<CloudinaryOptions>().Bind(builder.Configuration.GetS
     .Validate(o => !string.Equals(builder.Configuration["FloorPlan:Provider"], "Cloudinary", StringComparison.OrdinalIgnoreCase) || o.IsValid(),
         "Set Cloudinary:CloudName, ApiKey, ApiSecret, Folder and TimeoutSeconds (1-120) before enabling the Cloudinary floor-plan provider.")
     .ValidateOnStart();
-builder.Services.Configure<HealthWorkerOptions>(builder.Configuration.GetSection("CameraHealth"));
+builder.Services.AddOptions<HealthWorkerOptions>().Bind(builder.Configuration.GetSection("CameraHealth"))
+    .Validate(o => o.IntervalSeconds is >= 5 and <= 3600, "CameraHealth:IntervalSeconds must be 5 to 3600 seconds.")
+    .Validate(o => o.MaxConcurrentChecks is >= 1 and <= 16, "CameraHealth:MaxConcurrentChecks must be 1 to 16.")
+    .Validate(o => o.BadObservationsToOpen is >= 1 and <= 100, "CameraHealth:BadObservationsToOpen must be 1 to 100.")
+    .Validate(o => o.GoodObservationsToResolve is >= 1 and <= 100, "CameraHealth:GoodObservationsToResolve must be 1 to 100.")
+    .ValidateOnStart();
 builder.Services.AddOptions<AiPreviewOptions>().Bind(builder.Configuration.GetSection("AiPreview"))
     .Validate(o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https", "AiPreview:BaseUrl must be an absolute HTTP(S) URI.")
     .Validate(o => o.TimeoutSeconds is > 0 and <= 120, "AiPreview timeout must be 1 to 120 seconds.")
@@ -70,8 +75,19 @@ builder.Services.AddScoped<CameraSetup>();
 builder.Services.AddScoped<MonitoringSetup>();
 builder.Services.AddScoped<SetupOverview>();
 builder.Services.AddScoped<CameraHealth>();
+builder.Services.AddSingleton(services =>
+{
+    var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<HealthWorkerOptions>>().Value;
+    return new CameraHealthRuntimeState(options.BadObservationsToOpen, options.GoodObservationsToResolve);
+});
 builder.Services.AddScoped<AiPreview>();
 builder.Services.AddHttpClient<IAiPreviewClient, AiPreviewClient>((services, client) =>
+{
+    var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiPreviewOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+});
+builder.Services.AddHttpClient<IFrameHealthAnalyzer, AiFrameHealthClient>((services, client) =>
 {
     var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiPreviewOptions>>().Value;
     client.BaseAddress = new Uri(options.BaseUrl);
