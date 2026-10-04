@@ -80,7 +80,7 @@ public sealed class SetupOverviewTests
                 var store = h.Store.Values.OfType<Store>().Single();
                 var floor = new Floor { FloorId = Guid.NewGuid(), SupermarketId = store.SupermarketId, FloorNumber = 2 };
                 h.Store.Values.Add(floor); h.Camera.FloorId = floor.FloorId; break;
-            case "demo": h.Connection.SourceType = "DEMO"; h.Connection.StreamUri = "demo://camera/main"; break;
+            case "demo": h.Connection.SourceType = "DEMO"; h.Connection.StreamUri = "demo://camera/main"; h.Camera.HealthStatus = "ONLINE"; break;
         }
         var before = JsonSerializer.Serialize(h.Store.Values);
         var review = await h.Setup.Review(h.Zone.ZoneId, default);
@@ -91,6 +91,12 @@ public sealed class SetupOverviewTests
         Assert.Equal(review.Issues.Select(i => i.Code), zone.Issues.Select(i => i.Code));
         Assert.Equal(before, JsonSerializer.Serialize(h.Store.Values));
         if (state is "roi" or "cross-floor") Assert.Equal(0, data.Steps.Single(s => s.Code == "mapping-roi").Completed);
+        if (state == "demo")
+        {
+            Assert.Equal("UNKNOWN", Assert.Single(data.Cameras).HealthStatus);
+            Assert.Equal(0, data.Totals.OnlineCameraCount);
+            Assert.Equal(0, data.Totals.EnabledCameraCount);
+        }
     }
 
     [Fact]

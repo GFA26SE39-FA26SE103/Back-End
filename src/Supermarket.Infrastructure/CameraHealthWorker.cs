@@ -32,6 +32,11 @@ public sealed class CameraHealthWorker(IServiceScopeFactory scopes, IOptions<Hea
         {
             using var listScope = scopes.CreateScope();
             var enabled = await listScope.ServiceProvider.GetRequiredService<ISetupStore>().List<CameraConnection>(c => c.IsEnabled, stoppingToken);
+            enabled = enabled.Where(connection =>
+            {
+                try { Rules.Connection(connection); return true; }
+                catch (DomainException) { return false; }
+            }).ToList();
             await Parallel.ForEachAsync(enabled, new ParallelOptions
             {
                 MaxDegreeOfParallelism = options.Value.MaxConcurrentChecks,

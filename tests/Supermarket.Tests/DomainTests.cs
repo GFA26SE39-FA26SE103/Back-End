@@ -76,9 +76,9 @@ public sealed class DomainTests
     }
     [Theory, InlineData("rtsp://user:secret@camera/main"), InlineData("https://camera/main?token=secret"), InlineData("https://camera/main#secret"), InlineData("relative/path")]
     public void RejectsUriSecrets(string uri) => Assert.Throws<DomainException>(() => Rules.SafeUri(uri));
-    [Theory, InlineData("LIVE", "RTSP", "rtsp://camera/main"), InlineData("LIVE", "HTTP", "https://camera/video"), InlineData("LIVE", "HLS", "https://camera/main.m3u8"), InlineData("RECORDED", "FILE", "file:///C:/videos/test.mp4"), InlineData("DEMO", "HTTP", "demo://camera/main")]
+    [Theory, InlineData("LIVE", "RTSP", "rtsp://camera/main"), InlineData("LIVE", "HTTP", "https://camera/video"), InlineData("LIVE", "HLS", "https://camera/main.m3u8"), InlineData("RECORDED", "FILE", "file:///C:/videos/test.mp4")]
     public void ValidConnection(string source, string protocol, string uri) => Rules.Connection(new CameraConnection { SourceType = source, Protocol = protocol, StreamUri = uri });
-    [Theory, InlineData("LIVE", "FILE", "file:///C:/video.mp4"), InlineData("RECORDED", "RTSP", "rtsp://camera/main"), InlineData("DEMO", "HTTP", "http://camera/main"), InlineData("LIVE", "RTSP", "https://camera/video"), InlineData("OTHER", "HTTP", "https://camera/video")]
+    [Theory, InlineData("LIVE", "FILE", "file:///C:/video.mp4"), InlineData("RECORDED", "RTSP", "rtsp://camera/main"), InlineData("DEMO", "HTTP", "demo://camera/main"), InlineData("DEMO", "HTTP", "http://camera/main"), InlineData("LIVE", "RTSP", "https://camera/video"), InlineData("OTHER", "HTTP", "https://camera/video")]
     public void InvalidConnection(string source, string protocol, string uri) => Assert.Throws<DomainException>(() => Rules.Connection(new CameraConnection { SourceType = source, Protocol = protocol, StreamUri = uri }));
     [Fact] public void SnapshotMustBeHttp() => Assert.Throws<DomainException>(() => Rules.Connection(new CameraConnection { SourceType = "LIVE", Protocol = "RTSP", StreamUri = "rtsp://camera/main", SnapshotUri = "file:///C:/secret" }));
     [Fact]
@@ -133,18 +133,6 @@ public sealed class DomainTests
         var value = secrets.Protect("camera-secret");
         Assert.DoesNotContain("camera-secret", value);
         Assert.Equal("camera-secret", secrets.Unprotect(value));
-    }
-    [Fact]
-    public async Task DemoDisconnectIsDeterministic()
-    {
-        var state = new DemoCameraState();
-        var adapter = new CameraStream(new CredentialProtector(new EphemeralDataProtectionProvider()), Options.Create(new VideoOptions { AllowDemo = true }), state, new ClearFrameAnalyzer());
-        var c = new CameraConnection { CameraId = Guid.NewGuid(), SourceType = "DEMO", Protocol = "HTTP", StreamUri = "demo://camera/main" };
-        Assert.True((await adapter.Test(c, default)).Success);
-        state.Set(c.CameraId, false);
-        Assert.False((await adapter.Test(c, default)).Success);
-        state.Set(c.CameraId, true);
-        Assert.True((await adapter.Test(c, default)).Success);
     }
     private sealed class ClearFrameAnalyzer : IFrameHealthAnalyzer
     {

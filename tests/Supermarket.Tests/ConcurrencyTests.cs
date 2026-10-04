@@ -30,12 +30,12 @@ public sealed class ConcurrencyTests(SqlApiFixture fixture)
         var floor = (await (await client.PostAsJsonAsync($"/api/supermarkets/{storeId}/floors", new FloorRequest(Random.Shared.Next(1000000, 2000000), "Concurrency", null, null, null))).Content.ReadFromJsonAsync<Floor>())!;
         var camera = (await (await client.PostAsJsonAsync($"/api/floors/{floor.FloorId}/cameras", new CameraRequest(Guid.NewGuid().ToString("N"), "Concurrency", null, null, null, DateTime.UtcNow, DateTime.UtcNow.AddYears(1), null, null, null, "ACTIVE"))).Content.ReadFromJsonAsync<Camera>())!;
         var route = $"/api/cameras/{camera.CameraId}/connection";
-        (await client.PutAsJsonAsync(route, new ConnectionRequest("DEMO", "HTTP", "demo://camera/first"))).EnsureSuccessStatusCode();
+        (await client.PutAsJsonAsync(route, new ConnectionRequest("LIVE", "HTTP", "http://camera.test/first"))).EnsureSuccessStatusCode();
         var testing = client.PostAsync(route + "/test", null);
         await probe.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
         try
         {
-            (await client.PutAsJsonAsync(route, new ConnectionRequest("DEMO", "HTTP", "demo://camera/second"))).EnsureSuccessStatusCode();
+            (await client.PutAsJsonAsync(route, new ConnectionRequest("LIVE", "HTTP", "http://camera.test/second"))).EnsureSuccessStatusCode();
         }
         finally { probe.Release.TrySetResult(); }
         var response = await testing;

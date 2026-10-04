@@ -22,7 +22,7 @@ Khi team chốt BR/Mainflow/ERD mới, cập nhật `docs/PROJECT_CONTEXT.md`, n
 
 Để chạy API với DB `FA26SE103_Dev` đã có sẵn, mỗi người cần .NET SDK 10, quyền truy cập SQL Server của team và **một file cấu hình riêng**: `src/Supermarket.Api/appsettings.Local.json`. Tạo file đó từ `appsettings.Local.example.json` đã có trong Git, điền connection string và sinh JWT key theo hướng dẫn dưới đây. JWT key có thể khác nhau nếu mỗi người đăng nhập vào API local của mình; chỉ dùng chung khi cần các instance chấp nhận cùng token.
 
-Bạn chỉ cần cung cấp thông tin kết nối DB và tài khoản đăng nhập API Dev qua kênh riêng. Không cần gửi source bổ sung, `bin`, `obj`, `.tools`, `TestResults` hoặc bản publish. EF entities đã có trong source nên không cần scaffold lại để chạy. Script SQL chỉ cần khi tự tạo DB hoặc chạy SQL integration tests; kết nối DB có sẵn không cần file SQL. FFmpeg chỉ cần khi thử camera thật hoặc video recorded; camera DEMO không cần FFmpeg.
+Bạn chỉ cần cung cấp thông tin kết nối DB và tài khoản đăng nhập API Dev qua kênh riêng. Không cần gửi source bổ sung, `bin`, `obj`, `.tools`, `TestResults` hoặc bản publish. EF entities đã có trong source nên không cần scaffold lại để chạy. Script SQL chỉ cần khi tự tạo DB hoặc chạy SQL integration tests; kết nối DB có sẵn không cần file SQL. FFmpeg cần thiết để thử camera thật hoặc video recorded.
 
 **Nếu cùng đọc mật khẩu camera đã mã hóa trong DB Dev:** các backend cần dùng chung Data Protection key ring của môi trường Dev. Chia sẻ riêng bộ key Dev tương ứng với dữ liệu đó, đặt trên máy từng người và cấu hình `DataProtection:KeyPath` trong file local tới thư mục vừa đặt key. Đồng bộ key ring khi có key mới; không lấy key production để dùng cho Dev và không commit key vào Git. Chỉ copy `appsettings.Local.json` không đủ để giải mã camera credentials đã được backend khác lưu.
 
@@ -163,18 +163,18 @@ Store Layout frontend tải floor/camera thật, lấy map dưới dạng authen
 
 PATCH ở increment này nhận toàn bộ DTO chỉnh sửa, không phải JSON Patch hay merge patch. Camera không được chuyển sang tầng khác bằng PATCH; việc chuyển tầng cần use case xử lý mappings riêng.
 
-## Demo MF-01
+## Kiểm thử camera MF-01
 
 1. Login Admin, dùng default supermarket đã seed, tạo floor trong Store Layout và zone với `mapPolygon` gồm ít nhất 3 điểm.
 2. Tạo camera với `status: "ACTIVE"`, installation/warranty dates.
-3. PUT connection với `{ "sourceType": "DEMO", "protocol": "HTTP", "streamUri": "demo://camera/main" }`.
+3. PUT connection thật, ví dụ `{ "sourceType": "LIVE", "protocol": "HTTP", "streamUri": "http://camera-host/video" }`; credentials phải nằm ở các field riêng.
 4. POST connection/test, GET preview, POST connection/enable.
-5. PUT camera/zones/{zoneId} với `roiPolygon`. DEMO chỉ kiểm thử connection/health; không activate cấu hình AI từ nguồn DEMO.
-6. POST camera/health/check để thấy ONLINE.
-7. Trong Development, POST `/api/demo/cameras/{id}/state?online=false`, rồi check health để mở event.
-8. Investigate event; đổi demo state về true và check để thấy RESOLVED.
+5. PUT camera/zones/{zoneId} với `roiPolygon`.
+6. POST camera/health/check; ONLINE chỉ xuất hiện khi backend nhận được frame thật.
+7. Ngắt hoặc chặn nguồn camera rồi chờ đủ số quan sát lỗi đã cấu hình để mở health event.
+8. Investigate event; khôi phục nguồn và chờ đủ số quan sát tốt để thấy RESOLVED.
 
-Preview hiện là ảnh frame (demo SVG hoặc JPEG), dùng được để vẽ ROI và refresh. Đây chưa phải browser HLS/WebRTC playback liên tục.
+Preview hiện là ảnh JPEG lấy từ nguồn LIVE hoặc RECORDED, dùng được để vẽ ROI và refresh. Đây chưa phải browser HLS/WebRTC playback liên tục. Nguồn camera tổng hợp `DEMO` và endpoint đổi demo-state đã bị loại bỏ; row `DEMO` cũ được xem là cấu hình không hợp lệ và phải cấu hình lại.
 
 ## Video và credential
 
