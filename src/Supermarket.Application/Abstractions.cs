@@ -41,12 +41,17 @@ public interface ICredentialProtector
 {
     string Protect(string secret); string Unprotect(string secret);
 }
-public sealed record ProbeResult(bool Success, string Code);
+public sealed record ProbeResult(bool Success, string Code, bool? ProcessingAvailable = null, IReadOnlyCollection<string>? VisualIssues = null);
 public sealed record PreviewFrame(byte[] Bytes, string ContentType);
+public sealed record FrameAnalysisResult(bool ProcessingAvailable, IReadOnlyCollection<string> Issues);
 public interface ICameraStream
 {
     Task<ProbeResult> Test(CameraConnection connection, CancellationToken ct);
     Task<PreviewFrame> Preview(CameraConnection connection, CancellationToken ct);
+}
+public interface IFrameHealthAnalyzer
+{
+    Task<FrameAnalysisResult> Analyze(PreviewFrame frame, CancellationToken ct);
 }
 public sealed class ApplicationException(string code, string message, int status = 409) : Exception(message)
 {

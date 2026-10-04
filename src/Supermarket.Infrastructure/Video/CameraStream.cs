@@ -22,19 +22,22 @@ public sealed class DemoCameraState
     public bool Online(Guid id) => !states.TryGetValue(id, out var online) || online;
     public void Set(Guid id, bool online) => states[id] = online;
 }
-public sealed class CameraStream(ICredentialProtector secrets, IOptions<VideoOptions> options, DemoCameraState demo) : ICameraStream
+public sealed class CameraStream(ICredentialProtector secrets, IOptions<VideoOptions> options, DemoCameraState demo, IFrameHealthAnalyzer analyzer) : ICameraStream
 {
     public async Task<ProbeResult> Test(CameraConnection connection, CancellationToken ct)
     {
         try
         {
-            await Preview(connection, ct);
-            return new(true, "FRAME_RECEIVED");
+            var frame = await Preview(connection, ct);
+            if (frame.ContentType == "image/svg+xml")
+                return new(true, "FRAME_RECEIVED", true, []);
+            var analysis = await analyzer.Analyze(frame, ct);
+            return new(true, "FRAME_RECEIVED", analysis.ProcessingAvailable, analysis.Issues);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception e) when (e is AppError or System.ComponentModel.Win32Exception or IOException or OperationCanceledException or System.Security.Cryptography.CryptographicException)
         {
-            return new(false, "STREAM_UNAVAILABLE");
+            return new(false, "STREAM_UNAVAILABLE", null, []);
         }
     }
     public async Task<PreviewFrame> Preview(CameraConnection connection, CancellationToken ct)

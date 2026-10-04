@@ -60,5 +60,6 @@ public sealed class MonitoringConfidencePreviewTests
         public Task<AiPreviewStatusView> Stop(Guid cameraId, CancellationToken ct) { Calls.Add("stop"); return Task.FromResult(View(cameraId)); }
         public Task<AiPreviewStatusView> Status(Guid cameraId, CancellationToken ct) => Task.FromResult(View(cameraId));
         public Task<PreviewFrame> Frame(Guid cameraId, CancellationToken ct) => throw new NotSupportedException();
+        public Task<SequencedPreviewFrame?> NextFrame(Guid cameraId, long afterSequence, Guid? afterSessionId, CancellationToken ct) => throw new NotSupportedException();
     }
 }

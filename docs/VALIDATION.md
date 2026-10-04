@@ -137,6 +137,15 @@ Supplemental CI prerequisite verification: the old non-SQL name filter also sele
 Final deactivation race regression: real-SQL test RED STOPPED→GREEN STOPPING before worker cleanup, RED premature Activate200→GREEN409 MONITORING_STOP_PENDING, then STOPPED/owner cleared followed by fresh-session source-time0 replay. Existing same-source two-zone reconfiguration remains allowed. After this fix the complete BE Release suite **200/200**, local publish and FE **148/148/build/lint** were rerun successfully.
 
 Not verified: one joint native AI + SQL + real browser acceptance session, real phone/CCTV monitoring, sustained multi-camera/load/long-history performance, GitHub Actions execution or deployment. The native smoke validates actual GPU inference separately; SQL tests use fake measurement transport and FE tests use controlled API responses. Runtime lease, in-memory buffer and progress are transient; restart resets continuity, while SQL incident/cooldown history remains authoritative. After reviewing/running migration02 on shared Dev, restart the upgraded services, deactivate legacy density configurations, explicitly choose count with new integer thresholds, Save → Review → Activate, then validate runtime/incident panels in the live page.
+
+## YOLO26s and sequence-aware preview validation 2026-10-04
+
+- Default model references in AI and BE changed to `../yolo26s.pt`; the official 20,422,725-byte checkpoint is present locally in `CAPSTONE/setup` and was loaded on the RTX 4060 Laptop GPU. No model weights or video were added to Git. Local AI `.env` and BE `appsettings.Local.json` do not override this model.
+- A read-only 30-frame sample from an existing 854×480, 29.97 FPS MP4 measured full preview tracking + annotation + JPEG at 17.9 ms/frame for YOLO26n and 18.9 ms/frame for YOLO26s after five warm-up frames. Another 854×480, 30 FPS sample measured YOLO26s at 16.3 ms/frame. These are local processing measurements, not end-to-end browser FPS or accuracy scores.
+- Native AI HTTP smoke with the real YOLO26s, ByteTrack and recorded MP4: `POST /sessions/{id}/start` returned STARTING, then `GET .../frame/next` returned JPEG200 with sequence1 and 106,249 bytes. The owned test session was stopped. No BE/SQL/browser was part of this smoke.
+- AI pytest: **54 passed, 1 skipped** (IP Webcam opt-in stream absent); one pre-existing Starlette/httpx warning. BE tests excluding SQL integration: **261 passed**, 0 failed. BE Release publish: **PASS**. FE: **172 passed across 22 files**, lint and production build **PASS**; existing Vite chunk-size advisory remains.
+- New tests cover waiting for a newer frame, no duplicate at EOF, session-ID reset, no stale frame after ERROR, AI 200/204 contracts, BE proxy headers/204, React sequence/no redraw, delayed Blob URL cleanup, recorded completion, ROI, abort, and a frame-request/session-restart race. `git diff --check` and checked-in OpenAPI JSON syntax were checked separately. Runtime Swagger export, shared SQL integration, full browser acceptance, real IP Webcam and sustained end-to-end FPS remain unverified in this increment.
+
 ## Backend Dev deployment preparation 2026-10-04
 
 Prepared an API-only Compose package for the inspected Ubuntu VM (`192.168.1.206`, Tailscale `100.105.191.20`) and its existing `capstone_default` SQL network, with NPM on `192.168.1.243`. Manual GitHub-hosted deployment builds/pushes GHCR and updates via Tailscale/OpenSSH using the image digest. Server runtime secrets remain in a private raw env file; key ring, recorded videos and local maps have persistent named volumes. Only API is updated, with readiness/previous-release recovery; existing CI and DB/network/container ownership are unchanged.
@@ -148,3 +157,21 @@ Prepared an API-only Compose package for the inspected Ubuntu VM (`192.168.1.206
 - README, API hosting behavior and `docs/DEPLOY_DEV.md` cover GitHub/Tailscale/SSH setup, DNS/NPM, runtime env/volumes, readiness limitations, existing Cloudinary references, Windows recorded-video path replacement, resuming the health worker, frontend API URL and recovery. API endpoint/DTO schemas are unchanged, so the OpenAPI snapshot needs no regeneration. Unrelated frontend changes are preserved.
 
 Actual Docker image build/run remains unverified locally because Docker Desktop's Linux daemon is unavailable. No SSH connection, deployment, GHCR push, GitHub workflow run, NPM/DNS change, live SQL/Cloudinary/camera operation, or AI rollout occurred. First deployment must validate registry permissions, Tailnet access, pinned SSH key/auth, volume permissions, proxy source/HTTPS URL behavior and MF-01 endpoints on the Dev DB. Readiness checks SQL connectivity only. `CameraHealth:Enabled=false` is an explicit initial sample setting until the recorded file is re-uploaded/tested/enabled; the guide requires turning health checks back on afterward.
+
+## AI monitoring person-class binding regression 2026-10-04
+
+- Root cause reproduced through the real ASP.NET Options pipeline: the `AiPreviewOptions.Classes` default `[0]` was combined with `AiPreview:Classes=[0]`, producing `[0,0]`. The Python monitoring contract correctly rejected that request with `AI_REQUEST_INVALID` because runtime monitoring supports exactly the person class `[0]`.
+- Regression test `AiMonitoringBindsThePersonClassOnce` was observed RED with expected `[0]`, actual `[0,0]`, then GREEN after post-bind deduplication and fail-fast validation that the effective list is exactly `[0]`.
+- Backend non-SQL suite: **274 passed, 0 failed**. Release publish: **PASS**.
+- Local native integration after restarting the backend: `POST /monitoring/sessions/{cameraId}/start` returned **200**, repeated measurement requests returned **200**, and the AI session for `CAM-PHONE` reported `LIVE`, purpose `MONITORING`, confidence context `0.2`. This smoke used the existing active configuration and recorded source; it did not change SQL configuration or claim browser/incident acceptance.
+## MF-01 camera health/readiness validation 2026-10-03
+
+Separated transport status, visual-health events and processing availability. Added event-type-specific hysteresis, an immediate-start/bounded-concurrency worker, CPU-only frame analysis through the private AI service, derived `READY/NOT_READY`, and frontend presentation. No database/ERD migration was required; `CameraHealthEvent.event_type` already supports the new values. The camera-health branch originally exposed readiness as a fail-closed gate; after integration, the existing monitoring runtime consumes that gate before producing measurement/rule/event/incident results.
+
+- Backend non-SQL suite using isolated build artifacts: **241 passed, 0 failed, 0 skipped**.
+- Backend focused health + AI-client contract selection: **12 passed, 0 failed, 0 skipped**.
+- Backend Release publish: **PASS**.
+- Runtime Swagger comparison for health GET/check paths, `CameraHealthView`, and `SetupCamera`: **MATCH** with `docs/openapi.json`.
+- Frontend: **152 tests passed across 19 files**; lint and production build **PASS**. Existing Vite bundle-size advisory remains.
+- AI service CPU/API/session/recorded/redaction selection: **32 passed**. Focused frame-health tests: **4 passed**. A Starlette/httpx deprecation warning is dependency-owned and does not affect the result.
+- SQL integration was not rerun because this change does not alter schema or EF mappings.

@@ -36,12 +36,19 @@ builder.Services.AddOptions<CloudinaryOptions>().Bind(builder.Configuration.GetS
     .Validate(o => !string.Equals(builder.Configuration["FloorPlan:Provider"], "Cloudinary", StringComparison.OrdinalIgnoreCase) || o.IsValid(),
         "Set Cloudinary:CloudName, ApiKey, ApiSecret, Folder and TimeoutSeconds (1-120) before enabling the Cloudinary floor-plan provider.")
     .ValidateOnStart();
-builder.Services.Configure<HealthWorkerOptions>(builder.Configuration.GetSection("CameraHealth"));
+builder.Services.AddOptions<HealthWorkerOptions>().Bind(builder.Configuration.GetSection("CameraHealth"))
+    .Validate(o => o.IntervalSeconds is >= 5 and <= 3600, "CameraHealth:IntervalSeconds must be 5 to 3600 seconds.")
+    .Validate(o => o.MaxConcurrentChecks is >= 1 and <= 16, "CameraHealth:MaxConcurrentChecks must be 1 to 16.")
+    .Validate(o => o.BadObservationsToOpen is >= 1 and <= 100, "CameraHealth:BadObservationsToOpen must be 1 to 100.")
+    .Validate(o => o.GoodObservationsToResolve is >= 1 and <= 100, "CameraHealth:GoodObservationsToResolve must be 1 to 100.")
+    .ValidateOnStart();
 builder.Services.Configure<MonitoringWorkerOptions>(builder.Configuration.GetSection("Monitoring"));
 builder.Services.AddOptions<AiPreviewOptions>().Bind(builder.Configuration.GetSection("AiPreview"))
+    .PostConfigure(o => o.Classes = o.Classes.Distinct().ToArray())
     .Validate(o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https", "AiPreview:BaseUrl must be an absolute HTTP(S) URI.")
     .Validate(o => o.TimeoutSeconds is > 0 and <= 120, "AiPreview timeout must be 1 to 120 seconds.")
     .Validate(o => o.Confidence is >= 0 and <= 1, "AiPreview confidence must be in [0,1].")
+    .Validate(o => o.Classes.SequenceEqual([0]), "AiPreview:Classes must contain only the person class 0.")
     .ValidateOnStart();
 builder.Services.AddDbContext<AppDbContext>(o =>
 {
@@ -80,8 +87,19 @@ builder.Services.AddSingleton<IMonitoringRuntimeState>(s=>s.GetRequiredService<M
 builder.Services.AddSingleton<IMonitoringSessionOwnership>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());
 builder.Services.AddScoped<SetupOverview>();
 builder.Services.AddScoped<CameraHealth>();
+builder.Services.AddSingleton(services =>
+{
+    var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<HealthWorkerOptions>>().Value;
+    return new CameraHealthRuntimeState(options.BadObservationsToOpen, options.GoodObservationsToResolve);
+});
 builder.Services.AddScoped<AiPreview>();
 builder.Services.AddHttpClient<IAiPreviewClient, AiPreviewClient>((services, client) =>
+{
+    var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiPreviewOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+});
+builder.Services.AddHttpClient<IFrameHealthAnalyzer, AiFrameHealthClient>((services, client) =>
 {
     var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiPreviewOptions>>().Value;
     client.BaseAddress = new Uri(options.BaseUrl);
@@ -120,7 +138,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiErrors>();
-builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? ["http://localhost:5173"]).AllowAnyHeader().AllowAnyMethod()));
+builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? ["http://localhost:5173"]).AllowAnyHeader().AllowAnyMethod().WithExposedHeaders("X-Frame-Sequence", "X-Session-Id")));
 builder.Services.AddRateLimiter(o => { o.RejectionStatusCode = 429; o.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })); });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(o =>

@@ -218,6 +218,9 @@ public sealed class AiPreviewApplicationTests
         public Task<PreviewFrame> Frame(Guid cameraId, CancellationToken ct)
             => Task.FromResult(new PreviewFrame([0xFF, 0xD8, 0xFF, 0xD9], "image/jpeg"));
 
+        public Task<SequencedPreviewFrame?> NextFrame(Guid cameraId, long afterSequence, Guid? afterSessionId, CancellationToken ct)
+            => throw new NotSupportedException();
+
         public Task<AiPreviewStatusView> Stop(Guid cameraId, CancellationToken ct)
         {
             if (states.TryGetValue(cameraId, out var existing) && existing.State == "STOPPED")

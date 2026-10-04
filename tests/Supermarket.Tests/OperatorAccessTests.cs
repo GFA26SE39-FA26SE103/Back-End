@@ -225,6 +225,7 @@ public sealed class OperatorAccessTests
             Calls++;
             return Task.FromResult(new PreviewFrame([0xFF, 0xD8], "image/jpeg"));
         }
+        public Task<SequencedPreviewFrame?> NextFrame(Guid cameraId, long afterSequence, Guid? afterSessionId, CancellationToken ct) => throw new NotSupportedException();
         public Task<AiPreviewStatusView> Stop(Guid cameraId, CancellationToken ct) => View(cameraId, "STOPPED");
         private Task<AiPreviewStatusView> View(Guid cameraId, string state)
         {

@@ -3,13 +3,24 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Supermarket.Infrastructure.Ai;
 using Xunit;
 
 namespace Supermarket.Tests;
 
 public sealed class DeploymentHttpTests
 {
+    [Fact]
+    public void AiMonitoringBindsThePersonClassOnce()
+    {
+        using var factory = new DeploymentFactory();
+        using var client = factory.CreateClient();
+        var options = factory.Services.GetRequiredService<IOptions<AiPreviewOptions>>().Value;
+        Assert.Equal([0], options.Classes);
+    }
+
     [Theory]
     [InlineData("192.168.1.243", true, "https", "203.0.113.10")]
     [InlineData("192.168.1.99", true, "http", "192.168.1.99")]

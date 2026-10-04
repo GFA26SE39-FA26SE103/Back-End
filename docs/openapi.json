@@ -116,6 +116,38 @@
         }
       }
     },
+    "/api/cameras/{id}/ai-preview/frame/next": {
+      "get": {
+        "tags": [
+          "AiPreview"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "name": "afterSequence",
+            "in": "query",
+            "schema": { "type": "integer", "format": "int64", "default": 0 }
+          },
+          {
+            "name": "afterSessionId",
+            "in": "query",
+            "schema": { "type": "string", "format": "uuid", "nullable": true }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "New annotated frame",
+            "content": { "image/jpeg": { "schema": { "type": "string", "format": "binary" } } }
+          },
+          "204": { "description": "No new frame" }
+        }
+      }
+    },
     "/api/cameras/{id}/ai-preview/stop": {
       "post": {
         "tags": [
@@ -883,17 +915,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/Camera"
+                  "$ref": "#/components/schemas/CameraHealthView"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Camera"
+                  "$ref": "#/components/schemas/CameraHealthView"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Camera"
+                  "$ref": "#/components/schemas/CameraHealthView"
                 }
               }
             }
@@ -923,17 +955,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/Camera"
+                  "$ref": "#/components/schemas/CameraHealthView"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Camera"
+                  "$ref": "#/components/schemas/CameraHealthView"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Camera"
+                  "$ref": "#/components/schemas/CameraHealthView"
                 }
               }
             }
@@ -2867,6 +2899,45 @@
         },
         "additionalProperties": false
       },
+      "CameraHealthView": {
+        "type": "object",
+        "properties": {
+          "cameraId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "connectionStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "processingAvailability": {
+            "type": "string",
+            "nullable": true
+          },
+          "monitoringReadiness": {
+            "type": "string",
+            "nullable": true
+          },
+          "activeHealthIssues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "CameraHealthEvent": {
         "type": "object",
         "properties": {
@@ -4060,6 +4131,21 @@
           },
           "healthStatus": {
             "type": "string",
+            "nullable": true
+          },
+          "monitoringReadiness": {
+            "type": "string",
+            "nullable": true
+          },
+          "processingAvailability": {
+            "type": "string",
+            "nullable": true
+          },
+          "activeHealthIssues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "nullable": true
           },
           "lastSeenAt": {

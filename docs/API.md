@@ -7,7 +7,7 @@ Quyền đọc cho màn vận hành (Operator floor map, camera live):
 | Quyền | Endpoints |
 |---|---|
 | ADMIN, OPERATOR, MANAGER | `GET /supermarkets`, `GET /supermarkets/{id}`, `GET /supermarkets/{id}/floors`, `GET /floors/{id}`, `GET /floors/{id}/map`, `GET /floors/{id}/zones`, `GET /zones/{id}`, `GET /floors/{id}/cameras`, `GET /cameras/{id}`, `GET /cameras/{id}/zones`, `GET /cameras/{id}/preview` |
-| ADMIN, OPERATOR | `/cameras/{id}/ai-preview/start`, `status`, `frame`, `stop` (một phiên GPU dùng chung; người sau có thể nhận `AI_SESSION_CAPACITY`) |
+| ADMIN, OPERATOR | `/cameras/{id}/ai-preview/start`, `status`, `frame`, `frame/next`, `stop` (một phiên GPU dùng chung; người sau có thể nhận `AI_SESSION_CAPACITY`) |
 | Chỉ ADMIN | Mọi POST/PUT/PATCH/DELETE, `GET /cameras/{id}/connection` (có stream URI), `POST .../connection/test`, accounts, monitoring, camera health |
 
 Controller và use case cùng kiểm tra quyền; STAFF không đọc được dữ liệu setup.
@@ -46,10 +46,22 @@ Response gồm:
 - `totals`: floor/zone/camera counts, configured zones, ACTIVE configurations, configurations đủ điều kiện Review/Activate, cameras ONLINE trong nhóm ACTIVE + connection enabled và unresolved health events.
 - `steps[]`: `code, name, completed, total, description` cho floor-map/zone, source, test/enable, mapping/ROI, incident rules và activation. Mỗi bước đếm record đã lưu; `0/0` không có nghĩa setup hoàn tất. Test success không chứng minh Admin đã xem preview; preview completion chưa được lưu.
 - `floors[]`: thông tin floor, `hasMap`, `zones[]`. Từng zone có configuration summary hoặc null, `setupReady`, `canActivate`, sanitized mapped-camera/ROI summaries, issues và warnings. `setupReady` dùng chung policy với Monitoring Review/Activate; `canActivate` còn yêu cầu configuration chưa ACTIVE. Review và Activate vẫn phải đọc lại dữ liệu khi Admin thao tác.
-- `cameras[]`: lifecycle `status`, `healthStatus`, `lastSeenAt`, source type/protocol, connection validation/enabled/test result/time và issues. Không trả stream URI, username hoặc credentials. Test time và last received frame là hai thời điểm khác nhau.
+- `cameras[]`: lifecycle `status`, transport `healthStatus`, `monitoringReadiness`, `processingAvailability`, `activeHealthIssues`, `lastSeenAt`, source type/protocol, connection validation/enabled/test result/time và issues. Không trả stream URI, username hoặc credentials. Test time và last received frame là hai thời điểm khác nhau.
 - `healthEvents[]`: unresolved events, mới nhất trước, gồm ID/camera code/type/status/detectedAt; không chứa probe error hoặc secret.
 
-Configuration ACTIVE và camera health độc lập: camera OFFLINE không tự deactivate configuration. MF-01 activation không đồng nghĩa continuous AI/rule processing. Recorded-file health chỉ xác nhận frame readability, không xác nhận AI playback/GPU. Dashboard frontend polling snapshot mỗi 30 giây khi tab đang hiện; nút Refresh chỉ đọc. Check health gọi endpoint probe ADMIN hiện có; màn Cameras cung cấp sửa source và Test/Enable/Preview. Investigation/Resolve workflow vẫn dùng endpoints health-event hiện có, chưa được tích hợp thành form trên dashboard.
+Configuration ACTIVE và camera health độc lập: camera OFFLINE hoặc visual issue không tự deactivate configuration. `healthStatus` chỉ là `UNKNOWN/ONLINE/OFFLINE`; ONLINE không có nghĩa sẵn sàng cho monitoring. `monitoringReadiness` là `READY/NOT_READY`, còn `processingAvailability` là `AVAILABLE/UNAVAILABLE/UNKNOWN`. Dashboard frontend polling snapshot mỗi 30 giây khi tab đang hiện; nút Refresh chỉ đọc. Check health gọi endpoint probe ADMIN hiện có; màn Cameras cung cấp sửa source và Test/Enable/Preview. Investigation/Resolve workflow vẫn dùng endpoints health-event hiện có, chưa được tích hợp thành form trên dashboard.
+
+### Camera health và monitoring readiness
+
+Worker chạy một lượt ngay khi backend khởi động, sau đó theo `CameraHealth:IntervalSeconds`, chỉ với connection enabled. `MaxConcurrentChecks` giới hạn số probe song song. Mỗi probe lấy một frame nhỏ; AI service endpoint nội bộ `/frame-health` chỉ decode/đo contrast, edge density và Laplacian blur trên CPU, không chạy YOLO/GPU. Không có darkness classifier. Frozen event được contract hỗ trợ nhưng chưa tự phát hiện nếu source không cung cấp freshness/sequence đáng tin cậy.
+
+`GET /cameras/{id}/health` và `POST /cameras/{id}/health/check` trả:
+
+```json
+{"cameraId":"<uuid>","connectionStatus":"ONLINE","processingAvailability":"AVAILABLE","monitoringReadiness":"READY","activeHealthIssues":[],"lastSeenAt":"2026-10-03T12:00:00Z","observedAt":"2026-10-03T12:00:00Z"}
+```
+
+`STREAM_UNAVAILABLE` mở/resolve theo transport. Visual event dùng hysteresis cấu hình `BadObservationsToOpen` và `GoodObservationsToResolve`, unique theo camera + event type trong application runtime; các loại độc lập có thể đồng thời OPEN/INVESTIGATING. V1 gồm `CAMERA_VIEW_BLOCKED`, `CAMERA_VIEW_BLURRED`, `CAMERA_FRAME_INVALID`; `CAMERA_VIEW_FROZEN` dành cho adapter có freshness metadata đáng tin cậy. AI service unavailable chỉ làm processing unavailable/readiness NOT_READY, không tạo CameraHealthEvent và không đổi camera ONLINE thành OFFLINE. Health issue camera-wide; monitoring configuration vẫn ACTIVE. Monitoring runtime dùng readiness này làm fail-closed gate và không phát measurement/rule/event/incident khi camera `NOT_READY`.
 
 Ví dụ zone:
 
@@ -114,6 +126,8 @@ Activate revalidates readiness trong Serializable transaction (409 `MONITORING_N
 Deactivate là desired SQL state trước khi worker nhả owner. Runtime trả `STOPPING / MONITORING_STOP_PENDING` trong khoảng này, không báo STOPPED sớm. Reactivate khi không còn ACTIVE configuration trên camera nhưng owner chưa được nhả trả409 `MONITORING_STOP_PENDING`; đợi STOPPED rồi thử lại. Thêm/reconfigure zone khi camera còn một configuration ACTIVE khác vẫn được phép và không rewind.
 
 Admin kiểm thử saved confidence bằng `POST /api/cameras/{id}/ai-preview/start?zoneId=<uuid>`: mapping/ROI/config hợp lệ, nguồn tested/enabled. Preview-only có thể restart với Draft confidence. Khi camera thuộc active monitoring, Draft restart trả409 `AI_SESSION_MONITORING_OWNED`; active preview và public Stop chỉ attach/detach, không reset/stop owner. Status additive `sessionId, purpose(PREVIEW|MONITORING), configurationFingerprint, annotationContext`. Boxes dùng annotation context; ROI counts dựa confidence từng zone. Zone query ADMIN only; ordinary view ADMIN/OPERATOR.
+
+`GET /api/cameras/{id}/ai-preview/frame/next?afterSequence=N&afterSessionId=<uuid>` (ADMIN/OPERATOR) chờ tối đa 1 giây để có JPEG đã vẽ box/track ID mới. `200 image/jpeg` trả `X-Frame-Sequence` và `X-Session-Id` (CORS expose hai header), `204` nghĩa chưa có frame mới; cả hai `Cache-Control: no-store`. Gửi lại session ID giúp client nhận frame đầu khi phiên AI khởi động lại và sequence reset. Endpoint `GET .../frame` cũ vẫn hoạt động. React dùng `frame/next` qua BE/JWT, không tải lặp JPEG và không có khoảng nghỉ 250 ms sau mỗi frame. Tốc độ thực tế vẫn phụ thuộc video nguồn, xử lý AI/JPEG, proxy và trình duyệt; monitoring worker tiếp tục xử lý tuần tự mọi frame để giữ đúng các mốc thời gian nguồn.
 
 Rule validation codes: `INVALID_CONFIDENCE`, `INVALID_THRESHOLDS`, `INVALID_RULE_UNIT`, `INVALID_RULE_TIMING`, `INVALID_RULE_PARAMETERS`, `INCIDENT_TYPE_NOT_AI`, `INCIDENT_TYPE_INACTIVE`, `RULE_UNSUPPORTED`, `DUPLICATE_RULE`. Review issues thêm `NO_ENABLED_RULES`, `ZONE_AREA_REQUIRED`, `CAMERA_NOT_READY`, `AI_SOURCE_UNSUPPORTED`.
 

@@ -12,3 +12,5 @@ public sealed record AiPreviewStatusView(
     string? ConfigurationFingerprint=null,
     string? AnnotationContext=null);
 
+public sealed record SequencedPreviewFrame(byte[] Bytes, string ContentType, long FrameSequence, Guid SessionId);
+

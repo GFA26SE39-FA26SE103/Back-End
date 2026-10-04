@@ -22,7 +22,7 @@ namespace Supermarket.Tests;
 public sealed class SetupOverviewTests
 {
     private sealed class Clock : IClock { public DateTime UtcNow => new(2026, 10, 3, 10, 0, 0, DateTimeKind.Utc); }
-    private static SetupOverview Overview(MonitoringSetupTests.MemoryStore store, string role = "ADMIN") => new(store, new MonitoringSetupTests.User(role), new Clock());
+    private static SetupOverview Overview(MonitoringSetupTests.MemoryStore store, string role = "ADMIN") => new(store, new MonitoringSetupTests.User(role), new Clock(), new CameraHealthRuntimeState());
     private static MonitoringSetupTests.Harness World()
     {
         var h = new MonitoringSetupTests.Harness();

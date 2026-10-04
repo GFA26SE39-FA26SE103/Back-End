@@ -58,6 +58,12 @@ public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPrevie
         return await client.Frame(cameraId, ct);
     }
 
+    public async Task<SequencedPreviewFrame?> NextFrame(Guid cameraId, long afterSequence, Guid? afterSessionId, CancellationToken ct)
+    {
+        await Camera(cameraId, ct);
+        return await client.NextFrame(cameraId, afterSequence, afterSessionId, ct);
+    }
+
     public async Task<AiPreviewStatusView> Stop(Guid cameraId, CancellationToken ct)
     {
         await Camera(cameraId, ct);
