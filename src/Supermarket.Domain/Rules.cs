@@ -62,12 +62,11 @@ public static class Rules
     }
     public static void Connection(CameraConnection connection)
     {
-        Status(connection.SourceType, "LIVE", "RECORDED", "DEMO");
+        Status(connection.SourceType, "LIVE", "RECORDED");
         Status(connection.Protocol, "RTSP", "HTTP", "HLS", "WEBRTC", "FILE");
         var uri = SafeUri(connection.StreamUri);
         Require(connection.SourceType switch
         {
-            "DEMO" => connection.Protocol == "HTTP" && uri.Scheme == "demo" && uri.Host == "camera",
             "RECORDED" => connection.Protocol == "FILE" && uri.Scheme == "file",
             _ => connection.Protocol switch { "RTSP" => uri.Scheme == "rtsp", "HTTP" or "HLS" or "WEBRTC" => uri.Scheme is "http" or "https", _ => false }
         }, "INVALID_SOURCE", "Source type, protocol and URI must agree.");

@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.DependencyInjection;
 using Supermarket.Application;
 using Supermarket.Domain;
 using Xunit;
@@ -75,12 +76,12 @@ public sealed partial class ApiFlowTests(SqlApiFixture fixture)
         using var client = await Admin();
         var camera = await Camera(client, await Floor(client));
         var route = $"/api/cameras/{camera.CameraId}/connection";
-        var configured = await Read<ConnectionView>(await client.PutAsJsonAsync(route, new ConnectionRequest("DEMO", "HTTP", "demo://camera/main", Username: "camera-user", Password: "Camera-secret-123")));
+        var configured = await Read<ConnectionView>(await client.PutAsJsonAsync(route, new ConnectionRequest("LIVE", "HTTP", "http://camera.test/video", Username: "camera-user", Password: "Camera-secret-123")));
         Assert.False(configured.IsEnabled);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, (await client.PostAsync(route + "/enable", null)).StatusCode);
         Assert.Equal("SUCCESS", (await Read<ConnectionView>(await client.PostAsync(route + "/test", null))).LastTestResult);
         var preview = await client.GetAsync($"/api/cameras/{camera.CameraId}/preview");
-        Assert.Equal("image/svg+xml", preview.Content.Headers.ContentType!.MediaType);
+        Assert.Equal("image/jpeg", preview.Content.Headers.ContentType!.MediaType);
         Assert.True((await Read<ConnectionView>(await client.PostAsync(route + "/enable", null))).IsEnabled);
         var reloaded = await client.GetFromJsonAsync<ConnectionView>(route);
         Assert.True(reloaded!.IsEnabled);
@@ -96,7 +97,7 @@ public sealed partial class ApiFlowTests(SqlApiFixture fixture)
             var encrypted = (string)(await command.ExecuteScalarAsync())!;
             Assert.DoesNotContain("Camera-secret-123", encrypted);
         }
-        var reset = await Read<ConnectionView>(await client.PutAsJsonAsync(route, new ConnectionRequest("DEMO", "HTTP", "demo://camera/changed")));
+        var reset = await Read<ConnectionView>(await client.PutAsJsonAsync(route, new ConnectionRequest("LIVE", "HTTP", "http://camera.test/changed")));
         Assert.False(reset.IsEnabled);
         Assert.Null(reset.LastTestResult);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, (await client.PostAsync(route + "/enable", null)).StatusCode);
@@ -122,7 +123,7 @@ public sealed partial class ApiFlowTests(SqlApiFixture fixture)
         Assert.Contains("CROSS_FLOOR_MAPPING", await invalid.Content.ReadAsStringAsync());
     }
     [Fact]
-    public async Task DemoCameraFailureRecoveryAndMonitoringSourceRejection()
+    public async Task LiveCameraFailureAndRecoveryCreatesAndResolvesHealthEvent()
     {
         using var client = await Admin();
         var floor = await Floor(client);
@@ -135,24 +136,25 @@ public sealed partial class ApiFlowTests(SqlApiFixture fixture)
         var draft = await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(monitoring, new MonitoringRequest("Queue monitoring",
             Rules: [new MonitoringRuleRequest(queueType.IncidentTypeId, 3, 5, "PEOPLE", 30, 300)])));
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync(monitoring + "/activate", new MonitoringActivationRequest(draft.UpdatedAt))).StatusCode);
-        await Read<ConnectionView>(await client.PutAsJsonAsync(connection, new ConnectionRequest("DEMO", "HTTP", "demo://camera/main")));
+        await Read<ConnectionView>(await client.PutAsJsonAsync(connection, new ConnectionRequest("LIVE", "HTTP", "http://camera.test/video")));
         await Read<ConnectionView>(await client.PostAsync(connection + "/test", null));
         await Read<ConnectionView>(await client.PostAsync(connection + "/enable", null));
         await Read<MappingView>(await client.PutAsJsonAsync($"/api/cameras/{camera.CameraId}/zones/{zone.ZoneId}", new MappingRequest(Triangle)));
         var review = (await client.GetFromJsonAsync<MonitoringReviewView>(monitoring + "/review"))!;
-        Assert.False(review.CanActivate);
-        Assert.Contains(review.Cameras.Single().Issues, i => i.Code == "AI_SOURCE_UNSUPPORTED");
+        Assert.True(review.CanActivate);
         var check = $"/api/cameras/{camera.CameraId}/health/check";
         Assert.Equal("ONLINE", (await Read<CameraHealthView>(await client.PostAsync(check, null))).ConnectionStatus);
-        Assert.True((await client.PostAsync($"/api/demo/cameras/{camera.CameraId}/state?online=false", null)).IsSuccessStatusCode);
+        fixture.Factory.Services.GetRequiredService<SqlApiFixture.TestCameraStream>().Set(camera.CameraId, false);
         Assert.Equal("OFFLINE", (await Read<CameraHealthView>(await client.PostAsync(check, null))).ConnectionStatus);
+        await Read<CameraHealthView>(await client.PostAsync(check, null));
         await Read<CameraHealthView>(await client.PostAsync(check, null));
         var events = (await client.GetFromJsonAsync<CameraHealthEvent[]>($"/api/camera-health-events?cameraId={camera.CameraId}"))!;
         var health = Assert.Single(events);
         Assert.Equal("OPEN", health.Status);
         Assert.Equal("INVESTIGATING", (await Read<CameraHealthEvent>(await client.PostAsync($"/api/camera-health-events/{health.HealthEventId}/investigate", null))).Status);
         Assert.Equal(HttpStatusCode.UnprocessableEntity, (await client.PostAsJsonAsync($"/api/camera-health-events/{health.HealthEventId}/resolve", new ResolveRequest("premature"))).StatusCode);
-        await client.PostAsync($"/api/demo/cameras/{camera.CameraId}/state?online=true", null);
+        fixture.Factory.Services.GetRequiredService<SqlApiFixture.TestCameraStream>().Set(camera.CameraId, true);
+        await Read<CameraHealthView>(await client.PostAsync(check, null));
         await Read<CameraHealthView>(await client.PostAsync(check, null));
         var resolved = await Read<CameraHealthEvent>(await client.PostAsJsonAsync($"/api/camera-health-events/{health.HealthEventId}/resolve", new ResolveRequest("Cable restored")));
         Assert.Equal("RESOLVED", resolved.Status);

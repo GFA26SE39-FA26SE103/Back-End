@@ -2493,37 +2493,6 @@
         }
       }
     },
-    "/api/demo/cameras/{id}/state": {
-      "post": {
-        "tags": [
-          "Supermarket.Api"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "online",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
     "/api/users": {
       "get": {
         "tags": [

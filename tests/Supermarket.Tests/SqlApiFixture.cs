@@ -4,6 +4,10 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Supermarket.Application;
+using Supermarket.Domain;
 using Xunit;
 namespace Supermarket.Tests;
 
@@ -88,7 +92,6 @@ public sealed class SqlApiFixture : IAsyncLifetime
             ["Bootstrap:Password"] = AdminPassword,
             ["CameraHealth:Enabled"] = "false",
             ["Monitoring:Enabled"] = "false",
-            ["Video:AllowDemo"] = "true",
             ["DataProtection:KeyPath"] = Path.Combine(Path.GetTempPath(), DatabaseName, "keys")
         });
         _ = Factory.CreateClient();
@@ -109,7 +112,27 @@ public sealed class SqlApiFixture : IAsyncLifetime
     }
     private sealed class ApiFactory(Dictionary<string, string?> config) : WebApplicationFactory<Program>
     {
-        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Development").ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(config));
+        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Development")
+            .ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(config))
+            .ConfigureServices(services =>
+            {
+                services.RemoveAll<ICameraStream>();
+                services.AddSingleton<TestCameraStream>();
+                services.AddSingleton<ICameraStream>(provider => provider.GetRequiredService<TestCameraStream>());
+            });
+    }
+
+    public sealed class TestCameraStream : ICameraStream
+    {
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, bool> online = new();
+        public void Set(Guid cameraId, bool value) => online[cameraId] = value;
+        public Task<ProbeResult> Test(CameraConnection connection, CancellationToken ct)
+        {
+            var success = !online.TryGetValue(connection.CameraId, out var value) || value;
+            return Task.FromResult(new ProbeResult(success, success ? "FRAME_RECEIVED" : "STREAM_UNAVAILABLE", success ? true : null, []));
+        }
+        public Task<PreviewFrame> Preview(CameraConnection connection, CancellationToken ct) =>
+            Task.FromResult(new PreviewFrame([1, 2, 3], "image/jpeg"));
     }
 }
 [CollectionDefinition("SqlApi", DisableParallelization = true)]

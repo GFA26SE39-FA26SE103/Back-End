@@ -111,7 +111,7 @@ Ví dụ tạo Draft:
 }
 ```
 
-`GET .../review` trả `configuration, zone, cameras[], issues[], warnings[], canActivate`. Camera summary gồm mapping/ROI, source type/protocol, enabled, test result/time, readiness và issues; không trả stream URI, username hoặc camera credentials. Cần zone ACTIVE, ít nhất một supported rule enabled và đúng một ACTIVE mapped camera cùng tầng có ROI hợp lệ, nguồn LIVE HTTP/RTSP/HLS hoặc RECORDED FILE tested-success/enabled. Density enabled cần area_m2 > 0 nhưng chưa được runtime hỗ trợ; DEMO không là AI source. Review kiểm tra dữ liệu đã lưu, không thay một connection probe mới. Multi-camera selection/overlap còn mở nên nhiều ACTIVE mappings là blocker. Recorded source là test/fallback và được cảnh báo rõ; runtime hiện hỗ trợ count/queue theo increment bên dưới.
+`GET .../review` trả `configuration, zone, cameras[], issues[], warnings[], canActivate`. Camera summary gồm mapping/ROI, source type/protocol, enabled, test result/time, readiness và issues; không trả stream URI, username hoặc camera credentials. Cần zone ACTIVE, ít nhất một supported rule enabled và đúng một ACTIVE mapped camera cùng tầng có ROI hợp lệ, nguồn LIVE HTTP/RTSP/HLS hoặc RECORDED FILE tested-success/enabled. Nguồn tổng hợp `DEMO` không còn được chấp nhận; row cũ phải cấu hình lại thành LIVE hoặc RECORDED. Density enabled cần area_m2 > 0 nhưng chưa được runtime hỗ trợ. Review kiểm tra dữ liệu đã lưu, không thay một connection probe mới. Multi-camera selection/overlap còn mở nên nhiều ACTIVE mappings là blocker. Recorded source là test/fallback và được cảnh báo rõ; runtime hiện hỗ trợ count/queue theo increment bên dưới.
 
 `POST .../activate` và `POST .../deactivate` nhận:
 

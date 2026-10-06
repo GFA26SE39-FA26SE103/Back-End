@@ -1085,8 +1085,9 @@ Expected source types:
 ```text
 LIVE
 RECORDED
-DEMO
 ```
+
+Synthetic `DEMO` camera connections are not accepted. Existing legacy `DEMO` rows are invalid configuration and must be reconfigured as `LIVE` or `RECORDED`; they must not report ONLINE from a generated frame.
 
 Expected protocols can include:
 

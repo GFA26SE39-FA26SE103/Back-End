@@ -80,7 +80,7 @@ public sealed class OperatorAccessTests
         await Forbidden(() => world.Stores.SaveZone(null, world.FloorId, new ZoneRequest("NEW", "New zone", null, Triangle), Ct));
         await Forbidden(() => world.Cameras.Save(world.CameraId, null, new CameraRequest("CAM-01", "Camera", null, null, null, DateTime.UtcNow, DateTime.UtcNow.AddYears(1), null, null, null, "ACTIVE"), Ct));
         await Forbidden(() => world.Cameras.Connection(world.CameraId, Ct));
-        await Forbidden(() => world.Cameras.Configure(world.CameraId, new ConnectionRequest("DEMO", "HTTP", "demo://camera/main"), Ct));
+        await Forbidden(() => world.Cameras.Configure(world.CameraId, new ConnectionRequest("LIVE", "HTTP", "http://camera.test/video"), Ct));
         await Forbidden(() => world.Cameras.Test(world.CameraId, Ct));
         await Forbidden(() => world.Cameras.Enable(world.CameraId, false, Ct));
         await Forbidden(() => world.Cameras.Map(world.CameraId, world.ZoneId, new MappingRequest(Triangle), Ct));

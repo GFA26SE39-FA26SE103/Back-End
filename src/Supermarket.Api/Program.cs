@@ -62,7 +62,6 @@ builder.Services.AddDataProtection().SetApplicationName("FA26SE103").PersistKeys
 builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IPasswordService, PasswordService>();
 builder.Services.AddSingleton<ICredentialProtector, CredentialProtector>();
-builder.Services.AddSingleton<DemoCameraState>();
 builder.Services.AddScoped<ICameraStream, CameraStream>();
 builder.Services.AddScoped<IRecordedVideoStorage, RecordedVideoStorage>();
 builder.Services.AddScoped<RecordedVideoUpload>();
@@ -170,18 +169,6 @@ app.MapGet("/health/ready", async (AppDbContext db, CancellationToken ct) =>
     }
     catch (Exception) { return Results.StatusCode(503); }
 }).AllowAnonymous();
-if (app.Environment.IsDevelopment())
-    app.MapPost("/api/demo/cameras/{id:guid}/state", async (Guid id, bool online, DemoCameraState state, CameraSetup setup, CancellationToken ct) =>
-{
-    var c = await setup.Connection(id, ct);
-    if (c.SourceType != "DEMO")
-        return Results.Conflict(new
-        {
-            code = "NOT_DEMO_CAMERA"
-        });
-    state.Set(id, online);
-    return Results.NoContent();
-}).RequireAuthorization(p => p.RequireRole("ADMIN"));
 await Bootstrap.Run(app);
 app.Run();
 public partial class Program;

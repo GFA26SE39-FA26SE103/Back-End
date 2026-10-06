@@ -56,7 +56,6 @@ public sealed class SetupOverview(ISetupStore store, ICurrentUser current, ICloc
             {
                 var connection = connections.GetValueOrDefault(c.CameraId);
                 var cameraEvents = events.Where(e => e.CameraId == c.CameraId).ToArray();
-                var health = runtime.Snapshot(c, cameraEvents.Select(e => e.EventType), connection?.IsEnabled == true);
                 var issues = new List<MonitoringIssue>();
                 if (c.Status != "ACTIVE") issues.Add(new("CAMERA_NOT_ACTIVE", "Camera is inactive."));
                 var valid = false;
@@ -68,6 +67,10 @@ public sealed class SetupOverview(ISetupStore store, ICurrentUser current, ICloc
                     if (connection.LastTestResult != "SUCCESS" || connection.LastTestedAt is null)
                         issues.Add(new("CONNECTION_NOT_TESTED", "Test the current connection and preview a frame."));
                     if (!connection.IsEnabled) issues.Add(new("CONNECTION_DISABLED", "Enable the tested connection."));
+                }
+                var health = runtime.Snapshot(c, cameraEvents.Select(e => e.EventType), connection?.IsEnabled == true && valid);
+                if (connection is not null && valid)
+                {
                     if (connection.IsEnabled && c.Status == "ACTIVE" && c.HealthStatus != "ONLINE")
                         issues.Add(new("CAMERA_HEALTH_" + c.HealthStatus, c.HealthStatus == "UNKNOWN" ? "No successful health observation yet." : "Investigate camera connectivity."));
                     if (connection.IsEnabled && c.Status == "ACTIVE" && health.ProcessingAvailability == "UNAVAILABLE")
@@ -81,13 +84,14 @@ public sealed class SetupOverview(ISetupStore store, ICurrentUser current, ICloc
                             _ => "The camera frame is invalid for monitoring."
                         }));
                 }
+                var healthStatus = valid ? c.HealthStatus : "UNKNOWN";
                 return new SetupCamera(c.CameraId, c.FloorId, floors.Single(f => f.FloorId == c.FloorId).Name, c.Code, c.Name,
-                    c.Status, c.HealthStatus, health.MonitoringReadiness, health.ProcessingAvailability, health.ActiveHealthIssues,
+                    c.Status, healthStatus, health.MonitoringReadiness, health.ProcessingAvailability, health.ActiveHealthIssues,
                     c.LastSeenAt, connection is not null, valid, connection?.IsEnabled ?? false,
                     connection?.SourceType, connection?.Protocol, connection?.LastTestResult, connection?.LastTestedAt, issues.ToArray());
             }).ToArray();
             var zoneViews = floorViews.SelectMany(f => f.Zones).ToArray();
-            var enabled = cameraViews.Where(c => c.Status == "ACTIVE" && c.IsEnabled).ToArray();
+            var enabled = cameraViews.Where(c => c.Status == "ACTIVE" && c.IsEnabled && c.ConnectionValid).ToArray();
             var totals = new SetupTotals(floors.Count, zones.Count, cameras.Count, configurations.Count,
                 zoneViews.Count(z => z.Configuration?.Status == "ACTIVE"), zoneViews.Count(z => z.CanActivate),
                 enabled.Count(c => c.HealthStatus == "ONLINE"), enabled.Length, events.Count);

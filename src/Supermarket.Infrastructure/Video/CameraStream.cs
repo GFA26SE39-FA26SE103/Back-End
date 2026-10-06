@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text;
 using Microsoft.Extensions.Options;
 using Supermarket.Application;
 using Supermarket.Domain;
@@ -10,27 +9,15 @@ public sealed class VideoOptions
 {
     public string FfmpegPath { get; set; } = "ffmpeg";
     public string RecordedRoot { get; set; } = ".local/videos";
-    public bool AllowDemo
-    {
-        get; set;
-    }
     public int TimeoutSeconds { get; set; } = 10;
 }
-public sealed class DemoCameraState
-{
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, bool> states = new();
-    public bool Online(Guid id) => !states.TryGetValue(id, out var online) || online;
-    public void Set(Guid id, bool online) => states[id] = online;
-}
-public sealed class CameraStream(ICredentialProtector secrets, IOptions<VideoOptions> options, DemoCameraState demo, IFrameHealthAnalyzer analyzer) : ICameraStream
+public sealed class CameraStream(ICredentialProtector secrets, IOptions<VideoOptions> options, IFrameHealthAnalyzer analyzer) : ICameraStream
 {
     public async Task<ProbeResult> Test(CameraConnection connection, CancellationToken ct)
     {
         try
         {
             var frame = await Preview(connection, ct);
-            if (frame.ContentType == "image/svg+xml")
-                return new(true, "FRAME_RECEIVED", true, []);
             var analysis = await analyzer.Analyze(frame, ct);
             return new(true, "FRAME_RECEIVED", analysis.ProcessingAvailable, analysis.Issues);
         }
@@ -43,12 +30,6 @@ public sealed class CameraStream(ICredentialProtector secrets, IOptions<VideoOpt
     public async Task<PreviewFrame> Preview(CameraConnection connection, CancellationToken ct)
     {
         Rules.Connection(connection);
-        if (connection.SourceType == "DEMO")
-        {
-            if (!options.Value.AllowDemo || !demo.Online(connection.CameraId))
-                throw new AppError("STREAM_UNAVAILABLE", "Demo camera is unavailable.");
-            return new(Encoding.UTF8.GetBytes("<svg xmlns='http://www.w3.org/2000/svg' width='960' height='540' viewBox='0 0 960 540'><rect width='960' height='540' fill='#152435'/><path d='M0 400H960M320 0V540M640 0V540' stroke='#38566e' stroke-width='3'/><text x='40' y='70' fill='white' font-size='30'>MF-01 controlled camera preview</text><rect x='350' y='180' width='240' height='200' fill='#1c8067'/><text x='380' y='290' fill='white' font-size='24'>ONLINE</text></svg>"), "image/svg+xml");
-        }
         if (connection.Protocol == "WEBRTC")
             throw new AppError("VIDEO_ADAPTER_REQUIRED", "WebRTC requires a media-gateway adapter.", 422);
         var uri = new Uri(connection.StreamUri);
