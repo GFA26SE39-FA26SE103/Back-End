@@ -1,8 +1,9 @@
 # AGENTS.md — FA26SE103 Backend
 
 Project: AI-Powered Smart Supermarket Operations Monitoring System, GFA26SE39.
-Assigned increment 03/10/2026: MF-02 ROI count/queue → OperationalEvent → DETECTED Incident + live feed; see PROJECT_CONTEXT section39. Temporary count-mode/DETECTED exception is user-approved, not a claim of updated team-wide BR. Dispatch/tasks/closure/analytics remain unassigned.
-Business/Mainflow baseline: **02/10/2026**. Current implementation focus: **MF-01 — Setup & System Configuration**.
+Assigned increment 03/10/2026: MF-02 ROI count/queue → OperationalEvent + live feed; see PROJECT_CONTEXT section39. The current implementation still contains a temporary DETECTED-Incident compatibility path, but the 10/10/2026 target architecture does **not** make every OperationalEvent an Incident. ResponsePolicy, Task, StaffReport and qualification behavior remain target work unless verified in code.
+Business/Mainflow baseline: **10/10/2026 synchronization** over the 02/10/2026 Mainflow baseline. Current implementation focus: **MF-01 — Setup & System Configuration**.
+Approved workflow delta (05/10/2026): Staff shift-swap requests and deferred task-response options are part of the project baseline/design, but are not assumed implemented unless verified in the repository.
 
 ## Required context
 
@@ -35,7 +36,7 @@ Admin login
 
 Health exceptions lead to Admin investigation/restoration, retesting, and resumed health checks. Test/preview is Admin-triggered; backend adapters perform the operation. Connection enablement remains a validated implementation precondition even if it is not a separate Mainflow diagram box.
 
-Account administration supports MF-01 but is not a required diagram step. Later Mainflows remain design context; implement their incident, dispatch, task, shift, or analytics workflows only when assigned. Live cameras are the operational source; recorded/demo video is for testing/evaluation/fallback demonstration.
+Account administration supports MF-01 but is not a required diagram step. Later Mainflows remain design context; implement their incident, dispatch, task, shift, or analytics workflows only when assigned. Live cameras are the operational source; recorded video is for testing/evaluation/fallback demonstration. Do not introduce synthetic DEMO camera connections; the current backend rejects new DEMO source configurations.
 
 ## Domain rules to preserve
 
@@ -46,8 +47,14 @@ Account administration supports MF-01 but is not a required diagram step. Later 
 - New connections start disabled; enabling must enforce current connection validation. Configuration changes invalidate old test results.
 - Camera operational status, camera health status, connection enablement, and monitoring activation are separate concepts.
 - `CameraHealthEvent` is system health, not an operational `Incident`. `OperationalEvent` and `Incident` are also distinct.
+- The target operational chain is `OperationalEvent → ResponsePolicy → ResponsePolicyAction → notification/recommendation/task/qualified Incident`; a threshold breach or CRITICAL priority alone does not create an Incident.
+- `StaffReport` is a separate confirmed staff-submission path; routine reports must not be fabricated into OperationalEvents.
+- `Task` has exactly one origin type: `OPERATIONAL_EVENT`, `INCIDENT`, `STAFF_REPORT`, or `MANUAL`, with exclusive nullable source FKs.
+- Task acceptance must be atomic first-valid-acceptance-wins; eligibility uses checked-in/on-shift state, assigned zone, role, and availability.
 - Model confidence filters detections; it does not decide incident routing. No cross-camera identity matching, face recognition, or customer identity storage.
 - Only Admin creates accounts; protect the last active Admin. User passwords are hashed; recoverable camera credentials are encrypted and never returned/logged as secrets.
+- For task offers, preserve the distinction between accepting responsibility, starting work, deferred start, active work, and overdue/escalated work. Staff responses are Handle Now, Accept and Handle Later, or Cannot Handle; `Cannot Handle` is not evidence rejection.
+- Shift swaps are Staff-requested and Operator-approved. The system proposes candidates only after checking availability, overlap, zone coverage, workload, and working-hour constraints. Do not implement direct Staff-to-Staff negotiation or speculative optimization.
 
 ## Architecture and database changes
 
@@ -65,7 +72,7 @@ Keep controllers thin. Domain must not depend on ASP.NET or EF. Do not expose sc
 
 Database-first: approved ERD/schema → approved SQL Server change → re-scaffold → review generated changes → update mappings/use cases/contracts/tests. Generated files under `src/Supermarket.Infrastructure/Persistence/Scaffolded` must not be manually edited for business behavior. Keep custom EF extensions outside that directory. Do not introduce code-first migrations or a competing schema.
 
-The current physical persistence baseline is `FA26SE103_ERD_v3.drawio`. The approved 2026-10-03 monitoring migration adds `MonitoringRule`/`IncidentType` persistence to MF-01; `Zone.area_m2` is also mapped. The remaining alignment questions are the physical representation of the Incident Type "requires Operator review" behavior, multi-camera measurement-source selection, checkout-counter representation, Manager-on-duty representation, and any conflicting operational use of `ZoneAdjacency`. Checkout capacity may be kept as a disabled Draft rule, not enabled until its measurement is approved. Legacy DTOs/comments do not establish schema approval. Do not edit team-owned ERD/schema unless assigned.
+The target physical persistence baseline is provisional `FA26SE103_ERD_v4.drawio` / the supplied 10/10/2026 synchronization notes. It adds StaffReport, OperationalEventType, ResponsePolicy, ResponsePolicyAction, Task origin/source FKs, revised OperationalEvent lifecycle/priority fields, and related notification/recommendation/event references. The live development database and current scaffold remain implementation state and must not be assumed to match ERD v4. Open alignment questions include SLA/escalation, policy/threshold provenance, concurrency/idempotency details, StaffReport media retention, optional policy-action traceability, and any still-unsettled behavior. Legacy DTOs/comments do not establish schema approval. Do not edit team-owned ERD/schema unless assigned.
 
 Current scaffolding covers fourteen setup/catalog/rule/runtime entities. SQL source and approved migrations are in the separate Database repository; see README for schema/migration overrides and isolated-test prerequisites. A missing SQL file does not justify generating one from C# models.
 
