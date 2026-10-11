@@ -15,11 +15,21 @@ public partial class OperationalEvent
 
     public Guid? IncidentId { get; set; }
 
+    public Guid EventTypeId { get; set; }
+
     public string EventType { get; set; } = null!;
 
     public decimal MetricValue { get; set; }
 
+    public string Priority { get; set; } = null!;
+
     public DateTime DetectedAt { get; set; }
+
+    public DateTime LastObservedAt { get; set; }
+
+    public DateTime? ClearedAt { get; set; }
+
+    public DateTime UpdatedAt { get; set; }
 
     public string? MetadataJson { get; set; }
 
@@ -30,6 +40,8 @@ public partial class OperationalEvent
     public virtual Camera Camera { get; set; } = null!;
 
     public virtual Incident? Incident { get; set; }
+
+    public virtual OperationalEventType EventTypeNavigation { get; set; } = null!;
 
     public virtual MonitoringRule? Rule { get; set; }
 

@@ -11,6 +11,7 @@ public sealed class MonitoringSnapshotReaderTests
         var reader=new MonitoringSnapshotReader(h.Store);
         var snapshot=Assert.Single(await reader.ReadAll(default));
         Assert.Equal(h.Camera.CameraId,snapshot.CameraId); Assert.Single(snapshot.Zones);
+        var rule=Assert.Single(snapshot.Zones[0].Rules); Assert.NotEqual(Guid.Empty,rule.EventTypeId); Assert.Equal("LONG_QUEUE",rule.EventTypeCode);
         Assert.True(await reader.IsCurrent(snapshot,h.Zone.ZoneId,default));
         h.Camera.UpdatedAt=DateTime.UtcNow; h.Camera.LastSeenAt=DateTime.UtcNow; h.Camera.HealthStatus="ONLINE";
         Assert.Equal(snapshot.Fingerprint,Assert.Single(await reader.ReadAll(default)).Fingerprint);

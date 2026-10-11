@@ -97,7 +97,7 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
                                 // Evaluate every ordered frame, but query SQL only for a source-second
                                 // sample or a newly sustained severity. Keep the last observed open
                                 // incident between samples; a lower count never closes it.
-                                var written=sample || milestone
+                                var written=sample || milestone || evaluation.ShouldClear
                                     ?await services.GetRequiredService<MonitoringIncidentWriter>().Apply(new(snapshot,zone,rule,batch,measurement,evaluation,sample),ct)
                                     :new IncidentWriteResult(evaluation.Accepted,false,false,prior?.IncidentId,prior?.IncidentSeverity,evaluation.Reason,prior?.CooldownRemainingSec??0);
                                 if(written.Stale) { job.RuleStates.Remove(rule.RuleId); continue; }

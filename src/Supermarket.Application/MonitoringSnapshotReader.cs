@@ -21,9 +21,12 @@ public sealed class MonitoringSnapshotReader(ISetupStore store):IMonitoringSnaps
             foreach(var rule in enabled.OrderBy(r=>r.RuleId))
             {
                 var type=UseCase.Found(await store.Find<IncidentType>(rule.IncidentTypeId,ct));
+                var eventType=await store.Find<OperationalEventType>(rule.EventTypeId,ct);
+                if(eventType is null || eventType.Status!="ACTIVE") issue??="OPERATIONAL_EVENT_TYPE_UNAVAILABLE";
                 try { MonitoringPolicy.ValidateForActivation(rule,type); } catch(DomainException e) { issue??=e.Code; }
                 var definition=MonitoringPolicy.RuntimeDefinition(rule,type);
-                rules.Add(new(rule.RuleId,rule.IncidentTypeId,type.Code,type.Name,definition.Mode,definition.Unit,rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec));
+                rules.Add(new(rule.RuleId,rule.IncidentTypeId,type.Code,type.Name,definition.Mode,definition.Unit,rule.WarningThreshold,rule.CriticalThreshold,
+                    rule.SustainSec,rule.CooldownSec,rule.EventTypeId,eventType?.Code??"",MonitoringPolicy.RecoverySeconds(rule)));
             }
             foreach(var mapping in mappings)
             {

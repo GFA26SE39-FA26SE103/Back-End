@@ -76,6 +76,7 @@ public sealed class MonitoringSetupTests
         Assert.Equal("CONFIGURATION_CHANGED", stale.Code);
         var saved = await h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Saved", .6m, [input], h.Configuration.UpdatedAt), default);
         Assert.Equal(4, Assert.Single(saved.Rules).WarningThreshold);
+        Assert.NotEqual(Guid.Empty,Assert.Single(h.Store.Values.OfType<MonitoringRule>()).EventTypeId);
         var active = await h.Setup.Activate(h.Zone.ZoneId, true, saved.UpdatedAt, default);
         Assert.Equal("ACTIVE", active.Status);
         var inactive = await h.Setup.Activate(h.Zone.ZoneId, false, active.UpdatedAt, default);
@@ -164,8 +165,10 @@ public sealed class MonitoringSetupTests
         public IncidentType AddRule(string code = "LONG_QUEUE", string measurement = "QUEUE_LENGTH", string unit = "PEOPLE")
         {
             var type = new IncidentType { IncidentTypeId = Guid.NewGuid(), Code = code, Name = code, SourceType = "AI_DETECTED", MeasurementType = measurement };
-            Store.Values.Add(type);
-            Store.Values.Add(new MonitoringRule { RuleId = Guid.NewGuid(), ConfigId = Configuration.ConfigId, IncidentTypeId = type.IncidentTypeId, WarningThreshold = 3, CriticalThreshold = 5, ThresholdUnit = unit });
+            var eventType = new OperationalEventType { EventTypeId=Guid.NewGuid(),Code=MonitoringPolicy.OperationalEventCode(type)!,Name=code,MeasurementType=measurement };
+            Store.Values.AddRange([type,eventType]);
+            Store.Values.Add(new MonitoringRule { RuleId = Guid.NewGuid(), ConfigId = Configuration.ConfigId, IncidentTypeId = type.IncidentTypeId,
+                EventTypeId=eventType.EventTypeId, WarningThreshold = 3, CriticalThreshold = 5, ThresholdUnit = unit });
             return type;
         }
     }

@@ -5,9 +5,9 @@
 > **Group:** GFA26SE39  
 > **Purpose of this file:** provide a repository-owned synchronized implementation snapshot so a backend-only clone gives humans and coding agents one implementation-oriented view of the current agreed product, Mainflows, domain rules, architecture, and implementation scope before code is written.
 >
-> **Synchronization baseline:** project decisions and mentor/team feedback through **10/10/2026**, including the supplied Codex synchronization notes and provisional `FA26SE103_ERD_v4.drawio`.
+> **Synchronization baseline:** project decisions and mentor/team feedback through **11/10/2026**, including the supplied Codex synchronization notes, provisional `FA26SE103_ERD_v4.drawio`, Database V2, and the OperationalEvent episode implementation.
 >
-> **Implementation-state warning:** ERD v4 and the 10/10/2026 synchronization notes describe the provisional target architecture. The current SQL Server development database, EF scaffold, APIs, and workers remain implementation state and do not automatically satisfy the target model.
+> **Implementation-state warning:** ERD v4 and the 10/10/2026 synchronization notes describe the provisional target architecture. Database V2 and the backend now implement the OperationalEvent episode subset described in section 40, but the remaining SQL Server schema, APIs, and workers must not be assumed to satisfy the full target model.
 >
 > **Important:** this file is a synchronization guide, not a replacement for the official reports. If an official requirement changes, update this file together with the affected requirement/design artifact.
 
@@ -102,7 +102,7 @@ The supplied ERD v4 contains approximately 34 entities and 66 relationships, inc
 
 The draw.io XML was inspected for table vertices and relationship count. Full visual rendering/import was not independently validated; do not claim visual validation without inspecting the rendered diagram.
 
-ERD v4 is a target baseline, not proof of migration. The last live database inspection found only 14 physical user tables and no `ZoneAdjacency`, `StaffReport`, `Task`, `ResponsePolicy`, or `OperationalEventType` table. Do not run migrations or modify the live database as part of context synchronization.
+ERD v4 is a target baseline, not proof that every target workflow is implemented. The 11/10/2026 live-database inspection confirmed the Database V2 OperationalEvent subset, including `OperationalEventType`, `MonitoringRule.event_type_id`, revised OperationalEvent lifecycle fields, and the filtered active-episode uniqueness index. Other ERD v4 areas still require code/schema inspection before they are claimed implemented.
 
 ### Open refinements
 
@@ -1054,11 +1054,11 @@ Keep heatmap implementation independent from `area_m2`; heatmaps use tracked pos
 
 ---
 
-# 9. MF-01 database baseline and ERD v4 target
+# 9. Database V2 implementation baseline and ERD v4 target
 
-The current live development database was inspected on 10/10/2026 and contains 14 physical user tables: `Supermarket`, `Floor`, `Zone`, `Camera`, `CameraConnection`, `CameraZoneMapping`, `CameraHealthEvent`, `MonitoringConfiguration`, `MonitoringRule`, `IncidentType`, `OperationalEvent`, `Incident`, `Role`, and `UserAccount`.
+The live development database was inspected again on 11/10/2026 after applying Database V2. The OperationalEvent episode subset is present: `OperationalEventType`, `MonitoringRule.event_type_id`, and the revised OperationalEvent fields `event_type_id`, `priority`, `last_observed_at`, `cleared_at`, and `updated_at`.
 
-This is implementation-state evidence, not the ERD v4 target. ERD v4 additionally includes StaffReport, OperationalEventType, ResponsePolicy, ResponsePolicyAction, Task and related assignment/evidence entities, notification/recommendation entities, shift/coverage entities, ZoneAdjacency, ZoneMetric, and AuditLog. Do not claim those target entities are physically migrated without inspecting the live database or an approved migration.
+This is implementation-state evidence for that subset, not proof that the complete ERD v4 workflow is implemented. Inspect the live database and code before claiming StaffReport, ResponsePolicy/ResponsePolicyAction execution, Task assignment/evidence, notifications/recommendations, shift/coverage, ZoneAdjacency behavior, ZoneMetric analytics, or AuditLog behavior.
 
 The existing MF-01 database baseline contains the following core entities.
 
@@ -1263,11 +1263,11 @@ enabled
 UNIQUE(config_id, operational_event_type_id)
 ```
 
-Do not resurrect the historical generic `rule_type` / `threshold_value` / `severity` shape. The current live database and scaffold still expose the older `incident_type_id` shape; do not change it without an approved ERD v4 SQL migration and re-scaffold.
+Do not resurrect the historical generic `rule_type` / `threshold_value` / `severity` shape. Database V2 and the current backend model use `event_type_id` for MonitoringRule. Preserve database-first alignment through the canonical Database repository script and reviewed persistence mappings.
 
 ### `IncidentType` / `OperationalEventType`
 
-The current live database has a concrete `IncidentType` table. ERD v4 additionally introduces `OperationalEventType` for the AI event catalog. Their target relationship and migration are not implemented merely because the diagram contains them.
+The current live database retains `IncidentType` for incidents and now has `OperationalEventType` as the separate AI operational-event catalog. MonitoringRule maps to OperationalEventType in Database V2 and the backend implementation; this does not by itself implement ResponsePolicy or Incident qualification.
 
 ```text
 incident_type_id
@@ -2763,7 +2763,7 @@ This section prevents historical designs from being reintroduced while preservin
 - Operator independently verifies submitted evidence.
 - MF-04 Planning and Analytics are independently enterable.
 - AI recommendations are advisory; they do not automatically change store operations.
-- `Zone.area_m2`, the concrete `MonitoringRule` and `IncidentType` structures, and `ZoneAdjacency` are represented in ERD v4. `MonitoringRule` targets `OperationalEventType`; the live database remains older and IncidentType-based.
+- `Zone.area_m2`, the concrete `MonitoringRule` and `IncidentType` structures, and `ZoneAdjacency` are represented in ERD v4. Database V2 and the backend now map `MonitoringRule` to `OperationalEventType`; IncidentType remains the separate incident catalog.
 - ZoneAdjacency exists in ERD v4. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
 
 # 39. Assigned ROI monitoring increment — 03/10/2026
@@ -2772,10 +2772,37 @@ This is the current implementation checkpoint for the assigned ROI increment, **
 
 Confidence applies before ByteTrack. ROI membership uses bbox bottom-center, current observed tracks only; per-confidence tracking contexts, no cross-camera identity/dedup. Each zone needs exactly one ACTIVE camera mapping to activate this increment. N:M camera-zone modeling remains unchanged; one camera can monitor several zones independently, counts never summed across cameras.
 
-After activation, a BE-owned worker consumes ordered AI batches even without a viewer, checks the current source/mapping/configuration version again when writing, evaluates independent Warning/Critical sustain clocks and records aggregate OperationalEvents. Gaps/reconnect/version changes reset continuity. Recorded-video source time, not inference wall time, drives sustain. The current compatibility path still uses one open Incident per zone/type and records DETECTED Incidents; that is an implementation divergence, not the ERD v4 target rule. Closure tests seed terminal state only in isolated fixtures; no new product closure endpoint.
+After activation, a BE-owned worker consumes ordered AI batches even without a viewer, checks the current source/mapping/configuration version again when writing, evaluates independent Warning/Critical sustain clocks and records aggregate OperationalEvents. Gaps/reconnect/version changes reset continuity. Recorded-video source time, not inference wall time, drives sustain. As of 11/10/2026, repeated sustained observations update one active episode per Camera + Zone + OperationalEventType, priority can escalate on that row, sustained valid recovery clears it, and a later sustained breach creates a new episode. Missing/unavailable measurements do not become zero and do not clear an episode. The temporary Incident compatibility policy remains an implementation divergence from the ERD v4 target; no new product closure endpoint was added.
 
-New AI Incident status is **DETECTED — not dispatched** for this increment. The current compatibility path and its SQL history are older than the ERD v4 target: 14 scaffolded entities are present, while Task, ResponsePolicy, StaffReport, OperationalEventType, notification, dispatch, evidence/media, and ZoneMetric/analytics workflows are not implemented in this increment. The application never auto-migrates; shared Dev must be backed up and migrated by the user/team. CameraHealthEvent remains a separate system-health concept.
+New compatibility-path AI Incident status is **DETECTED — not dispatched** for this increment. `OperationalEventType` and episode lifecycle persistence are now implemented; Task, ResponsePolicy execution, StaffReport, notification, dispatch, evidence/media, and ZoneMetric/analytics workflows remain outside this increment unless separately verified. The application never auto-migrates; shared Dev must be backed up and migrated by the user/team. CameraHealthEvent remains a separate system-health concept.
 
 FE keeps team floor overview/detail/edit and ROI/minimap; Live adds runtime/count/progress/cooldown and real incident feed with DEMO tags. Active viewer start/stop attaches/detaches without restarting monitoring. Recorded EOF is COMPLETED, never auto-loop; stop all active configurations on that camera and let the worker release ownership before reactivation/replay. See README/API for contracts and VALIDATION for actual test evidence; separate fake transport SQL tests from native GPU smoke and full-system acceptance.
 
 Deactivate requests an owner stop asynchronously. Runtime reports STOPPING until the worker clears its owned job; reactivation with no other active zone is rejected with MONITORING_STOP_PENDING during that interval. This avoids falsely treating desired INACTIVE as proof that a recorded source is released/replay-ready.
+
+---
+
+# 40. OperationalEvent episode implementation — 11/10/2026
+
+The implemented episode identity is the unresolved tuple:
+
+```text
+Camera + Zone + OperationalEventType
+```
+
+The database enforces this with the filtered unique index `UX_OperationalEvent_Active_Camera_Zone_EventType` on `(camera_id, zone_id, event_type_id)` where `cleared_at IS NULL`. This permits the same event type to be active in two Zones at once and permits independent active episodes from different configured cameras, without performing cross-camera identity deduplication or automatic fallback.
+
+Episode behavior is:
+
+```text
+first sustained breach        -> create active OperationalEvent
+repeated observations         -> update that row and last_observed_at
+WARNING -> CRITICAL           -> update priority on the same row; never downgrade it
+sustained valid recovery      -> set status CLEARED and cleared_at
+later sustained breach        -> create a new OperationalEvent episode
+missing/unavailable evidence  -> publish no measurement; do not synthesize zero or recovery
+```
+
+Recovery uses configurable hysteresis (`recoverySec` when supplied, otherwise `sustainSec`). A renewed breach interrupts the recovery timer. The existing runtime still rejects ambiguous multi-camera measurement-source selection; the database key supports camera separation but does not establish a fallback/source-selection policy.
+
+The canonical schema change is `FA26SE103_Database_V2.sql` in the separate Database repository. Do not create one SQL file per test, generate schema from C# models, or recreate missing legacy bootstrap migrations solely to run the disposable SQL integration fixture. For the current phase, completion evidence is the backend build, focused/non-SQL tests, SQL parse validation of the canonical V2 script, and focused live-schema/data checks. Run disposable-database SQL integration only when its maintained bootstrap prerequisites are available, and otherwise report it accurately as not run rather than blocking delivery.

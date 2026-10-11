@@ -18,6 +18,7 @@ public sealed class MonitoringRule : TrackedEntity
     public Guid RuleId { get; set; }
     public Guid ConfigId { get; set; }
     public Guid IncidentTypeId { get; set; }
+    public Guid EventTypeId { get; set; }
     public decimal WarningThreshold { get; set; }
     public decimal CriticalThreshold { get; set; }
     public string ThresholdUnit { get; set; } = "";
@@ -30,6 +31,26 @@ public sealed record MeasurementDefinition(string Unit, decimal Warning, decimal
 public sealed record RuntimeMeasurementDefinition(string Mode, string Unit, bool Supported, string? Reason);
 public static class MonitoringPolicy
 {
+    public static string? OperationalEventCode(IncidentType type) => type.Code switch
+    {
+        "LONG_QUEUE" => "LONG_QUEUE",
+        "EXCESSIVE_WAITING_TIME" => "EXCESSIVE_WAIT",
+        "OVERCROWDING_CONGESTION" => "CONGESTION",
+        "CHECKOUT_CAPACITY_ISSUE" => "CHECKOUT_CAPACITY",
+        _ => null
+    };
+    public static int RecoverySeconds(MonitoringRule rule)
+    {
+        if(string.IsNullOrWhiteSpace(rule.ParametersJson)) return rule.SustainSec;
+        try
+        {
+            using var json=JsonDocument.Parse(rule.ParametersJson);
+            if(json.RootElement.ValueKind!=JsonValueKind.Object || !json.RootElement.TryGetProperty("recoverySec",out var value)) return rule.SustainSec;
+            Rules.Require(value.TryGetInt32(out var seconds) && seconds is >=0 and <=86400,"INVALID_RULE_TIMING","Recovery must be a whole number from 0 to 86400 seconds.");
+            return seconds;
+        }
+        catch(JsonException) { return rule.SustainSec; }
+    }
     public static RuntimeMeasurementDefinition RuntimeDefinition(MonitoringRule rule, IncidentType type)
     {
         if (type.Code=="LONG_QUEUE" && type.MeasurementType=="QUEUE_LENGTH" && rule.ThresholdUnit=="PEOPLE")
@@ -95,5 +116,6 @@ public static class MonitoringPolicy
             }
             catch (JsonException) { throw new DomainException("INVALID_RULE_PARAMETERS", "Rule parameters must be valid JSON."); }
         }
+        _=RecoverySeconds(rule);
     }
 }
