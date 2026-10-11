@@ -77,6 +77,18 @@ public static class UseCase
         if (user.Role is not ("ADMIN" or "OPERATOR"))
             throw new ApplicationException("FORBIDDEN", "Live camera access is required.", 403);
     }
+    /// <summary>Staff mobile routes; they only return the caller's own shifts, offers, tasks and notifications.</summary>
+    public static void Staff(ICurrentUser user)
+    {
+        if (user.Role != "STAFF")
+            throw new ApplicationException("FORBIDDEN", "Staff access is required.", 403);
+    }
+    /// <summary>Manual task assignment after escalation belongs to the Operator.</summary>
+    public static void Operator(ICurrentUser user)
+    {
+        if (user.Role != "OPERATOR")
+            throw new ApplicationException("FORBIDDEN", "Operator access is required.", 403);
+    }
     public static T Found<T>(T? entity) where T : class => entity ?? throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
     public static void Unique(bool duplicate)
     {

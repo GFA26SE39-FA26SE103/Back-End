@@ -12,6 +12,10 @@ public static class AccessRoles
     public const string Admin = "ADMIN";
     public const string Viewer = "ADMIN,OPERATOR,MANAGER";
     public const string LiveView = "ADMIN,OPERATOR";
+    public const string Staff = "STAFF";
+    public const string Operator = "OPERATOR";
+    /// <summary>A task can be read by its Staff participants (checked in the use case) and by operational roles.</summary>
+    public const string TaskReader = "ADMIN,OPERATOR,MANAGER,STAFF";
 }
 public sealed class JwtOptions
 {

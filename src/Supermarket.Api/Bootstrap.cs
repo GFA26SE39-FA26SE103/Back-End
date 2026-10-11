@@ -20,7 +20,8 @@ public static class Bootstrap
                 return false;
             var roles = await store.List<Role>();
             var admin = roles.SingleOrDefault(r => r.Name == "ADMIN") ?? throw new InvalidOperationException("Import the approved schema with roles before bootstrap.");
-            await store.Add(new UserAccount { UserId = Guid.NewGuid(), RoleId = admin.RoleId, Email = email.Trim().ToLowerInvariant(), FullName = "System Admin", Status = "ACTIVE", PasswordHash = scope.ServiceProvider.GetRequiredService<IPasswordService>().Hash(password) });
+            var userId = Guid.NewGuid();
+            await store.Add(new UserAccount { UserId = userId, Code = UserAccount.CodeFor(userId), RoleId = admin.RoleId, Email = email.Trim().ToLowerInvariant(), FullName = "System Admin", Status = "ACTIVE", PasswordHash = scope.ServiceProvider.GetRequiredService<IPasswordService>().Hash(password) });
             return true;
         });
     }

@@ -175,3 +175,17 @@ Separated transport status, visual-health events and processing availability. Ad
 - Frontend: **152 tests passed across 19 files**; lint and production build **PASS**. Existing Vite bundle-size advisory remains.
 - AI service CPU/API/session/recorded/redaction selection: **32 passed**. Focused frame-health tests: **4 passed**. A Starlette/httpx deprecation warning is dependency-owned and does not affect the result.
 - SQL integration was not rerun because this change does not alter schema or EF mappings.
+
+## MF-02 staff tasks validation 2026-10-11 (branch `feature/mf02-staff-tasks`)
+
+Scope: ResponsePolicy-driven operational Task offers, Staff responses (Handle now / Handle later / Cannot handle), shift check-in, offer retry and Operator manual assignment. Schema: Database V2 plus the proposed V3 `Task.planned_start_at` (Database repo branch `feature/mf02-task-planned-start`, not yet approved or applied to any shared database).
+
+- Isolated database: a private LocalDB `FA26SE103_LocalMF02` restored from `Backup10102026.sql`, then `FA26SE103_Database_V2.sql` and `FA26SE103_Database_V3.sql`; V3 rerun guard verified. No shared Dev/production database was read or written.
+- Re-scaffold from that database with `scripts/Scaffold.ps1` (25 tables). The generated `Task` entity collides with `System.Threading.Tasks.Task`; files importing the scaffolded namespace use a `Task` alias and the domain type is `WorkTask`.
+- Non-SQL suite, Release, before the account fix: **297 passed, 0 failed** (15 new `StaffTaskTests`). Release publish **PASS**. `git diff --check` **PASS**.
+- Full suite without the SQL bootstrap prerequisites: the same 20 `SqlApiFixture` tests fail with the missing-schema message as before this change; SQL integration not run.
+- Real HTTP against the isolated database (API on 127.0.0.1:5099, monitoring and camera-health workers disabled, test accounts seeded only in that database): shifts/check-in/eligibility; event → policy → task offered to two checked-in zone Staff; two simultaneous HANDLE_NOW requests → one 200 and one 409 `TASK_ALREADY_TAKEN`; HANDLE_LATER without/with planned start; WARNING→CRITICAL raises the same task (`raisedFrom=WARNING`); start; both Staff CANNOT_HANDLE → `needsAssignment`; Operator assignable-staff and manual assign (`assignmentType=MANUAL`, 409 `WORKLOAD_LIMIT` for a full Staff member); EVENT_CLEARED keeps accepted tasks and cancels an unaccepted one; read-all; STAFF/OPERATOR role isolation (403).
+- Retry worker on SQL Server (5 s poll, default 60 s × 3): `TASK_OFFER` at +0 s, +63 s, +128 s and one `TASK_NEEDS_ASSIGNMENT`; no further notifications after exhaustion. No worker warnings logged.
+- `docs/openapi.json`: 14 paths, 10 schemas and 3 tags inserted from the running Swagger contract; existing entries unchanged.
+
+Account creation fix on the same branch: on a Database V2 schema `POST /api/users` (and bootstrap) returned 500 (`DbUpdateException`) because V2 made `UserAccount.code` NOT NULL and unique without a default and the backend never wrote it. New accounts now get `USR-` + the first 16 hex digits of the user id, the same form V2 backfilled (checked against two backfilled rows). Non-SQL Release suite after the fix: **300 passed, 0 failed**. On the isolated database: two accounts created (200), renamed via PATCH with the code preserved, and the new account logged in.
