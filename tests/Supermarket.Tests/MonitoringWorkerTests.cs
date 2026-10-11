@@ -41,7 +41,7 @@ public sealed class MonitoringWorkerTests
         ai.FailRead=true; await coordinator.Tick(default); Assert.Empty(h.Store.Values.OfType<OperationalEvent>());
         clock.UtcNow=clock.UtcNow.AddSeconds(2); ai.FailRead=false; ai.State="COMPLETED";
         await coordinator.Tick(default); await coordinator.Tick(default);
-        Assert.Single(h.Store.Values.OfType<OperationalEvent>()); Assert.Equal("COMPLETED",coordinator.Get(h.Camera.CameraId)!.State);
+        Assert.Empty(h.Store.Values.OfType<OperationalEvent>()); Assert.Equal("COMPLETED",coordinator.Get(h.Camera.CameraId)!.State);
         Assert.Equal(1,ai.Starts); await coordinator.Shutdown(default);
     }
     private static ServiceCollection Services(ISetupStore store,IClock clock,IAiMonitoringClient ai,IMonitoringIncidentQueries queries)
@@ -66,7 +66,7 @@ public sealed class MonitoringWorkerTests
     }
     private sealed class Clock:IClock { public DateTime UtcNow {get;set;}=new(2026,10,3,0,0,0,DateTimeKind.Utc); }
     [Fact]
-    public async Task HighFrameRateWritesOnlySamplesOrSeverityTransitionsAndRetainsOpenIncident()
+    public async Task HighFrameRateMaintainsEpisodeTransitionsAndRetainsOpenIncident()
     {
         var h=new MonitoringSetupTests.Harness(); h.AddRule("OVERCROWDING_CONGESTION","CROWD_DENSITY","PEOPLE");
         var r=h.Store.Values.OfType<MonitoringRule>().Single(); r.ParametersJson="{\"measurementMode\":\"PEOPLE_COUNT\"}"; r.SustainSec=0; r.WarningThreshold=1; r.CriticalThreshold=4; h.Configuration.Status="ACTIVE";
@@ -79,8 +79,10 @@ public sealed class MonitoringWorkerTests
         Assert.Equal(1,counted.Transactions); var incident=Assert.Single(h.Store.Values.OfType<Incident>());
         ai.Batches.Add(Batch(4,50,0)); await coordinator.Tick(default);
         Assert.Equal(incident.IncidentId,coordinator.Get(h.Camera.CameraId)!.Zones[0].Rules[0].IncidentId);
+        Assert.Equal(2,counted.Transactions); Assert.NotNull(Assert.Single(h.Store.Values.OfType<OperationalEvent>()).ClearedAt);
         ai.Batches.Add(Batch(5,66,5)); await coordinator.Tick(default);
-        Assert.Equal(2,counted.Transactions); Assert.Equal("CRITICAL",incident.Severity); await coordinator.Shutdown(default);
+        Assert.Equal(3,counted.Transactions); Assert.Equal(2,h.Store.Values.OfType<OperationalEvent>().Count());
+        Assert.Equal("CRITICAL",incident.Severity); await coordinator.Shutdown(default);
     }
     private sealed class CountingStore(ISetupStore inner):ISetupStore {
         public int Transactions;
@@ -104,11 +106,14 @@ public sealed class MonitoringWorkerTests
         var snapshot=Assert.Single(await provider.GetRequiredService<IMonitoringSnapshotReader>().ReadAll(default)); var z=snapshot.Zones[0];
         AiMeasurementBatch Batch(long seq,long ms)=>new(1,ai.Session,ai.Epoch,seq,clock.UtcNow,ms,snapshot.Fingerprint,[new(z.ZoneId,z.ConfigId,z.ConfigVersion,3,3)]);
         ai.Batches=[Batch(1,0)]; await coordinator.Tick(default);
-        Assert.Single(h.Store.Values.OfType<OperationalEvent>()); Assert.Equal("ERROR",coordinator.Get(h.Camera.CameraId)!.State);
+        Assert.Empty(h.Store.Values.OfType<OperationalEvent>()); Assert.Equal("RUNNING",coordinator.Get(h.Camera.CameraId)!.State);
         clock.UtcNow=clock.UtcNow.AddSeconds(2); ai.Batches.Add(Batch(2,1000));
         await coordinator.Tick(default);
-        Assert.Equal(2,h.Store.Values.OfType<Incident>().Count()); Assert.Equal(4,h.Store.Values.OfType<OperationalEvent>().Count());
-        await coordinator.Tick(default); Assert.Equal(4,h.Store.Values.OfType<OperationalEvent>().Count()); await coordinator.Shutdown(default);
+        Assert.Single(h.Store.Values.OfType<Incident>()); Assert.Single(h.Store.Values.OfType<OperationalEvent>()); Assert.Equal("ERROR",coordinator.Get(h.Camera.CameraId)!.State);
+        clock.UtcNow=clock.UtcNow.AddSeconds(1);
+        await coordinator.Tick(default);
+        Assert.Equal(2,h.Store.Values.OfType<Incident>().Count()); Assert.Equal(2,h.Store.Values.OfType<OperationalEvent>().Count());
+        await coordinator.Tick(default); Assert.Equal(2,h.Store.Values.OfType<OperationalEvent>().Count()); await coordinator.Shutdown(default);
     }
     private sealed class AiFake:IAiMonitoringClient
     {

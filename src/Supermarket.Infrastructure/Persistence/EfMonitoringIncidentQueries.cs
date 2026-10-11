@@ -8,8 +8,18 @@ public sealed class EfMonitoringIncidentQueries(AppDbContext db):IMonitoringInci
 {
     public async Task EnsureSchema(CancellationToken ct)
     {
-        var ready=await db.Database.SqlQueryRaw<int>("SELECT CASE WHEN OBJECT_ID(N'dbo.Incident',N'U') IS NOT NULL AND OBJECT_ID(N'dbo.OperationalEvent',N'U') IS NOT NULL THEN 1 ELSE 0 END AS Value").SingleAsync(ct);
-        if(ready!=1) throw new Supermarket.Application.ApplicationException("MONITORING_SCHEMA_NOT_READY","Run reviewed monitoring runtime migration 02 before using incident monitoring.",503);
+        var ready=await db.Database.SqlQueryRaw<int>("""
+            SELECT CASE WHEN OBJECT_ID(N'dbo.Incident',N'U') IS NOT NULL
+                AND OBJECT_ID(N'dbo.OperationalEvent',N'U') IS NOT NULL
+                AND OBJECT_ID(N'dbo.OperationalEventType',N'U') IS NOT NULL
+                AND COL_LENGTH(N'dbo.MonitoringRule',N'event_type_id') IS NOT NULL
+                AND COL_LENGTH(N'dbo.OperationalEvent',N'event_type_id') IS NOT NULL
+                AND COL_LENGTH(N'dbo.OperationalEvent',N'cleared_at') IS NOT NULL
+                AND EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.OperationalEvent')
+                    AND name=N'UX_OperationalEvent_Active_Camera_Zone_EventType')
+                THEN 1 ELSE 0 END AS Value
+            """).SingleAsync(ct);
+        if(ready!=1) throw new Supermarket.Application.ApplicationException("MONITORING_SCHEMA_NOT_READY","Apply FA26SE103 Database V2 before using operational monitoring.",503);
     }
     public Task<DateTime?> LatestEndedAt(Guid zoneId,Guid typeId,CancellationToken ct)
         =>db.Incidents.Where(i=>i.ZoneId==zoneId && i.IncidentTypeId==typeId && i.ClosedAt!=null).MaxAsync(i=>i.ClosedAt,ct);

@@ -23,10 +23,25 @@ public sealed class OperationalEvent : Entity
     public Guid ZoneId { get; set; }
     public Guid? RuleId { get; set; }
     public Guid? IncidentId { get; set; }
+    public Guid EventTypeId { get; set; }
     public string EventType { get; set; } = "";
     public decimal MetricValue { get; set; }
+    public string Priority { get; set; } = "INFO";
     public DateTime DetectedAt { get; set; }
+    public DateTime LastObservedAt { get; set; }
+    public DateTime? ClearedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
     public string? MetadataJson { get; set; }
     public string Status { get; set; } = "OBSERVED";
     public DateTime CreatedAt { get; set; }
+}
+
+public sealed class OperationalEventType : TrackedEntity
+{
+    public Guid EventTypeId { get; set; }
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
+    public string MeasurementType { get; set; } = "";
+    public string Status { get; set; } = "ACTIVE";
 }

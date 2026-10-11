@@ -16,10 +16,14 @@ public sealed partial class ApiFlowTests
         var url=$"/api/zones/{zone.ZoneId}/monitoring";
         var saved=await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(url,new MonitoringRequest("History",Rules:rules)));
         var removed=saved.Rules.Single(r=>r.IncidentTypeId==waiting.IncidentTypeId);
-        var evidence=new OperationalEvent { EventId=Guid.NewGuid(),CameraId=camera.CameraId,ZoneId=zone.ZoneId,RuleId=removed.RuleId,
-            EventType="WAITING_TIME",MetricValue=2,DetectedAt=DateTime.UtcNow,CreatedAt=DateTime.UtcNow,MetadataJson="{\"warningThreshold\":1,\"configurationVersion\":\"old\"}" };
+        OperationalEvent evidence;
         using(var scope=fixture.Factory.Services.CreateScope()) {
             var store=scope.ServiceProvider.GetRequiredService<ISetupStore>();
+            var persistedRule=(await store.Find<MonitoringRule>(removed.RuleId))!;
+            var eventType=(await store.Find<OperationalEventType>(persistedRule.EventTypeId))!; var now=DateTime.UtcNow;
+            evidence=new OperationalEvent { EventId=Guid.NewGuid(),CameraId=camera.CameraId,ZoneId=zone.ZoneId,RuleId=removed.RuleId,
+                EventTypeId=eventType.EventTypeId,EventType=eventType.Code,MetricValue=2,Priority="WARNING",DetectedAt=now,LastObservedAt=now,
+                ClearedAt=now,UpdatedAt=now,CreatedAt=now,Status="CLEARED",MetadataJson="{\"warningThreshold\":1,\"configurationVersion\":\"old\"}" };
             await store.Transaction(async()=> { await store.Add(evidence); return true; });
         }
         var changed=await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(url,new MonitoringRequest("After removal",Rules:[rules[0]],ExpectedUpdatedAt:saved.UpdatedAt)));
@@ -28,11 +32,15 @@ public sealed partial class ApiFlowTests
             var row=(await scope.ServiceProvider.GetRequiredService<ISetupStore>().Find<OperationalEvent>(evidence.EventId))!;
             Assert.Null(row.RuleId); Assert.Equal(evidence.MetadataJson,row.MetadataJson);
         }
-        var retainedRuleEvidence = new OperationalEvent { EventId = Guid.NewGuid(), CameraId = camera.CameraId,
-            ZoneId = zone.ZoneId, RuleId = changed.Rules[0].RuleId, EventType = "QUEUE_LENGTH", MetricValue = 2,
-            DetectedAt = DateTime.UtcNow, CreatedAt = DateTime.UtcNow, MetadataJson = "{\"configurationVersion\":\"before-delete\"}" };
+        OperationalEvent retainedRuleEvidence;
         using (var scope = fixture.Factory.Services.CreateScope()) {
             var store = scope.ServiceProvider.GetRequiredService<ISetupStore>();
+            var persistedRule=(await store.Find<MonitoringRule>(changed.Rules[0].RuleId))!;
+            var eventType=(await store.Find<OperationalEventType>(persistedRule.EventTypeId))!; var now=DateTime.UtcNow;
+            retainedRuleEvidence = new OperationalEvent { EventId = Guid.NewGuid(), CameraId = camera.CameraId,
+                ZoneId = zone.ZoneId, RuleId = changed.Rules[0].RuleId, EventTypeId=eventType.EventTypeId,EventType=eventType.Code,
+                MetricValue = 2,Priority="WARNING",DetectedAt=now,LastObservedAt=now,ClearedAt=now,UpdatedAt=now,CreatedAt=now,Status="CLEARED",
+                MetadataJson = "{\"configurationVersion\":\"before-delete\"}" };
             await store.Transaction(async () => { await store.Add(retainedRuleEvidence); return true; });
         }
         using var deletion = new HttpRequestMessage(HttpMethod.Delete, url)

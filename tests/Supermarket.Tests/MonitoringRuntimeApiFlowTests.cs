@@ -40,7 +40,7 @@ public sealed class MonitoringRuntimeApiFlowTests
         h.Ai.Add(2000,3); h.Ai.Add(3000,3); await h.Worker.Tick(default);
         incident=Assert.Single(await h.Rows<Incident>()); Assert.Equal("CRITICAL",incident.Severity);
         h.Ai.Add(4000,0); h.Ai.State="COMPLETED"; await h.Worker.Tick(default); await h.Worker.Tick(default);
-        Assert.Equal(5,(await h.Rows<OperationalEvent>()).Length); Assert.Equal(1,h.Ai.Starts);
+        Assert.Single(await h.Rows<OperationalEvent>()); Assert.Equal(1,h.Ai.Starts);
         Assert.Equal("CRITICAL",Assert.Single(await h.Rows<Incident>()).Severity); Assert.Null(Assert.Single(await h.Rows<Incident>()).ClosedAt);
         var feed=await MonitoringRuntimeTestSupport.Read<IncidentFeedView>(await h.Client.GetAsync(url+"/incidents")); var item=Assert.Single(feed.Items); Assert.True(item.IsDemo); Assert.Equal("PEOPLE_COUNT",item.MeasurementMode); Assert.Equal(0,item.MetricValue);
         var runtime=await MonitoringRuntimeTestSupport.Read<MonitoringCameraRuntimeView>(await h.Client.GetAsync(url+"/monitoring-runtime")); Assert.Equal("COMPLETED",runtime.State); Assert.Equal(0,Assert.Single(runtime.Zones).PeopleCount);
@@ -74,7 +74,7 @@ public sealed class MonitoringRuntimeApiFlowTests
         var (camera,zone,draft)=await h.Configure(); var active=await h.Activate(zone.ZoneId,draft); await h.Worker.Tick(default);
         h.Ai.Add(0,3); await h.Worker.Tick(default); h.Ai.Add(1000,3);
         h.Ai.BeforeRead=()=>h.Execute("UPDATE dbo.MonitoringConfiguration SET status='INACTIVE',updated_at=DATEADD(ms,1,updated_at) WHERE config_id=@id",("@id",active.ConfigId)).GetAwaiter().GetResult();
-        await h.Worker.Tick(default); Assert.Empty(await h.Rows<Incident>()); Assert.Single(await h.Rows<OperationalEvent>());
+        await h.Worker.Tick(default); Assert.Empty(await h.Rows<Incident>()); Assert.Empty(await h.Rows<OperationalEvent>());
         var type=draft.Rules[0].IncidentTypeId;
         await h.Execute("""
           INSERT dbo.Incident(incident_id,incident_type_id,zone_id,trigger_camera_id,source_type,severity,title,status,closed_at,created_at,updated_at)
@@ -112,6 +112,6 @@ public sealed class MonitoringRuntimeApiFlowTests
             }
         }
         await Task.WhenAll(commands.Select(Write)); await Write(commands[0]);
-        Assert.Single(await h.Rows<Incident>()); Assert.Equal(2,(await h.Rows<OperationalEvent>()).Length);
+        Assert.Single(await h.Rows<Incident>()); Assert.Single(await h.Rows<OperationalEvent>());
     }
 }

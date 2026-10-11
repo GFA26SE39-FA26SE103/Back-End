@@ -39,6 +39,19 @@ public sealed class MonitoringEvaluationTests
         Assert.Equal("MEASUREMENT_INVALID",MonitoringRuleEvaluator.Evaluate(Settings,new(),At(1,0,1.5m)).Reason);
     }
     [Fact]
+    public void RecoveryRequiresContinuousHealthyMeasurementsAndNeverUsesMissingData()
+    {
+        var breached=MonitoringRuleEvaluator.Evaluate(Settings with { SustainSec=0,RecoverySec=2 },new(),At(1,0,2));
+        Assert.Equal("CRITICAL",breached.EligibleSeverity); Assert.False(breached.ShouldClear);
+        var healthy=MonitoringRuleEvaluator.Evaluate(Settings with { SustainSec=0,RecoverySec=2 },breached.NextState,At(2,1000,0));
+        Assert.False(healthy.ShouldClear); Assert.Equal(0,healthy.RecoveryProgressMs);
+        var interrupted=MonitoringRuleEvaluator.Evaluate(Settings with { SustainSec=0,RecoverySec=2 },healthy.NextState,At(3,2000,1));
+        Assert.False(interrupted.ShouldClear); Assert.Equal("WARNING",interrupted.EligibleSeverity);
+        var restarting=MonitoringRuleEvaluator.Evaluate(Settings with { SustainSec=0,RecoverySec=2 },interrupted.NextState,At(4,3000,0));
+        var recovered=MonitoringRuleEvaluator.Evaluate(Settings with { SustainSec=0,RecoverySec=2 },restarting.NextState,At(5,5000,0));
+        Assert.True(recovered.ShouldClear); Assert.Equal("RECOVERY_SUSTAINED",recovered.Reason);
+    }
+    [Fact]
     public void CooldownStartsAtClosureAndOpenIncidentNeverDowngradesOrCloses()
     {
         var now=new DateTime(2026,10,3,0,0,0,DateTimeKind.Utc);

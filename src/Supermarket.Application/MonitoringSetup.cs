@@ -48,9 +48,13 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             foreach (var r in input)
             {
                 var type = UseCase.Found(await store.Find<IncidentType>(r.IncidentTypeId, ct));
+                var eventCode=MonitoringPolicy.OperationalEventCode(type)
+                    ?? throw new ApplicationException("OPERATIONAL_EVENT_TYPE_UNSUPPORTED","This incident type has no operational event mapping.",400);
+                var eventType=(await store.List<OperationalEventType>(t=>t.Code==eventCode && t.Status=="ACTIVE",ct)).SingleOrDefault()
+                    ?? throw new ApplicationException("OPERATIONAL_EVENT_TYPE_UNAVAILABLE","The operational event catalog is not ready.",503);
                 var old = oldRules.SingleOrDefault(x => x.IncidentTypeId == r.IncidentTypeId);
                 var rule = new MonitoringRule { RuleId = old?.RuleId ?? Guid.NewGuid(), ConfigId = configuration.ConfigId,
-                    IncidentTypeId = r.IncidentTypeId, WarningThreshold = r.WarningThreshold, CriticalThreshold = r.CriticalThreshold,
+                    IncidentTypeId = r.IncidentTypeId, EventTypeId=eventType.EventTypeId, WarningThreshold = r.WarningThreshold, CriticalThreshold = r.CriticalThreshold,
                     ThresholdUnit = r.ThresholdUnit, SustainSec = r.SustainSec, CooldownSec = r.CooldownSec,
                     Enabled = r.Enabled, ParametersJson = r.ParametersJson, CreatedAt = old?.CreatedAt ?? default, UpdatedAt = old?.UpdatedAt ?? default };
                 MonitoringPolicy.Validate(rule, type);

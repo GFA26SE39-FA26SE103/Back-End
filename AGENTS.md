@@ -1,7 +1,7 @@
 # AGENTS.md — FA26SE103 Backend
 
 Project: AI-Powered Smart Supermarket Operations Monitoring System, GFA26SE39.
-Assigned increment 03/10/2026: MF-02 ROI count/queue → OperationalEvent + live feed; see PROJECT_CONTEXT section39. The current implementation still contains a temporary DETECTED-Incident compatibility path, but the 10/10/2026 target architecture does **not** make every OperationalEvent an Incident. ResponsePolicy, Task, StaffReport and qualification behavior remain target work unless verified in code.
+Assigned increment 03/10/2026: MF-02 ROI count/queue → OperationalEvent + live feed; see PROJECT_CONTEXT sections 39–40. The 11/10/2026 implementation stores OperationalEvents as episodes keyed by Camera + Zone + OperationalEventType while unresolved: repeated observations update the episode, escalation preserves the row, sustained recovery clears it, and a later breach opens a new episode. The implementation still contains a temporary DETECTED-Incident compatibility path, but the target architecture does **not** make every OperationalEvent an Incident. ResponsePolicy, Task, StaffReport and qualification behavior remain target work unless verified in code.
 Business/Mainflow baseline: **10/10/2026 synchronization** over the 02/10/2026 Mainflow baseline. Current implementation focus: **MF-01 — Setup & System Configuration**.
 Approved workflow delta (05/10/2026): Staff shift-swap requests and deferred task-response options are part of the project baseline/design, but are not assumed implemented unless verified in the repository.
 
@@ -72,9 +72,9 @@ Keep controllers thin. Domain must not depend on ASP.NET or EF. Do not expose sc
 
 Database-first: approved ERD/schema → approved SQL Server change → re-scaffold → review generated changes → update mappings/use cases/contracts/tests. Generated files under `src/Supermarket.Infrastructure/Persistence/Scaffolded` must not be manually edited for business behavior. Keep custom EF extensions outside that directory. Do not introduce code-first migrations or a competing schema.
 
-The target physical persistence baseline is provisional `FA26SE103_ERD_v4.drawio` / the supplied 10/10/2026 synchronization notes. It adds StaffReport, OperationalEventType, ResponsePolicy, ResponsePolicyAction, Task origin/source FKs, revised OperationalEvent lifecycle/priority fields, and related notification/recommendation/event references. The live development database and current scaffold remain implementation state and must not be assumed to match ERD v4. Open alignment questions include SLA/escalation, policy/threshold provenance, concurrency/idempotency details, StaffReport media retention, optional policy-action traceability, and any still-unsettled behavior. Legacy DTOs/comments do not establish schema approval. Do not edit team-owned ERD/schema unless assigned.
+The target physical persistence baseline is provisional `FA26SE103_ERD_v4.drawio` / the supplied 10/10/2026 synchronization notes. The 11/10/2026 Database V2 migration and backend model now include `OperationalEventType`, `MonitoringRule.event_type_id`, and the revised OperationalEvent lifecycle/priority fields used by episode persistence. Other ERD v4 areas such as StaffReport, ResponsePolicy, ResponsePolicyAction, Task origin/source behavior, notifications, recommendations, and dispatch remain target work unless verified in the live schema and code. Open alignment questions include SLA/escalation, policy/threshold provenance, action traceability, StaffReport media retention, measurement-source selection, and other unsettled behavior. Legacy DTOs/comments do not establish schema approval. Do not edit team-owned ERD/schema unless assigned.
 
-Current scaffolding covers fourteen setup/catalog/rule/runtime entities. SQL source and approved migrations are in the separate Database repository; see README for schema/migration overrides and isolated-test prerequisites. A missing SQL file does not justify generating one from C# models.
+SQL source and approved migrations are in the separate Database repository. The current V2 script is `FA26SE103_Database_V2.sql`; do not infer schema from an old entity count. A missing legacy SQL-test bootstrap file does not justify generating SQL from C# models or creating a new one-off SQL script solely to make a test fixture run.
 
 Monitoring activation validates readiness and requests backend-owned runtime monitoring (count/queue only). Preview is view-only while monitoring owns the camera. Keep requirements, existing code, and verified behavior distinct; this increment does not implement dispatch or task verification.
 
@@ -84,7 +84,7 @@ Monitoring activation validates readiness and requests backend-owned runtime mon
 - Use feature/fix/docs branches from `dev`; continue an appropriate existing task branch. Do not implement directly on `dev` or `main` or bypass PR review.
 - Keep changes focused on the assigned capability. No speculative tables, dependencies, ERP/POS integration, or expanded AI scope.
 - Update affected API documentation and Report/BR references when behavior changes.
-- Run focused tests for changed behavior, then required build/integration checks. Do not call SQL integration verified if its prerequisites are missing or CI skipped it.
+- Run focused tests for changed behavior and the non-SQL build/test suite. For the current delivery phase, a disposable-database SQL integration suite is optional and is not a completion gate when its legacy bootstrap scripts are absent. Do not create a separate SQL file per test or reconstruct obsolete bootstrap migrations just for that suite. For database-affecting work, validate the canonical Database V2 script with SQL parsing plus focused live-schema/data checks; report SQL integration as not run when its prerequisites are unavailable.
 - Never commit secrets, local appsettings, camera passwords, Data Protection keys, videos, caches, or build output. See README for local setup and key-ring handling.
 - Ask before destructive/irreversible actions. Report changed files, verification evidence, and remaining gaps.
 
@@ -97,7 +97,7 @@ dotnet test --settings coverage.runsettings --collect:'XPlat Code Coverage' --re
 dotnet publish src/Supermarket.Api -c Release
 ```
 
-The full test command requires an approved SQL schema and isolated SQL Server test databases; follow README before running it. For documentation-only changes, check links, context consistency, and `git diff --check`; runtime tests are unnecessary unless behavior changed.
+The full test command may require approved SQL bootstrap files and isolated SQL Server test databases. It is optional in the current phase when those prerequisites are absent; do not add test-only SQL files to satisfy it. For documentation-only changes, check links, context consistency, and `git diff --check`; runtime tests are unnecessary unless behavior changed.
 
 ## Maintaining shared context
 
