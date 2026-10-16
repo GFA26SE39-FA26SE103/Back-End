@@ -5,9 +5,9 @@
 > **Group:** GFA26SE39  
 > **Purpose of this file:** provide a repository-owned synchronized implementation snapshot so a backend-only clone gives humans and coding agents one implementation-oriented view of the current agreed product, Mainflows, domain rules, architecture, and implementation scope before code is written.
 >
-> **Synchronization baseline:** project decisions and mentor/team feedback through **11/10/2026**, including the supplied Codex synchronization notes, provisional `FA26SE103_ERD_v4.drawio`, Database V2, and the OperationalEvent episode implementation.
+> **Synchronization baseline:** current Reports 1–3, Business Rules, Use Case, Context Diagram and ERD artifacts through **16/10/2026**, plus verified repository implementation evidence through **11/10/2026**.
 >
-> **Implementation-state warning:** ERD v4 and the 10/10/2026 synchronization notes describe the provisional target architecture. Database V2 and the backend now implement the OperationalEvent episode subset described in section 40, but the remaining SQL Server schema, APIs, and workers must not be assumed to satisfy the full target model.
+> **Implementation-state warning:** the 14–16/10/2026 documents and ERD v5 describe the current target architecture. Database V2 and the backend `dev` branch only implement the OperationalEvent episode subset described in section 40. Database V3/V4 and the backend `feature/mf02-staff-tasks` branch provide later implementation evidence but are not merged into backend `dev`; do not claim the full target workflow from documents or unmerged branches.
 >
 > **Important:** this file is a synchronization guide, not a replacement for the official reports. If an official requirement changes, update this file together with the affected requirement/design artifact.
 
@@ -20,23 +20,28 @@ The project is **not** a generic supermarket ERP and **not** a security-surveill
 The product is an **AI-assisted supermarket operations monitoring system**. Its target closed loop is:
 
 ```text
-Camera / Video Stream
+Camera / Live Video
         ↓
-AI Detection & Tracking
+Validated AI observation / ZoneMetric
         ↓
-Operational Measurement
+MonitoringRule (exactly one configured outcome)
+        ├── OPERATIONAL_EVENT
+        │      ↓
+        │  OperationalEvent → ResponsePolicy
+        │      ↓
+        │  Notification / Recommendation / Operational Task
+        │
+        └── INCIDENT
+               ↓
+           Qualified Incident → Corrective Task
+               ↓
+           Evidence / Independent Verification / Closure
+
+Staff input / media
         ↓
-MonitoringRule
-        ↓
-OperationalEvent
-        ↓
-ResponsePolicy / ResponsePolicyAction
-        ↓
-Notification / Recommendation / Operational Task / qualifying Incident
-        ↓
-Staff Handling / Evidence / Independent Verification
-        ↓
-Historical Analytics
+AI-assisted StaffReport draft → Staff confirms
+        ├── routine Task
+        └── Incident (StaffReport provenance)
 ```
 
 Staff reports are a separate confirmed input path. A routine `StaffReport` does not become an AI `OperationalEvent` merely because it may later create a Task.
@@ -49,9 +54,9 @@ Do not silently expand the scope into POS, inventory, sales analytics, payroll, 
 
 # 1. Source of truth and document alignment
 
-## 1.0 — 10/10/2026 synchronization addendum (read first)
+## 1.0 — 16/10/2026 report synchronization addendum (read first)
 
-This addendum supersedes older Incident-centric wording elsewhere in this historical implementation snapshot. It records the latest approved target direction without claiming that the current code or database already implements it.
+This addendum supersedes the 10/10/2026 target wording elsewhere in this historical implementation snapshot. It records the latest report/BR/ERD direction without claiming that the current code or database already implements it.
 
 ### Source-of-truth precedence
 
@@ -59,7 +64,7 @@ Resolve conflicts in this order:
 
 1. Latest confirmed mentor feedback and explicit team decisions.
 2. Current approved Business Rules and revised Reports 1–3.
-3. Provisional ERD v4.
+3. Current ERD v5, Use Case and Context Diagram v6 for synchronized design/persistence detail.
 4. Current Mainflow specifications and detailed design documents.
 5. Existing code, migrations, and live database metadata as implementation-state evidence.
 6. Older diagrams, prototypes, and assumptions.
@@ -69,40 +74,38 @@ Do not silently resolve a material conflict. Record it and request clarification
 ### Target operational architecture
 
 ```text
-Camera / Video Stream
-→ AI Detection & Tracking
-→ Operational Measurements
+Camera / Live Video
+→ validated AI observations / ZoneMetric
 → MonitoringRule evaluation
-→ OperationalEvent
-→ ResponsePolicy
-→ ResponsePolicyAction
-→ Notification / Recommendation / Operational Task / qualifying Incident
-→ Staff Task Handling
-→ Independent Verification
-→ Historical Analytics
+→ exactly one configured outcome:
+   - OPERATIONAL_EVENT → OperationalEvent → ResponsePolicy / ResponsePolicyAction
+     → Notification / Recommendation / Operational Task
+   - INCIDENT → directly qualified Incident → Corrective Task
+→ Staff handling / independent verification / closure
+→ Historical analytics
 ```
 
-`OperationalEvent` and `Incident` are different concepts. A threshold breach or CRITICAL OperationalEvent does not automatically create an Incident. Warning-to-Critical escalation remains within the same OperationalEvent episode; Incident creation requires separate safety/material-disruption qualification.
+`OperationalEvent` and `Incident` are independent rule outcomes. A MonitoringRule has exactly one `outcome_type`: `OPERATIONAL_EVENT` or `INCIDENT`; it must populate only the matching type FK. OperationalEvents never create, convert into, reference, or escalate into Incidents. INCIDENT-targeting rules require separately validated hazard/risk conditions and create/update Incidents directly. Warning-to-Critical escalation remains within the same OperationalEvent episode.
 
 Baseline AI OperationalEvent types are `LONG_QUEUE`, `EXCESSIVE_WAIT`, `CONGESTION`, and `CHECKOUT_CAPACITY`. Specialized hazard detection must be explicitly validated, not assumed.
 
 ### Response and staff-report model
 
 - `ResponsePolicy` is the response configuration selected for a MonitoringRule and OperationalEvent priority.
-- `ResponsePolicyAction` is a reusable configured instruction, not a Task. Supported action types are `NOTIFY`, `GENERATE_RECOMMENDATION`, `CREATE_OPERATIONAL_TASK`, and `QUALIFY_INCIDENT`; actions may be `AUTOMATIC` or `APPROVAL_REQUIRED`.
+- `ResponsePolicyAction` is a reusable configured instruction for an OPERATIONAL_EVENT response, not a Task. The current BR permits information/notification, recommendation and operational-Task responses. Do not use ResponsePolicy to convert an OperationalEvent into an Incident.
 - Do not add a separate `ResponseActionExecution` entity for the MVP.
 - `StaffReport` is a separate confirmed staff-submission path for routine issues and potential safety/corrective Incidents. Staff review and confirm AI-extracted fields before submission. Do not fabricate an OperationalEvent for a routine staff report.
 - A Task has exactly one origin: `OPERATIONAL_EVENT`, `INCIDENT`, `STAFF_REPORT`, or `MANUAL`. The corresponding source FK is exclusive; MANUAL has all three source FKs null.
-- `Incident.staff_report_id` is nullable and unique. `OperationalEvent.incident_id` is nullable; multiple OperationalEvents may reference one Incident, while each OperationalEvent references at most one Incident.
+- Each Incident has exactly one provenance source: a confirmed `StaffReport` XOR an `INCIDENT`-targeting `MonitoringRule`. An automated Incident does not claim a reporting user. ERD v5 has `Incident.staff_report_id` and `Incident.monitoring_rule_id`; `OperationalEvent` has no `incident_id`.
 - Tasks support dispatch, acceptance, execution, evidence, independent verification, rejection/rework, and closure. First-valid-acceptance-wins is atomic; eligibility considers checked-in/on-shift status, assigned zone, role, and availability. Do not universally require before photos for routine adjustments.
 
-### ERD v4 provisional target
+### ERD v5 current design target
 
-The supplied ERD v4 contains approximately 34 entities and 66 relationships, including the existing camera/setup entities plus `Shift`, `ShiftAssignment`, `StaffZoneAssignment`, `OperationalEvent`, `IncidentType`, `Incident`, `IncidentMedia`, `Task`, `TaskAssignmentHistory`, `TaskEvidence`, `Notification`, `NotificationRecipient`, `NotificationConfig`, `Recommendation`, `ZoneMetric`, `AuditLog`, `ZoneShiftRequirement`, `ZoneAdjacency`, `StaffUnavailability`, `StaffReport`, `OperationalEventType`, `ResponsePolicy`, and `ResponsePolicyAction`.
+ERD v5 retains the camera/setup and operational entities and adds/synchronizes `MonitoringRule.outcome_type`, conditional `event_type_id` / `incident_type_id`, direct `Incident.monitoring_rule_id`, `Task.origin_type` with exclusive source FKs, `Task.planned_start_at`, `ShiftSwapRequest`, `StaffReportMedia`, and `UserDevice`. It also retains `Shift`, `ShiftAssignment`, `StaffZoneAssignment`, `OperationalEvent`, `IncidentType`, `Incident`, `IncidentMedia`, `TaskAssignmentHistory`, `TaskEvidence`, `Notification`, `NotificationRecipient`, `NotificationConfig`, `Recommendation`, `ZoneMetric`, `AuditLog`, `ZoneShiftRequirement`, `ZoneAdjacency`, `StaffUnavailability`, `StaffReport`, `OperationalEventType`, `ResponsePolicy`, and `ResponsePolicyAction`.
 
-The draw.io XML was inspected for table vertices and relationship count. Full visual rendering/import was not independently validated; do not claim visual validation without inspecting the rendered diagram.
+The ERD v5 draw.io XML was inspected for table/field structure. Full rendered-layout validation was not performed; do not claim visual validation without inspecting the rendered diagram.
 
-ERD v4 is a target baseline, not proof that every target workflow is implemented. The 11/10/2026 live-database inspection confirmed the Database V2 OperationalEvent subset, including `OperationalEventType`, `MonitoringRule.event_type_id`, revised OperationalEvent lifecycle fields, and the filtered active-episode uniqueness index. Other ERD v4 areas still require code/schema inspection before they are claimed implemented.
+ERD v5 is a design target, not proof that every workflow is implemented. The backend `dev` branch remains aligned mainly to Database V2 and the OperationalEvent episode subset. Database V3/V4 exist in the Database repository and the unmerged staff-task backend branch contains a broader scaffold/runtime subset; verify the selected branch and applied database version before claiming those capabilities.
 
 ### Open refinements
 
@@ -112,7 +115,7 @@ These are not permission to invent schema:
 - threshold/policy provenance and reproducibility;
 - concurrency and idempotency constraints for Task acceptance, Event episodes, action outcomes and retries;
 - durable StaffReport image/voice references and retention;
-- optional direct `Task.response_policy_action_id` traceability, which is not approved;
+- durable execution/audit traceability between a ResponsePolicyAction and its concrete output;
 - any additional behavior whose physical representation is not settled.
 
 ## 1.1 Current authoritative project documents
@@ -131,7 +134,7 @@ Use these documents as the project baseline:
 
 3. **GFA26SE39_Final_Agreed_Mainflows_2026-10-02.docx — current agreed Mainflow baseline**
    - Defines the latest agreed MF-01..MF-04 flow semantics and slide/swimlane behavior.
-   - In particular, it freezes the MF-02 response/qualification flow, evidence verification in MF-03, and the independent Planning vs Analytics entry paths in MF-04. Do not infer mandatory Operator pre-dispatch review for every confirmed report or AI-qualified Incident.
+   - In particular, it freezes the MF-02 response flow, direct rule-vs-report Incident provenance, evidence verification in MF-03, and the independent Planning vs Analytics entry paths in MF-04. Do not infer mandatory Operator pre-dispatch review for every confirmed report or rule-produced Incident.
    - The repository does not currently record a Drive URL for this document; do not invent one. Add it only when the team supplies the URL.
 
 4. **FA26SE103_Business_Rules.docx — current working detailed BR**
@@ -139,20 +142,30 @@ Use these documents as the project baseline:
    - Current Drive source:
      `https://docs.google.com/document/d/1ODHDSkK0pLCcbKVS2nl3G0KhxIz6Q5PR/edit?usp=drivesdk`
 
-5. **FA26SE103_ERD_v4.drawio — provisional target persistence baseline**
-   - Use the supplied ERD v4 and the 10/10/2026 synchronization notes for target-domain reasoning. ERD v4 is provisional and does not prove that the live database or EF scaffold has been migrated.
-   - Local reference inspected for this synchronization:
-     `D:\Study\FA26\SEP490\Diagrams\FA26SE103_ERD_v4.drawio`
-   - The draw.io XML contains approximately 34 table entities and 66 relationships. Full visual rendering/import was not independently confirmed.
+5. **FA26SE103_ERD_v5.drawio — current design/persistence target**
+   - Current Drive source:
+     `https://drive.google.com/file/d/1H831nHrqMmRwUnD8K8R-mO0FpIvRBk2Y/view?usp=drivesdk`
+   - ERD v5 synchronizes the one-rule/one-outcome model and the newer shift-swap, staff-report-media, user-device and deferred-task fields. It does not prove that a selected database or backend branch has been migrated.
+   - The draw.io XML table/field structure was inspected during the 16/10 synchronization. Full visual rendering/import was not independently confirmed.
    - Historical ERD v3 and earlier diagrams remain implementation/traceability references only.
    - **Do not change team-owned ERD/database artifacts unless you are assigned to ERD/database work.**
 
 6. **Report 3 — Software Requirement Specification**
-   - Currently being prepared.
-   - The current Drive URL is not recorded in this repository; add it only when the team supplies the URL.
-   - It will formalize Product Overview, Actors, Use Cases, System Functional Overview, Screen Flow, Screen Authorization, Non-Screen Functions, ERD/entity descriptions, detailed functions, NFRs, BRs, common requirements, and messages.
+   - Current Drive source:
+     `https://docs.google.com/document/d/1puRtzzOr7T_TK-ZdnYkcn-bb9euMDxgjqC9wB7Z5qh8/edit?usp=drivesdk`
+   - Updated 15/10/2026 with Product Overview, Actors, Use Cases, Screen Flow/Descriptions/Authorization, Non-Screen Functions, ERD/entity sections and detailed FE-01 onward requirements. Remaining placeholders must still be treated as draft/incomplete SRS content.
 
-7. **Canva Mainflow / Review deck**
+7. **Use Case Diagram — 15/10/2026**
+   - Current Drive source:
+     `https://drive.google.com/file/d/1vBWGmRkMKOHVv59SSKZfRMqwL5KmDatM/view?usp=drivesdk`
+   - Includes the updated health, task-response, shift check-in/swap and Operator decision use cases.
+
+8. **System Context Diagram v6 — 16/10/2026**
+   - Current Drive source:
+     `https://drive.google.com/file/d/1d3DlXsIu72baps-7wE8zNvmIHtbwcxuB/view?usp=drivesdk`
+   - External flows explicitly separate camera/video input, Admin camera/health configuration, Operational Events, direct rule/report-origin Incidents, Task offers/responses, shift/swap data and FCM delivery acknowledgement.
+
+9. **Canva Mainflow / Review deck**
    - Presentation/design reference with lower authority than the agreed BR/Mainflows:
      `https://www.canva.com/design/DAHWviilNDA/WQWyS79Eao8V8pXqkgt9Vg/edit`
 
@@ -171,7 +184,7 @@ Current Report 1 scope/features
         ↓
 Current Report 2 implementation/project plan
         ↓
-Provisional ERD v4 target model
+Current ERD v5 / Use Case / Context Diagram design
         ↓
 Current Mainflow specifications and detailed design documents
         ↓
@@ -180,7 +193,7 @@ Existing code, migrations and live database metadata as implementation-state evi
 Older diagrams, prototypes and assumptions
 ```
 
-Reports 1 and 2 were updated on 10/10/2026, and the canonical Business Rules contain 40 consolidated rules. Do not return to older 43-rule or Incident-centric interpretations. Conditional review and routing must follow the current target architecture in the synchronization addendum; CRITICAL priority alone is insufficient to qualify an Incident.
+Reports 1 and 2 were updated on 10/10/2026, the canonical Business Rules were updated on 14/10/2026, Report 3 and ERD v5 on 15/10/2026, and Context Diagram v6 on 16/10/2026. Do not return to older 43-rule, Incident-centric or OperationalEvent-to-Incident conversion interpretations. Where Report 1/2 wording still says an Incident is qualified "from" an OperationalEvent, apply the newer BR/Report 3 clarification: MonitoringRule selects one independent outcome and OperationalEvent never converts into Incident.
 
 If code and a document disagree, raise the mismatch before adding more behavior.
 
@@ -280,7 +293,7 @@ Responsible for live operational coordination:
 - verifies submitted work;
 - cannot be the same person who performed the task being verified.
 
-Operator coordination remains available for intervention, manual assignment, reassignment, dismissal, and override. Response-policy actions may require approval, but do not encode a universal pre-dispatch review rule for every confirmed report or AI-qualified Incident.
+Operator coordination remains available for intervention, manual assignment, reassignment, dismissal, and override. Response-policy actions may require approval, but do not encode a universal pre-dispatch review rule for every confirmed report or rule-produced Incident.
 
 ## Manager
 
@@ -376,15 +389,15 @@ MF-01 should establish:
 - CameraConnection;
 - CameraZoneMapping;
 - MonitoringConfiguration;
-- monitoring rules/settings required by the provisional ERD v4 target;
+- monitoring rules/settings required by the ERD v5 one-rule/one-outcome model;
 - CameraHealthEvent;
 - basic account administration required to operate the system (**supporting Admin capability; not a required Mainflow slide step**).
 
-OperationalEventType and MonitoringRule configuration are logically system setup in the target model. The current MF-01 code/database still use the older IncidentType-based implementation; do not claim v4 persistence until an approved SQL change and re-scaffold exist.
+OperationalEventType, IncidentType and MonitoringRule configuration are logically system setup in the target model. Backend `dev` implements only the Database V2 event-targeting subset; do not claim ERD v5 outcome selection or direct Incident-targeting rules until the selected database/backend branch is verified.
 
 ---
 
-## MF-02 — AI Monitoring → OperationalEvent → Response → qualified Incident/Task
+## MF-02 — AI Monitoring → one rule outcome → response / Incident handling
 
 **Primary actors:** Operator, Staff  
 **System actors/components:** camera stream, AI service, routing/notification services
@@ -400,23 +413,28 @@ Model-confidence FILTER
     ↓
 ByteTrack / Tracking
     ↓
-Operational Measurement
-    ↓
-OperationalEvent
+Operational Measurement / validated hazard observation
     ↓
 Zone-specific active MonitoringRule
     ↓
 Condition satisfies threshold + sustain time
     ↓
-OperationalEvent episode / priority updated
-    ↓
-ResponsePolicy
-    ↓
-ResponsePolicyAction evaluation
-    ↓
-Notification / Recommendation / Operational Task / separately qualified Incident
-    ↓
-Staff handling and independent verification
+exactly one configured outcome_type
+    ├── OPERATIONAL_EVENT
+    │      ↓
+    │  OperationalEvent episode / priority updated
+    │      ↓
+    │  ResponsePolicy / ResponsePolicyAction
+    │      ↓
+    │  Notification / Recommendation / Operational Task
+    │
+    └── INCIDENT
+           ↓
+       Incident created / updated directly
+           ↓
+       Incident routing / corrective Task(s)
+           ↓
+       Evidence / independent verification / closure
 ```
 
 ### Staff-reported path
@@ -487,19 +505,20 @@ raw detection
 → tracking
 → operational measurement
 → MonitoringRule
-→ OperationalEvent episode / priority
-→ ResponsePolicy / ResponsePolicyAction
-→ notification / recommendation / Task / separately qualified Incident
+→ MonitoringRule selects exactly one outcome
+   ├─ OPERATIONAL_EVENT → event episode / priority → ResponsePolicy → notification / recommendation / operational Task
+   └─ INCIDENT → direct Incident qualification / lifecycle → corrective Task(s)
 ```
 
 ### Incident behavior
 
 - OperationalEvent episodes are deduplicated according to the approved event policy; Warning-to-Critical escalation remains the same episode.
-- A threshold breach or CRITICAL priority does not automatically create an Incident.
-- `QUALIFY_INCIDENT` requires independent safety/material-disruption qualification.
-- ResponsePolicyAction evaluation must be idempotent and avoid duplicate outcomes.
+- OperationalEvent never creates, converts into, references or escalates into Incident.
+- An INCIDENT-targeting MonitoringRule applies approved hazard/risk qualification and creates/updates an Incident directly; it does not create an OperationalEvent or invoke the operational ResponsePolicy path.
+- A rule must populate `event_type_id` XOR `incident_type_id` consistently with `outcome_type`.
+- ResponsePolicyAction evaluation and direct Incident matching must be idempotent and avoid duplicate outcomes.
 - Recommendations are advisory and may require human approval.
-- Operator intervention remains available; do not require mandatory Operator pre-dispatch review for every confirmed report or AI-qualified Incident.
+- Operator intervention remains available; do not require mandatory Operator pre-dispatch review for every confirmed report or rule-produced Incident.
 
 ### Staff dispatch behavior
 
@@ -533,19 +552,26 @@ First valid staff acceptance wins atomically.
 ### Slide / swimlane target baseline
 
 ```text
-Camera path:
+Operational-event rule path:
 Camera Stream
 → Detection & Tracking
 → Operational Measurement
 → Rule Evaluation
 → OperationalEvent episode created / updated
 → ResponsePolicy / ResponsePolicyAction
-→ Notification / Recommendation / Operational Task / qualifying Incident
+→ Notification / Recommendation / Operational Task
+
+Incident-targeting rule path:
+Camera Stream
+→ validated hazard / material-disruption observation
+→ INCIDENT-targeting MonitoringRule
+→ Incident created / updated directly
+→ Incident routing / corrective Task(s)
 
 Response action requires approval:
 ResponsePolicyAction
 → Operator approval / intervention
-→ configured output (notification, recommendation, task, or Incident qualification)
+→ configured operational output (notification, recommendation, or Task)
 
 Automatic response action:
 ResponsePolicyAction
@@ -558,7 +584,7 @@ Find Issue
 → Extract Report Data
 → Confirm / Correct Extracted Data
 → StaffReport stored
-→ optional routine Task, or separately qualified Incident and corrective Task(s)
+→ optional routine Task, or Incident with StaffReport provenance and corrective Task(s)
 
 Response-policy fallback:
 Notify Eligible Staff
@@ -714,10 +740,10 @@ Planning rules:
 - weekly work limit: 48 h;
 - started Shift cannot be changed;
 - staff marked unavailable cannot be scheduled;
-- Staff may request a shift swap/change;
-- swap approval is Operator-controlled, not direct Staff-to-Staff negotiation;
-- the system proposes suitable Staff candidates after validating scheduling rules;
-- the Operator selects/approves the candidate before the ShiftAssignment is updated;
+- Staff may request a shift swap/change and select a proposed receiving Staff member from validated candidates;
+- the receiving Staff member accepts or declines before Manager approval;
+- the Manager approves or rejects an accepted request before the ShiftAssignment is updated;
+- unresolved requests expire 24 hours before the earliest affected Shift;
 - a swap must not create overlapping shifts, unavailable assignments, invalid zone coverage, invalid workload, or invalid working-hour totals;
 - scheduling constraints are configurable business rules; do not hardcode one rigid scheduling policy;
 - no HR/payroll/recruitment/general HR subsystem.
@@ -827,7 +853,7 @@ A derived operational value:
 
 A timestamped structured observation produced from operational measurements.
 
-An OperationalEvent is **not automatically an Incident**.
+An OperationalEvent is **never an Incident source or conversion record**. It is the result of an `OPERATIONAL_EVENT`-targeting rule and remains independent from any Incident.
 
 ## OperationalEventType and IncidentType
 
@@ -840,7 +866,7 @@ An OperationalEvent is **not automatically an Incident**.
 3. Overcrowding / Congestion
 4. Checkout Capacity Issue
 
-### Staff-report / qualified-Incident baseline categories
+### Qualified-Incident / StaffReport baseline categories
 
 5. Spill / Broken Equipment
 6. Equipment Malfunction
@@ -849,17 +875,19 @@ An OperationalEvent is **not automatically an Incident**.
 9. Safety Hazard
 10. Other Operational Issue
 
-AI-detected OperationalEventTypes use operational measurements + MonitoringRules.
+AI OperationalEventTypes use operational measurements + `OPERATIONAL_EVENT`-targeting MonitoringRules.
 
-Staff-report categories do not require an AI measurement and follow the StaffReport confirmation path.
+Incident categories may be produced by a confirmed StaffReport or by an `INCIDENT`-targeting MonitoringRule with a feasible, validated hazard model. Staff-report categories do not require an AI measurement and follow the StaffReport confirmation path.
 
 ## MonitoringRule
 
-Defines when an AI measurement becomes a business Incident for a particular monitoring context/Zone.
+Evaluates a configured monitored condition for a particular monitoring context/Zone and produces exactly one configured outcome.
 
 Conceptually it owns:
 
-- OperationalEventType reference;
+- `outcome_type`: `OPERATIONAL_EVENT` or `INCIDENT`;
+- `event_type_id` only for an OPERATIONAL_EVENT rule;
+- `incident_type_id` only for an INCIDENT rule;
 - Warning threshold;
 - Critical threshold;
 - threshold unit;
@@ -867,9 +895,9 @@ Conceptually it owns:
 - cooldown;
 - enabled/status.
 
-The same OperationalEventType may use different thresholds in different Zones.
+The same OperationalEventType or IncidentType may use different approved thresholds/conditions in different Zones. Threshold provenance, rationale, owner, version and approval status must remain traceable; numeric values are configurable pilot/store baselines unless an applicable source actually mandates them.
 
-**ERD v4 is the provisional target for the concrete MonitoringRule structure. The live database currently remains IncidentType-based; do not hardcode a target-only schema or add a competing migration.**
+**ERD v5 is the current design target for this conditional structure. Backend `dev` still implements the Database V2 event-only subset, so do not claim direct Incident-targeting rule support until the applied database and selected backend branch prove it.**
 
 ## Incident
 
@@ -1044,9 +1072,9 @@ Critical >= 3 people/m²
 
 This requires a real physical area value.
 
-### ERD v4 target persistence
+### ERD v5 target persistence
 
-`Zone.area_m2` exists in ERD v4. It is the physical area value used for the agreed people-per-square-metre density formula and may be entered by Admin for Zones that use physical density.
+`Zone.area_m2` exists in ERD v5. It is the physical area value used for the agreed people-per-square-metre density formula and may be entered by Admin for Zones that use physical density.
 
 Do **not** implement camera-based physical area estimation, homography-based local-density estimation, or 3D calibration just to obtain square metres unless the scope is formally expanded.
 
@@ -1054,11 +1082,11 @@ Keep heatmap implementation independent from `area_m2`; heatmaps use tracked pos
 
 ---
 
-# 9. Database V2 implementation baseline and ERD v4 target
+# 9. Database/branch implementation evidence and ERD v5 target
 
 The live development database was inspected again on 11/10/2026 after applying Database V2. The OperationalEvent episode subset is present: `OperationalEventType`, `MonitoringRule.event_type_id`, and the revised OperationalEvent fields `event_type_id`, `priority`, `last_observed_at`, `cleared_at`, and `updated_at`.
 
-This is implementation-state evidence for that subset, not proof that the complete ERD v4 workflow is implemented. Inspect the live database and code before claiming StaffReport, ResponsePolicy/ResponsePolicyAction execution, Task assignment/evidence, notifications/recommendations, shift/coverage, ZoneAdjacency behavior, ZoneMetric analytics, or AuditLog behavior.
+This is implementation-state evidence for that subset, not proof that the complete ERD v5 workflow is implemented. The Database repository now also contains V3 (`Task.planned_start_at`) and V4 (`ResponsePolicy.incident_severity`, `UserDevice`, `ShiftSwapRequest`, `StaffReportMedia`), while backend `dev` remains behind the broader unmerged staff-task branch. Inspect the applied database version and selected code branch before claiming StaffReport, ResponsePolicy/ResponsePolicyAction execution, Task assignment/evidence, notifications, shift/swap behavior, ZoneAdjacency behavior, ZoneMetric analytics, UserDevice delivery, or AuditLog behavior.
 
 The existing MF-01 database baseline contains the following core entities.
 
@@ -1122,7 +1150,7 @@ Current/target important values:
 - name;
 - zone type;
 - `map_polygon`;
-- `area_m2` from ERD v4 for physical density calculations;
+- `area_m2` from ERD v5 for physical density calculations;
 - status.
 
 `map_polygon` uses normalized floor-map coordinates.
@@ -1243,16 +1271,18 @@ RESOLVED
 
 This is unrelated to the removed account/camera-review fields.
 
-## ERD v4 target model and remaining alignment
+## ERD v5 target model and remaining alignment
 
 ### `MonitoringRule`
 
-ERD v4 target rules reference `OperationalEventType`, not `IncidentType`. The target concepts include:
+ERD v5 target rules select exactly one outcome and include:
 
 ```text
 rule_id
 config_id
-operational_event_type_id
+outcome_type
+event_type_id          # only when outcome_type = OPERATIONAL_EVENT
+incident_type_id       # only when outcome_type = INCIDENT
 warning_threshold
 critical_threshold
 threshold_unit
@@ -1260,14 +1290,14 @@ sustain_sec
 cooldown_sec
 parameters_json
 enabled
-UNIQUE(config_id, operational_event_type_id)
+conditional one-outcome constraint
 ```
 
-Do not resurrect the historical generic `rule_type` / `threshold_value` / `severity` shape. Database V2 and the current backend model use `event_type_id` for MonitoringRule. Preserve database-first alignment through the canonical Database repository script and reviewed persistence mappings.
+Do not resurrect the historical generic `rule_type` / `threshold_value` / `severity` shape. Database V2 and backend `dev` use only `event_type_id`; ERD v5 adds `outcome_type` and conditional Incident targeting. Preserve database-first alignment through approved Database scripts and reviewed persistence mappings.
 
 ### `IncidentType` / `OperationalEventType`
 
-The current live database retains `IncidentType` for incidents and now has `OperationalEventType` as the separate AI operational-event catalog. MonitoringRule maps to OperationalEventType in Database V2 and the backend implementation; this does not by itself implement ResponsePolicy or Incident qualification.
+`IncidentType` and `OperationalEventType` are separate catalogs. Database V2 maps MonitoringRule only to OperationalEventType; ERD v5 additionally permits IncidentType only for an INCIDENT-targeting rule. This target design does not imply that direct automated Incident qualification is implemented in backend `dev`.
 
 ```text
 incident_type_id
@@ -1577,7 +1607,7 @@ API request/response
 
 Direct mapping may be used for simple MF-01 operations only when it does not weaken business rules. Important invariants remain in Application or Domain code.
 
-Do not freeze or invent scaffolded contracts for the remaining unresolved alignment points: SLA/escalation semantics, threshold/policy provenance, concurrency/idempotency, StaffReport media retention, multiple-camera measurement-source selection, checkout-counter representation, Manager-on-duty representation, optional policy-action traceability, or the operational use of `ZoneAdjacency`. ERD v4 defines `Zone.area_m2`, the concrete target `MonitoringRule`/`OperationalEventType` relationship, and the `ZoneAdjacency` entity; the live schema remains older.
+Do not freeze or invent scaffolded contracts for the remaining unresolved alignment points: SLA/escalation semantics, threshold/policy provenance, action-execution idempotency/traceability, multiple-camera measurement-source selection, checkout-counter representation, Manager-on-duty representation, media retention/deletion behavior, or the operational use of `ZoneAdjacency`. ERD v5 defines `Zone.area_m2`, the conditional MonitoringRule outcome fields, `ShiftSwapRequest`, `StaffReportMedia`, `UserDevice` and `ZoneAdjacency`; implementation availability still depends on the applied database and selected backend branch.
 
 # 12. Recommended MF-01 service boundaries
 
@@ -1870,7 +1900,7 @@ A clean end-to-end demo should be possible in this order:
 20. Admin investigates/restores the connection.
 21. Health event resolves.
 
-Although ERD v4 defines the target MonitoringRule/OperationalEventType relationship, steps that depend on unapproved target persistence may be stubbed behind a stable domain/service interface rather than committing a competing migration.
+Although ERD v5 defines the target conditional MonitoringRule outcome structure, steps not present in the applied database/backend branch may be stubbed behind a stable domain/service interface rather than committing a competing migration.
 
 ---
 
@@ -2124,7 +2154,7 @@ Can start immediately on stable entities:
 - migrations;
 - API contracts.
 
-Integrate future MonitoringRule/OperationalEventType, ResponsePolicy, Task, and StaffReport persistence only against an approved ERD v4 SQL schema. Do not create a competing migration from this context file.
+Integrate MonitoringRule outcome selection, ResponsePolicy, Task, StaffReport, ShiftSwapRequest, StaffReportMedia and UserDevice persistence only against the approved ERD v5-aligned Database scripts. Do not create a competing migration from this context file.
 
 ## Web/Admin track
 
@@ -2170,17 +2200,20 @@ Can prepare:
 
 ---
 
-# 23. ERD v4 target entities — do not prematurely force into MF-01
+# 23. ERD v5 target entities — verify before claiming implementation
 
-ERD v4 includes the following target entities/concepts. Their presence in the diagram does not mean they are already present in the current database or implementation:
+ERD v5 includes the following target entities/concepts. Their presence in the diagram does not mean they are already present in the applied database or selected backend branch:
 
 ```text
 OperationalEvent
 OperationalEventType
 Incident
 StaffReport
+StaffReportMedia
 ResponsePolicy
 ResponsePolicyAction
+ShiftSwapRequest
+UserDevice
 Notification
 Staff
 Shift
@@ -2194,11 +2227,11 @@ ZoneMetric
 AuditLog
 ```
 
-The current live database is still the 14-table MF-01 implementation baseline. Add target entities only through an approved SQL/ERD implementation task; do not infer a migration from this context file.
+Database V2, V3 and V4 scripts and backend branches represent different implementation checkpoints. Verify the actual Dev schema and branch before using a target entity; do not infer or generate a migration from this context file.
 
 Potential concepts such as Manager-on-duty remain required by later escalation/shift rules, but their representation is not settled.
 
-ZoneAdjacency exists in ERD v4. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
+ZoneAdjacency exists in ERD v5. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
 
 Do not add speculative tables simply to make the schema "look complete".
 
@@ -2217,7 +2250,7 @@ one active OperationalEvent episode
 per event type / configured scope
 ```
 
-Do not collapse an OperationalEvent episode into an Incident. Incident qualification is a separate response-policy outcome.
+Do not collapse or convert an OperationalEvent episode into an Incident. Direct Incident qualification belongs to an independent INCIDENT-targeting MonitoringRule or a confirmed StaffReport.
 
 ## Sustain time
 
@@ -2247,7 +2280,7 @@ Response is policy/action based:
 OperationalEvent + priority
 → select ResponsePolicy
 → execute or request approval for ResponsePolicyAction
-→ notification / recommendation / Operational Task / qualifying Incident
+→ notification / recommendation / Operational Task
 → first valid acceptance wins
 
 no eligible Staff OR retries exhausted
@@ -2269,7 +2302,7 @@ zone assignment
 workload
 ```
 
-ZoneAdjacency exists in ERD v4. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
+ZoneAdjacency exists in ERD v5. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
 
 ## Shift swap / change workflow
 
@@ -2278,18 +2311,18 @@ The approved workflow is:
 ```text
 Staff requests shift change/swap
     ↓
-Operator reviews the schedule
-    ↓
 System validates suitable Staff candidates
     ↓
-System proposes candidate(s)
+Staff selects proposed receiving Staff member
     ↓
-Operator reviews/selects
+Receiving Staff accepts or declines
+    ↓
+Manager approves or rejects an accepted request
     ↓
 Approved ShiftAssignment is updated
 ```
 
-Candidate validation must respect the active scheduling rules, including availability, no overlap, zone coverage, workload, and configured working-hour limits. Use a transparent rule-based recommendation mechanism; do not introduce an optimization engine unless separately approved.
+Candidate validation must respect the active scheduling rules, including availability, no overlap, zone coverage, workload, and configured working-hour limits. Unresolved requests expire 24 hours before the earliest affected Shift. Use a transparent rule-based recommendation mechanism; do not introduce an optimization engine unless separately approved.
 
 ---
 
@@ -2317,7 +2350,7 @@ mean over people served in last 5 min
 people in Zone / Zone area (m²)
 ```
 
-`Zone.area_m2` is present in ERD v4 and is the physical area input for this formula.
+`Zone.area_m2` is present in ERD v5 and is the physical area input for this formula.
 
 ## Checkout utilization
 
@@ -2510,7 +2543,7 @@ The following are core and should not be hand-waved:
 
 # 32. Report 3 implications while implementation proceeds
 
-The current SRS/Report 3 draft will need:
+The current SRS/Report 3 draft now contains the following major sections, though placeholders and incomplete detailed functions remain:
 
 - Product Overview + System Context Diagram;
 - Actors;
@@ -2545,9 +2578,9 @@ For MF-01, implementation should produce enough concrete behavior to populate:
 
 ---
 
-# 33. Implementation questions and ERD v4 refinements that are currently OPEN
+# 33. Implementation questions and ERD v5 refinements that are currently OPEN
 
-Do not silently decide these in code without team agreement. ERD v4 is the provisional target; the current live database is not proof that these target concepts are migrated.
+Do not silently decide these in code without team agreement. ERD v5 is the current design target; the applied database and selected backend branch remain the implementation truth.
 
 1. **SLA and escalation semantics**
    - Define deadlines, breach behavior, escalation timing, and the responsible role.
@@ -2559,10 +2592,12 @@ Do not silently decide these in code without team agreement. ERD v4 is the provi
    - Define durable guarantees for Task acceptance, OperationalEvent episodes, action outcomes, retries, and duplicate delivery.
 
 4. **StaffReport media retention**
-   - Confirm durable image/voice references, storage ownership, retention, and deletion behavior.
+   - ERD v5 now defines `StaffReportMedia` and its storage metadata.
+   - Retention duration, storage ownership, access control and deletion behavior still require confirmation.
 
-5. **Optional policy-action traceability**
-   - `Task.response_policy_action_id` is not approved; do not add it without an explicit decision.
+5. **Policy-action execution traceability**
+   - ERD v5 does not add a separate execution entity or `Task.response_policy_action_id`.
+   - Define durable idempotency/audit evidence before inventing either representation.
 
 6. **Measurement source when several cameras monitor one Zone**
    - designated source camera vs non-overlapping measurement ROIs;
@@ -2577,7 +2612,7 @@ Do not silently decide these in code without team agreement. ERD v4 is the provi
    - likely derived from shift/duty assignment.
 
 9. **Operational use of `ZoneAdjacency`**
-   - ZoneAdjacency exists in ERD v4. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
+   - ZoneAdjacency exists in ERD v5. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
 
 
 ---
@@ -2606,9 +2641,9 @@ When an AI coding agent works on this project:
 18. Do not create a camera-reviewer field; manual preview verification is not tracked by user.
 19. Do not create an account-review/PENDING workflow.
 20. Keep CameraHealthEvent separate from supermarket Operational Incidents.
-21. Do not turn every OperationalEvent or CRITICAL priority into an Incident. Incident qualification is a separate ResponsePolicyAction outcome.
-22. Keep ResponsePolicyAction execution distinct from Task creation; actions may be automatic or approval-required. Route Tasks only through the configured response and eligibility rules.
-23. ZoneAdjacency exists in ERD v4. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
+21. A MonitoringRule produces exactly one outcome. Never convert an OperationalEvent into an Incident; an automated Incident comes directly from an INCIDENT-targeting rule.
+22. Keep ResponsePolicyAction execution distinct from Task creation; actions may be automatic or approval-required. ResponsePolicy belongs to the OPERATIONAL_EVENT path and must not qualify an Incident.
+23. ZoneAdjacency exists in ERD v5. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
 24. Keep MF-04 Planning and Analytics as independent entry paths; successful shift validation is not a prerequisite for opening the dashboard.
 25. Keep Admin account/Staff CRUD as a supporting capability, not a required step in the four Mainflow diagrams.
 
@@ -2644,18 +2679,19 @@ Zone
    ↓
 MonitoringConfiguration
    ↓
-MonitoringRule / OperationalEventType
-   (ERD v4 target; live DB still exposes IncidentType)
-
-OperationalEvent
-   ↓
-ResponsePolicy / ResponsePolicyAction
-   ↓
-Notification / Recommendation / Task / qualifying Incident
+MonitoringRule
+   ├── OPERATIONAL_EVENT + event_type_id
+   │      ↓
+   │  OperationalEvent → ResponsePolicy / ResponsePolicyAction
+   │      ↓
+   │  Notification / Recommendation / Operational Task
+   └── INCIDENT + incident_type_id
+          ↓
+      Incident → Corrective Task / verification / closure
 
 StaffReport
    ↓
-routine Task or separately qualified Incident
+routine Task or Incident with StaffReport provenance
 
 Camera
    ↓
@@ -2679,7 +2715,7 @@ Persist normalized coordinates, not absolute stream pixels.
 
 Model confidence filters detections only.
 
-OperationalEvent != Incident.
+OperationalEvent never converts into Incident.
 
 Camera health event != operational Incident.
 
@@ -2735,7 +2771,7 @@ At the end of MF-01, a reviewer should be able to watch this happen:
 
 That is an end-to-end **setup/configuration Mainflow**, not a collection of disconnected CRUD screens.
 
-The next increment, MF-02, begins when camera/video data becomes operational measurements/events and those events begin producing policy-driven responses, Tasks, notifications, recommendations, or separately qualified Incidents.
+The next increment, MF-02, begins when validated camera/video observations reach MonitoringRules and produce their configured independent outcome: an OperationalEvent with policy-driven response, or a directly qualified Incident.
 
 ---
 
@@ -2756,23 +2792,24 @@ This section prevents historical designs from being reintroduced while preservin
 ## Current target decisions
 
 - Model confidence filters raw detections only.
-- OperationalEvent and Incident remain separate; threshold breach/CRITICAL priority alone does not create an Incident.
-- ResponsePolicyAction may be automatic or approval-required; do not impose universal Operator pre-dispatch review on confirmed reports or AI-qualified Incidents.
+- MonitoringRule has exactly one outcome type and exactly one matching target type FK.
+- OperationalEvent and Incident remain independent; OperationalEvent never converts into Incident.
+- ResponsePolicyAction may be automatic or approval-required on the OPERATIONAL_EVENT path; do not impose universal Operator pre-dispatch review on confirmed reports or directly qualified Incidents.
 - Task origins are exactly OPERATIONAL_EVENT, INCIDENT, STAFF_REPORT, or MANUAL, with exclusive nullable source FKs.
 - Staff-report extraction is a separate path from camera Detection & Tracking.
 - Operator independently verifies submitted evidence.
 - MF-04 Planning and Analytics are independently enterable.
 - AI recommendations are advisory; they do not automatically change store operations.
-- `Zone.area_m2`, the concrete `MonitoringRule` and `IncidentType` structures, and `ZoneAdjacency` are represented in ERD v4. Database V2 and the backend now map `MonitoringRule` to `OperationalEventType`; IncidentType remains the separate incident catalog.
-- ZoneAdjacency exists in ERD v4. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
+- `Zone.area_m2`, conditional MonitoringRule outcome fields, `ShiftSwapRequest`, `StaffReportMedia`, `UserDevice` and `ZoneAdjacency` are represented in ERD v5. Database V2/backend `dev` implement only the event-targeting MonitoringRule subset.
+- ZoneAdjacency exists in ERD v5. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
 
 # 39. Assigned ROI monitoring increment — 03/10/2026
 
-This is the current implementation checkpoint for the assigned ROI increment, **not** the full ERD v4 target implementation. Preserve the 10/10/2026 MF-02/MF-03 design as the eventual workflow. Temporary overcrowding uses **people count in ROI**, `PEOPLE` + explicit `parameters_json.measurementMode=PEOPLE_COUNT`; no m² inferred from normalized pixels/perspective. Legacy density remains untouched/unsupported at activation. Density calibration awaits team discussion. Long Queue counts a person after ≥5s continuously observed inside ROI, then threshold+sustain. Waiting/Checkout runtime stays deferred.
+This is a historical implementation checkpoint for the assigned ROI increment, **not** the full ERD v5 target implementation. Preserve the 14–16/10/2026 BR/Report/ERD model as the target workflow. Temporary overcrowding uses **people count in ROI**, `PEOPLE` + explicit `parameters_json.measurementMode=PEOPLE_COUNT`; no m² inferred from normalized pixels/perspective. Legacy density remains untouched/unsupported at activation. Density calibration awaits team discussion. Long Queue counts a person after ≥5s continuously observed inside ROI, then threshold+sustain. Waiting/Checkout runtime stays deferred.
 
 Confidence applies before ByteTrack. ROI membership uses bbox bottom-center, current observed tracks only; per-confidence tracking contexts, no cross-camera identity/dedup. Each zone needs exactly one ACTIVE camera mapping to activate this increment. N:M camera-zone modeling remains unchanged; one camera can monitor several zones independently, counts never summed across cameras.
 
-After activation, a BE-owned worker consumes ordered AI batches even without a viewer, checks the current source/mapping/configuration version again when writing, evaluates independent Warning/Critical sustain clocks and records aggregate OperationalEvents. Gaps/reconnect/version changes reset continuity. Recorded-video source time, not inference wall time, drives sustain. As of 11/10/2026, repeated sustained observations update one active episode per Camera + Zone + OperationalEventType, priority can escalate on that row, sustained valid recovery clears it, and a later sustained breach creates a new episode. Missing/unavailable measurements do not become zero and do not clear an episode. The temporary Incident compatibility policy remains an implementation divergence from the ERD v4 target; no new product closure endpoint was added.
+After activation, a BE-owned worker consumes ordered AI batches even without a viewer, checks the current source/mapping/configuration version again when writing, evaluates independent Warning/Critical sustain clocks and records aggregate OperationalEvents. Gaps/reconnect/version changes reset continuity. Recorded-video source time, not inference wall time, drives sustain. As of 11/10/2026, repeated sustained observations update one active episode per Camera + Zone + OperationalEventType, priority can escalate on that row, sustained valid recovery clears it, and a later sustained breach creates a new episode. Missing/unavailable measurements do not become zero and do not clear an episode. The temporary code path that also writes a DETECTED Incident from an OperationalEvent is an implementation divergence from the current Business Rules, Report 3 and ERD v5 model and must not be treated as target behavior.
 
 New compatibility-path AI Incident status is **DETECTED — not dispatched** for this increment. `OperationalEventType` and episode lifecycle persistence are now implemented; Task, ResponsePolicy execution, StaffReport, notification, dispatch, evidence/media, and ZoneMetric/analytics workflows remain outside this increment unless separately verified. The application never auto-migrates; shared Dev must be backed up and migrated by the user/team. CameraHealthEvent remains a separate system-health concept.
 
