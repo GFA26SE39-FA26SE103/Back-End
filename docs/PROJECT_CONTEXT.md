@@ -1,188 +1,75 @@
 # PROJECT_CONTEXT.md — FA26SE103 Implementation Snapshot
 
-> **Project:** AI-Powered Smart Supermarket Operations Monitoring System  
-> **Project code:** FA26SE103  
-> **Group:** GFA26SE39  
-> **Purpose of this file:** provide a repository-owned synchronized implementation snapshot so a backend-only clone gives humans and coding agents one implementation-oriented view of the current agreed product, Mainflows, domain rules, architecture, and implementation scope before code is written.
->
-> **Synchronization baseline:** project decisions and mentor/team feedback through **11/10/2026**, including the supplied Codex synchronization notes, provisional `FA26SE103_ERD_v4.drawio`, Database V2, and the OperationalEvent episode implementation.
->
-> **Implementation-state warning:** ERD v4 and the 10/10/2026 synchronization notes describe the provisional target architecture. Database V2 and the backend now implement the OperationalEvent episode subset described in section 40, but the remaining SQL Server schema, APIs, and workers must not be assumed to satisfy the full target model.
->
-> **Important:** this file is a synchronization guide, not a replacement for the official reports. If an official requirement changes, update this file together with the affected requirement/design artifact.
+> **Project:** AI-Powered Smart Supermarket Operations Monitoring System
+> **Project code:** FA26SE103
+> **Group:** GFA26SE39
+> **Repository:** [GFA26SE39-FA26SE103/Back-End](https://github.com/GFA26SE39-FA26SE103/Back-End), branch `dev`
+> **Synchronization baseline:** **18/10/2026** — synchronized Reports 1–3, current Business Rules, approved Physical ERD **V6**, and inspected backend `dev` at commit `c4c79b0f5e08d913dbbe4381be2e6eebe129ebad`.
+> **Purpose:** repository-owned guide for developers and coding agents. It defines **approved target behavior** separately from **verified source-code implementation**. It is not a substitute for the official reports or the canonical SQL schema.
+> **Important:** This replacement removes superseded ERD v3/v4 assumptions, historical approval paths, and old OperationalEvent-to-Incident design. Links to external documents are references, **not automatic synchronization**.
 
 ---
 
 ## 0. Read this first
 
-The project is **not** a generic supermarket ERP and **not** a security-surveillance product.
+This is a one-branch, AI-assisted **supermarket operations monitoring** capstone. It is **not** a POS, ERP, inventory, revenue-reporting, face-recognition, or general security system. Live camera streams are the intended operational source. Recorded/controlled video supports repeatable tests, AI evaluation and fallback demonstrations.
 
-The product is an **AI-assisted supermarket operations monitoring system**. Its target closed loop is:
+**Current approved target** has three independent origins/paths:
 
 ```text
-Camera / Video Stream
-        ↓
-AI Detection & Tracking
-        ↓
-Operational Measurement
-        ↓
-MonitoringRule
-        ↓
-OperationalEvent
-        ↓
-ResponsePolicy / ResponsePolicyAction
-        ↓
-Notification / Recommendation / Operational Task / qualifying Incident
-        ↓
-Staff Handling / Evidence / Independent Verification
-        ↓
-Historical Analytics
+Camera / live video → validated AI observations → MonitoringRule
+                                                ├── outcome_type = OPERATIONAL_EVENT
+                                                │   → OperationalEvent → ResponsePolicy
+                                                │   → Notification / Recommendation / Operational Task
+                                                └── outcome_type = INCIDENT
+                                                    → qualified Incident directly
+                                                    → corrective Task → evidence → Operator verification
+
+StaffReport (text/image/voice draft → staff review and confirmation)
+    → routine operational Task OR independently qualified Incident
+
+OperationalEvent NEVER creates, converts into, references or escalates into Incident.
 ```
 
-Staff reports are a separate confirmed input path. A routine `StaffReport` does not become an AI `OperationalEvent` merely because it may later create a Task.
-
-The system focuses on supermarket operations such as queues, waiting time, crowding, checkout utilization, staff response, incident resolution, and operational reporting.
-
-Do not silently expand the scope into POS, inventory, sales analytics, payroll, customer identification, theft detection, face recognition, or cross-camera person re-identification.
+- `OperationalEvent` = tracked operational condition/episode, with priority and resolution when the **condition clears**.
+- `Incident` = independently qualified safety/material-disruption issue, with severity, corrective handling and verified closure.
+- A CRITICAL Event is **not** automatically an Incident. Model confidence filters detections; it is not an Incident-routing approval gate.
+- Current backend code may still perform prohibited Event → Incident writes as **legacy compatibility**, not approved behavior. See §§36, 39–40.
+- An ERD shows structure. Do **not** load it with SQL constraints/business-logic descriptions merely to represent workflow rules.
 
 ---
 
 # 1. Source of truth and document alignment
 
-## 1.0 — 10/10/2026 synchronization addendum (read first)
+## 1.0 — 18/10/2026 synchronization baseline (read first)
 
-This addendum supersedes older Incident-centric wording elsewhere in this historical implementation snapshot. It records the latest approved target direction without claiming that the current code or database already implements it.
+1. Latest explicitly confirmed team/mentor decisions and approved Business Rules.
+2. Current Report 1 (scope), Report 2 (plan), Report 3 (SRS, detailed functional requirements).
+3. **Physical ERD V6** for the *target* persistence shape; logical ERD and current diagrams where aligned.
+4. Code and deployed schema as evidence of what **actually exists**, not as automatic approval to retain old behaviors.
+5. Old reports, ERDs, Figma drafts, older planning notes and outdated comments only as history.
 
-### Source-of-truth precedence
-
-Resolve conflicts in this order:
-
-1. Latest confirmed mentor feedback and explicit team decisions.
-2. Current approved Business Rules and revised Reports 1–3.
-3. Provisional ERD v4.
-4. Current Mainflow specifications and detailed design documents.
-5. Existing code, migrations, and live database metadata as implementation-state evidence.
-6. Older diagrams, prototypes, and assumptions.
-
-Do not silently resolve a material conflict. Record it and request clarification when implementation would change approved behavior. External documents were not independently re-read during this local synchronization; rely only on the supplied notes for their stated changes.
-
-### Target operational architecture
-
-```text
-Camera / Video Stream
-→ AI Detection & Tracking
-→ Operational Measurements
-→ MonitoringRule evaluation
-→ OperationalEvent
-→ ResponsePolicy
-→ ResponsePolicyAction
-→ Notification / Recommendation / Operational Task / qualifying Incident
-→ Staff Task Handling
-→ Independent Verification
-→ Historical Analytics
-```
-
-`OperationalEvent` and `Incident` are different concepts. A threshold breach or CRITICAL OperationalEvent does not automatically create an Incident. Warning-to-Critical escalation remains within the same OperationalEvent episode; Incident creation requires separate safety/material-disruption qualification.
-
-Baseline AI OperationalEvent types are `LONG_QUEUE`, `EXCESSIVE_WAIT`, `CONGESTION`, and `CHECKOUT_CAPACITY`. Specialized hazard detection must be explicitly validated, not assumed.
-
-### Response and staff-report model
-
-- `ResponsePolicy` is the response configuration selected for a MonitoringRule and OperationalEvent priority.
-- `ResponsePolicyAction` is a reusable configured instruction, not a Task. Supported action types are `NOTIFY`, `GENERATE_RECOMMENDATION`, `CREATE_OPERATIONAL_TASK`, and `QUALIFY_INCIDENT`; actions may be `AUTOMATIC` or `APPROVAL_REQUIRED`.
-- Do not add a separate `ResponseActionExecution` entity for the MVP.
-- `StaffReport` is a separate confirmed staff-submission path for routine issues and potential safety/corrective Incidents. Staff review and confirm AI-extracted fields before submission. Do not fabricate an OperationalEvent for a routine staff report.
-- A Task has exactly one origin: `OPERATIONAL_EVENT`, `INCIDENT`, `STAFF_REPORT`, or `MANUAL`. The corresponding source FK is exclusive; MANUAL has all three source FKs null.
-- `Incident.staff_report_id` is nullable and unique. `OperationalEvent.incident_id` is nullable; multiple OperationalEvents may reference one Incident, while each OperationalEvent references at most one Incident.
-- Tasks support dispatch, acceptance, execution, evidence, independent verification, rejection/rework, and closure. First-valid-acceptance-wins is atomic; eligibility considers checked-in/on-shift status, assigned zone, role, and availability. Do not universally require before photos for routine adjustments.
-
-### ERD v4 provisional target
-
-The supplied ERD v4 contains approximately 34 entities and 66 relationships, including the existing camera/setup entities plus `Shift`, `ShiftAssignment`, `StaffZoneAssignment`, `OperationalEvent`, `IncidentType`, `Incident`, `IncidentMedia`, `Task`, `TaskAssignmentHistory`, `TaskEvidence`, `Notification`, `NotificationRecipient`, `NotificationConfig`, `Recommendation`, `ZoneMetric`, `AuditLog`, `ZoneShiftRequirement`, `ZoneAdjacency`, `StaffUnavailability`, `StaffReport`, `OperationalEventType`, `ResponsePolicy`, and `ResponsePolicyAction`.
-
-The draw.io XML was inspected for table vertices and relationship count. Full visual rendering/import was not independently validated; do not claim visual validation without inspecting the rendered diagram.
-
-ERD v4 is a target baseline, not proof that every target workflow is implemented. The 11/10/2026 live-database inspection confirmed the Database V2 OperationalEvent subset, including `OperationalEventType`, `MonitoringRule.event_type_id`, revised OperationalEvent lifecycle fields, and the filtered active-episode uniqueness index. Other ERD v4 areas still require code/schema inspection before they are claimed implemented.
-
-### Open refinements
-
-These are not permission to invent schema:
-
-- SLA configuration, deadlines, breach and escalation semantics;
-- threshold/policy provenance and reproducibility;
-- concurrency and idempotency constraints for Task acceptance, Event episodes, action outcomes and retries;
-- durable StaffReport image/voice references and retention;
-- optional direct `Task.response_policy_action_id` traceability, which is not approved;
-- any additional behavior whose physical representation is not settled.
+If target requirements disagree with code or an old document, **record the mismatch**. Do not modify live/shared SQL or automatically implement a speculative fix.
 
 ## 1.1 Current authoritative project documents
 
-Use these documents as the project baseline:
-
-1. **Report 1 — Project Introduction**
-   - Defines product scope, FE-01..FE-12, actors implied by features, limitations and exclusions.
-   - Current Drive source:
-     `https://docs.google.com/document/d/1C3BnR_XkLTMWYbnAumNLsyNiraRVloaycCHzkTbdhIs`
-
-2. **Report 2 — Project Management Plan**
-   - Defines WBS, Mainflow-based incremental development, quality/testing expectations, stack, deployment, and project process.
-   - Current Drive source:
-     `https://docs.google.com/document/d/18o3oA7NQgxV8eJxstP2mQgRGRoqkq_d9e-MnHuxQfTI`
-
-3. **GFA26SE39_Final_Agreed_Mainflows_2026-10-02.docx — current agreed Mainflow baseline**
-   - Defines the latest agreed MF-01..MF-04 flow semantics and slide/swimlane behavior.
-   - In particular, it freezes the MF-02 response/qualification flow, evidence verification in MF-03, and the independent Planning vs Analytics entry paths in MF-04. Do not infer mandatory Operator pre-dispatch review for every confirmed report or AI-qualified Incident.
-   - The repository does not currently record a Drive URL for this document; do not invent one. Add it only when the team supplies the URL.
-
-4. **FA26SE103_Business_Rules.docx — current working detailed BR**
-   - Defines 40 consolidated business rules covering camera/zone behavior, OperationalEvent vs Incident, StaffReport, ResponsePolicy actions, Task origins, routing, shifts, calculations, scope rules, and lifecycles.
-   - Current Drive source:
-     `https://docs.google.com/document/d/1ODHDSkK0pLCcbKVS2nl3G0KhxIz6Q5PR/edit?usp=drivesdk`
-
-5. **FA26SE103_ERD_v4.drawio — provisional target persistence baseline**
-   - Use the supplied ERD v4 and the 10/10/2026 synchronization notes for target-domain reasoning. ERD v4 is provisional and does not prove that the live database or EF scaffold has been migrated.
-   - Local reference inspected for this synchronization:
-     `D:\Study\FA26\SEP490\Diagrams\FA26SE103_ERD_v4.drawio`
-   - The draw.io XML contains approximately 34 table entities and 66 relationships. Full visual rendering/import was not independently confirmed.
-   - Historical ERD v3 and earlier diagrams remain implementation/traceability references only.
-   - **Do not change team-owned ERD/database artifacts unless you are assigned to ERD/database work.**
-
-6. **Report 3 — Software Requirement Specification**
-   - Currently being prepared.
-   - The current Drive URL is not recorded in this repository; add it only when the team supplies the URL.
-   - It will formalize Product Overview, Actors, Use Cases, System Functional Overview, Screen Flow, Screen Authorization, Non-Screen Functions, ERD/entity descriptions, detailed functions, NFRs, BRs, common requirements, and messages.
-
-7. **Canva Mainflow / Review deck**
-   - Presentation/design reference with lower authority than the agreed BR/Mainflows:
-     `https://www.canva.com/design/DAHWviilNDA/WQWyS79Eao8V8pXqkgt9Vg/edit`
+| Artifact | Link / status |
+| --- | --- |
+| Report 1 — Project Introduction | [Google Doc](https://docs.google.com/document/d/1C3BnR_XkLTMWYbnAumNLsyNiraRVloaycCHzkTbdhIs/edit); updated for independent Incident sources and shift swapping. |
+| Report 2 — Project Management Plan | [Google Doc](https://docs.google.com/document/d/18o3oA7NQgxV8eJxstP2mQgRGRoqkq_d9e-MnHuxQfTI/edit); synchronized 17/10; 225 man-days retained **pending re-estimation**. |
+| Report 3 — SRS | [Google Doc](https://docs.google.com/document/d/1puRtzzOr7T_TK-ZdnYkcn-bb9euMDxgjqC9wB7Z5qh8/edit); source wording/privacy updated 18/10; Use Case inventory is teammate-owned/in progress. |
+| Business Rules | [Google Drive](https://docs.google.com/document/d/1ODHDSkK0pLCcbKVS2nl3G0KhxIz6Q5PR/edit); apply current approved rules, not historical comments within the document. |
+| **Physical ERD V6** | [Google Drive draw.io](https://drive.google.com/file/d/17HEN6bpP-hxOfckGZWo2bKzPw4CHsP7S/view); **37 tables / 72 relationship edges**. |
+| Physical ERD V5 | [Google Drive](https://drive.google.com/file/d/1H831nHrqMmRwUnD8K8R-mO0FpIvRBk2Y/view); retained for history; **not the new target**. |
+| Logical ERD | [Google Drive](https://drive.google.com/file/d/1C5OstAPb-IOj3ndAbaYx95NTz5wKwpcK/view); reconcile with V6 before regeneration. |
+| Use Case Diagram | [Google Drive](https://drive.google.com/file/d/1vBWGmRkMKOHVv59SSKZfRMqwL5KmDatM/view); teammate updating. Do not alter as a side effect of backend work. |
+| Backend working contract | [`AGENTS.md`](../AGENTS.md), [`README.md`](../README.md), [`docs/API.md`](API.md), [`docs/VALIDATION.md`](VALIDATION.md). |
 
 ## 1.2 Conflict rule
 
-Do not guess when artifacts conflict.
+**Do not merge old and new Incident models.** Do not infer current DB tables from V6 alone. Distinguish approved target, coded subset, and actual deployed DB. Report discrepancies as an explicit implementation backlog. Record approval before destructive schema changes, workflow changes, or altering documents owned by teammates.
 
-Current working precedence:
-
-```text
-Latest explicit mentor/team decision
-        ↓
-Latest agreed Business Rules clarification
-        ↓
-Current Report 1 scope/features
-        ↓
-Current Report 2 implementation/project plan
-        ↓
-Provisional ERD v4 target model
-        ↓
-Current Mainflow specifications and detailed design documents
-        ↓
-Existing code, migrations and live database metadata as implementation-state evidence
-        ↓
-Older diagrams, prototypes and assumptions
-```
-
-Reports 1 and 2 were updated on 10/10/2026, and the canonical Business Rules contain 40 consolidated rules. Do not return to older 43-rule or Incident-centric interpretations. Conditional review and routing must follow the current target architecture in the synchronization addendum; CRITICAL priority alone is insufficient to qualify an Incident.
-
-If code and a document disagree, raise the mismatch before adding more behavior.
+**Known document drift to resolve separately:** Report 3's early entity overview may still mention `ZoneShiftRequirement` / `NotificationConfig` although V6 removes them. The Use Case inventory is being updated by a teammate. Older root `AGENTS.md` and `README.md` also contain obsolete Operator-approved shift-swap and Event-to-Incident descriptions; they should be synchronized in the same reviewed documentation PR as this file.
 
 ---
 
@@ -190,2619 +77,576 @@ If code and a document disagree, raise the mismatch before adding more behavior.
 
 ## 2.1 In scope
 
-The system supports:
-
-- one supermarket branch for project evaluation, provided as a single default store (no store setup step);
-- Floor / Zone configuration inside that default store;
-- camera registration, mapping, stream configuration, testing, preview, and health;
-- AI person detection and multi-object tracking;
-- customer flow;
-- queue length;
-- waiting time;
-- crowd analysis;
-- checkout utilization;
-- heatmaps;
-- OperationalEvents;
-- AI-detected and staff-reported Incidents;
-- notifications;
-- staff task acceptance and assignment;
-- completion evidence;
-- Operator verification;
-- staff shifts and zone assignments;
-- operational dashboard;
-- historical operational analytics;
-- AI-assisted operational recommendations;
-- users, roles, permissions, audit/system administration.
+- One configured supermarket (single branch), floors, mapped operational zones, cameras, RTSP connections, camera-zone ROIs, and independent operational/system health.
+- People detection and tracking; customer flow, ROI counts, queues, waiting time, crowd/congestion and checkout utilization where feasible and validated.
+- Configurable zone MonitoringRules; exactly one **rule outcome**: OperationalEvent or qualified Incident.
+- Operational ResponsePolicy actions, event and Incident feeds, task handling and independent verification.
+- Staff shift and zone assignments, eligibility, availability, future `SWAP`/`COVER` requests, Manager approval.
+- Staff reports (text, image, voice transcript), staff-confirmed AI-assisted extraction; mobile/web notifications.
+- Operational KPI dashboards, historical analytics, exports, advisory recommendations; admin/RBAC/audit/global settings.
 
 ## 2.2 Explicitly out of scope
 
-Do not implement these unless requirements are formally changed:
-
-- multi-branch production operation;
-- POS/payment integration;
-- inventory/ERP integration;
-- revenue/sales/best-selling-product analytics;
-- customer identity tracking;
-- face recognition;
-- cross-camera re-identification or person deduplication;
-- theft detection;
-- fall/violence detection;
-- empty-shelf detection;
-- payroll;
-- recruitment;
-- contracts / full HR;
-- fully autonomous store-operation decisions;
-- continuous video archival as a normal user feature.
-
-Recorded/controlled video is allowed for **testing, AI evaluation, and fallback demonstration**. Live camera streams are the intended primary operational source.
+Full multi-branch production, POS/payment/inventory/ERP integrations, revenue/sales reporting, payroll/recruitment, customer identification or facial recognition, cross-camera person re-identification, theft detection, empty-shelf AI baseline and unapproved safety-detection models. Automated consequential action from recommendations is not authorized.
 
 ---
 
 # 3. Actors and roles
 
-There are four system roles:
+| Actor | Responsibility | Not responsible for |
+| --- | --- | --- |
+| **System Administrator** | User accounts/roles, floor/zone/camera setup, monitoring/notification settings, system and camera health, global settings, audit. | Owning shift schedules or approving swaps. |
+| **Operator** | Live monitoring, Incident intervention, Task assignment/reassignment, evidence verification, closure checks. | Mandatory pre-dispatch approval for every Incident; Manager scheduling approval. |
+| **Manager** | Future shifts, zone/staff coverage, peer-accepted SWAP/COVER approval, analytics, reporting, advisory review. | Account/RBAC administration. |
+| **Staff** | Check-in, receiving/accepting eligible Task offers, task execution/evidence, staff reporting, requesting/responding to swap/cover. | Verifying their own Task; approving final SWAP/COVER. |
 
-```text
-ADMIN
-OPERATOR
-MANAGER
-STAFF
-```
-
-## Admin
-
-Responsible for system/configuration administration:
-
-- user accounts and roles;
-- floor/zone setup inside the single default store;
-- camera configuration;
-- camera connections;
-- camera-zone mappings;
-- AI/monitoring configuration;
-- incident-type configuration;
-- system health/configuration.
-
-Only Admin creates accounts. Admin may create/edit/enable/disable user accounts, including Staff accounts, subject to authorization and lifecycle rules.
-
-Account/Staff CRUD is a **supporting Admin capability**. It may be demonstrated separately when needed, but it is not a required box in the four Mainflow diagrams.
-
-The **last active Admin account must not be disabled or removed**.
-
-## Operator
-
-Responsible for live operational coordination:
-
-- monitors incidents and tasks;
-- may inspect, intervene in, cancel, or dismiss incidents;
-- dismissing requires a reason;
-- can manually assign/reassign tasks;
-- can override normal dispatch constraints only with a written reason;
-- verifies submitted work;
-- cannot be the same person who performed the task being verified.
-
-Operator coordination remains available for intervention, manual assignment, reassignment, dismissal, and override. Response-policy actions may require approval, but do not encode a universal pre-dispatch review rule for every confirmed report or AI-qualified Incident.
-
-## Manager
-
-Responsible for operational planning and management:
-
-- plans shifts;
-- assigns staff to zones/shifts;
-- handles schedule rules;
-- receives certain escalations;
-- uses analytics/reporting;
-- reviews AI-assisted operational recommendations;
-- makes final operational decisions.
-
-AI recommendations do not automatically change store operations.
-
-## Staff
-
-Responsible for field execution:
-
-- checks in to shifts;
-- receives eligible task/incident alerts;
-- accepts tasks;
-- performs work;
-- submits evidence;
-- reports incidents directly;
-- confirms AI-assisted report drafts before submission.
+The AI Analytics Engine is an **internal module**, not a human actor. Camera/video is an external input; FCM/external push service is an integration.
 
 ---
 
 # 4. The four Mainflows
 
-These are the shared end-to-end product Mainflows. Internal AI steps are components of a Mainflow, not separate Mainflows.
-
----
+Mainflows organize demonstrable end-to-end user work, not every background AI process.
 
 ## MF-01 — Setup & System Configuration
 
-**Primary actor:** Admin  
-**Supporting concerns:** camera stream adapter, backend, database, AI configuration, health monitoring
-
-### Goal
-
-Prepare the floor/zone structure of the default store, cameras, camera-zone coverage, connection settings, and monitoring configuration so the system can safely enter operational monitoring.
-
-### Main path
-
 ```text
-Admin Login
-    ↓
-Set up Floor / Zone
-    ↓
-Register & Configure Camera
-    ↓
-Test Connection & Preview
-    ↓
-Map Camera to Zone(s) / ROI
-    ↓
-Configure Monitoring Rules
-    ↓
-Activate Monitoring
-    ↓
-System continuously checks Camera / Stream Health
+Admin login → default store Floor/Zone setup → camera registration
+→ connection test / preview → CameraZoneMapping + camera-frame ROI
+→ zone MonitoringConfiguration + MonitoringRule → review/activate
+→ camera/stream health monitoring → investigate/retest/recover exceptions
 ```
 
-`Test Connection & Preview` is an **Admin-triggered action**; the backend/camera adapter performs the actual connection test and returns success/error/preview. `Enable Camera Connection` remains an implementation state/precondition after successful validation, but it does not need to appear as a separate Mainflow slide box.
+- Use **one seeded default supermarket**; do not invent a store-selection flow for a one-branch evaluation.
+- An area polygon on a floor plan and camera-frame ROI are separate coordinate spaces.
+- A preview/test request is initiated by Admin; runtime monitoring continues independently of viewers.
+- Camera operations/configuration, health, connection enablement, and monitoring activation are distinct states.
 
-### Camera-health exception path
-
-```text
-Monitoring active
-    ↓
-Camera transport becomes OFFLINE, or the stream becomes visually unusable
-    ↓
-CameraHealthEvent / health issue reported
-    ↓
-Admin investigates and restores connection/configuration
-    ↓
-Admin retests
-    ↓
-System returns to continuous Camera / Stream Health Check
-```
-
-Camera/stream health is **system health**, not a supermarket Operational Incident.
-
-### MF-01 configuration responsibilities
-
-MF-01 should establish:
-
-- authentication/RBAC baseline;
-- Floor (inside the single default Supermarket record);
-- Zone;
-- Camera;
-- CameraConnection;
-- CameraZoneMapping;
-- MonitoringConfiguration;
-- monitoring rules/settings required by the provisional ERD v4 target;
-- CameraHealthEvent;
-- basic account administration required to operate the system (**supporting Admin capability; not a required Mainflow slide step**).
-
-OperationalEventType and MonitoringRule configuration are logically system setup in the target model. The current MF-01 code/database still use the older IncidentType-based implementation; do not claim v4 persistence until an approved SQL change and re-scaffold exist.
-
----
-
-## MF-02 — AI Monitoring → OperationalEvent → Response → qualified Incident/Task
-
-**Primary actors:** Operator, Staff  
-**System actors/components:** camera stream, AI service, routing/notification services
-
-### AI-generated implementation path
+## MF-02 — AI Monitoring → independent Event / Incident response
 
 ```text
-Camera Stream
-    ↓
-Person Detection
-    ↓
-Model-confidence FILTER
-    ↓
-ByteTrack / Tracking
-    ↓
-Operational Measurement
-    ↓
-OperationalEvent
-    ↓
-Zone-specific active MonitoringRule
-    ↓
-Condition satisfies threshold + sustain time
-    ↓
-OperationalEvent episode / priority updated
-    ↓
-ResponsePolicy
-    ↓
-ResponsePolicyAction evaluation
-    ↓
-Notification / Recommendation / Operational Task / separately qualified Incident
-    ↓
-Staff handling and independent verification
+Observed measurements + rule context
+  → OPERATIONAL_EVENT rule → Event episode → ResponsePolicy/Actions
+       → notification, recommendation, operational Task where configured
+  → INCIDENT rule (separate validated safety path) → Incident directly
+       → severity-based route → corrective Task / Operator intervention
 ```
 
-### Staff-reported path
-
-```text
-Staff finds issue
-    ↓
-Report text / image / voice
-    ↓
-System / AI extracts report data
-    ↓
-Staff confirms / corrects extracted data
-    ↓
-StaffReport stored
-    ↓
-Routine issue → optional Task
-Safety/material-disruption qualification → Incident → corrective Task(s)
-```
-
-### Response-policy fallback
-
-For a configured Task-producing response action:
-
-```text
-Notify or offer a Task to eligible Staff in affected Zone
-    ↓
-no eligible Staff OR no valid acceptance after retry policy
-    ↓
-Retry / Escalate
-    ↓
-Operator Review / Intervene
-    ↓
-Manual Assign / Reassign
-    ↓
-Task Assigned
-```
-
-Current retry baseline remains:
-
-```text
-re-notify every 60 s
-up to 3 attempts
-then Operator manually assigns/reassigns
-```
-
-Critical incidents also inform the Manager on duty.
-
-### Important distinctions
-
-`Model confidence` is **not incident confidence**.
-
-Model confidence only filters raw model detections before tracking/measurement.
-
-Do NOT implement:
-
-```text
-YOLO confidence 64% → Operator review
-YOLO confidence 92% → auto-dispatch
-```
-
-That design is obsolete.
-
-Current logic:
-
-```text
-raw detection
-→ model-confidence filter
-→ tracking
-→ operational measurement
-→ MonitoringRule
-→ OperationalEvent episode / priority
-→ ResponsePolicy / ResponsePolicyAction
-→ notification / recommendation / Task / separately qualified Incident
-```
-
-### Incident behavior
-
-- OperationalEvent episodes are deduplicated according to the approved event policy; Warning-to-Critical escalation remains the same episode.
-- A threshold breach or CRITICAL priority does not automatically create an Incident.
-- `QUALIFY_INCIDENT` requires independent safety/material-disruption qualification.
-- ResponsePolicyAction evaluation must be idempotent and avoid duplicate outcomes.
-- Recommendations are advisory and may require human approval.
-- Operator intervention remains available; do not require mandatory Operator pre-dispatch review for every confirmed report or AI-qualified Incident.
-
-### Staff dispatch behavior
-
-Eligible recipient:
-
-```text
-on shift
-AND checked in
-AND assigned to affected Zone
-AND below active-task workload limit
-```
-
-Current default workload limit: **2 active tasks**.
-
-If no eligible affected-Zone Staff exist:
-
-```text
-escalate to Operator for manual assign / reassign
-```
-
-If eligible Staff exist but nobody accepts:
-
-```text
-re-notify every 60 s
-up to 3 attempts
-then escalate to Operator for manual assign / reassign
-```
-
-First valid staff acceptance wins atomically.
-
-### Slide / swimlane target baseline
-
-```text
-Camera path:
-Camera Stream
-→ Detection & Tracking
-→ Operational Measurement
-→ Rule Evaluation
-→ OperationalEvent episode created / updated
-→ ResponsePolicy / ResponsePolicyAction
-→ Notification / Recommendation / Operational Task / qualifying Incident
-
-Response action requires approval:
-ResponsePolicyAction
-→ Operator approval / intervention
-→ configured output (notification, recommendation, task, or Incident qualification)
-
-Automatic response action:
-ResponsePolicyAction
-→ configured output
-→ eligible Staff handling when a Task exists
-
-Staff report (separate path):
-Find Issue
-→ Report Text / Image / Voice
-→ Extract Report Data
-→ Confirm / Correct Extracted Data
-→ StaffReport stored
-→ optional routine Task, or separately qualified Incident and corrective Task(s)
-
-Response-policy fallback:
-Notify Eligible Staff
-→ No Acceptance / Escalation
-→ Operator Review / Intervene
-→ Manual Assign / Reassign
-→ Task Assigned
-```
-
----
+- Operational event baselines: **Long Queue**, **Excessive Waiting Time**, **Overcrowding/Congestion**, **Checkout Capacity Issue**.
+- Incident qualification requires approved risk/safety criteria and confirmed source. Facility faults, spills and cleanliness matters are staff-reported unless a specific validated AI capability exists.
+- A distinct confirmed StaffReport can produce an Incident or a routine Task; it does not pass through camera tracking and is not an OperationalEvent.
+- Operator inspection/intervention is allowed, but universal Operator pre-dispatch approval is not required.
+- MonitoringRule outcomes are mutually exclusive; `ResponsePolicy` applies to the **OperationalEvent** branch only.
 
 ## MF-03 — Staff Task Execution & Evidence
 
-**Primary actor:** Staff  
-**Verification actor:** Operator
-
-### Main path
-
 ```text
-Task Offered
-    ↓
-Staff Responds: Handle Now / Handle Later / Cannot Handle
-    ↓
-Accepted (responsibility accepted)
-    ↓
-Start now OR scheduled/deferred start
-    ↓
-Staff completes work + evidence
-    ↓
-Submitted
-    ↓
-Operator verifies
-    ↓
-Verified
-    ↓
-linked Incident may close
+Task from OPERATIONAL_EVENT / INCIDENT / STAFF_REPORT / MANUAL
+→ notify eligible, checked-in on-shift Staff for affected zone
+→ first valid explicit acceptance wins → Handle Now / Handle Later
+→ Staff works → submit evidence → independent Operator verification
+→ Verified (or Rejected with reason → rework/reassignment)
 ```
 
-### Rejection loop
-
-```text
-Submitted
-    ↓
-Operator rejects evidence/work
-    ↓
-In Progress
-    ↓
-Staff corrects + resubmits
-```
-
-After the configured maximum rejections (current default: **2**), reassign the task to another Staff member.
-
-### Task response semantics
-
-The Staff response must preserve the distinction between:
-
-- accepting responsibility for the task;
-- starting work immediately;
-- accepting responsibility but scheduling/deferring the start;
-- declining/cannot-handle response;
-- being actively in progress;
-- becoming overdue and requiring escalation or re-routing.
-
-The supported response choices are:
-
-- **Handle Now**;
-- **Accept and Handle Later** with a configurable delay/start time;
-- **Cannot Handle**.
-
-`Cannot Handle` is a task response and must not be treated as evidence rejection. Its reassignment/escalation behavior must follow the configured business policy. Do not force deferred acceptance into `In Progress` without retaining the intended start time and responsibility state.
-
-### Evidence rules
-
-- every completed task requires an **after photo**;
-- hazard and cleanliness incident types also require a **before photo**;
-- only the assigned Staff member performs the task;
-- only Operator verifies/reassigns;
-- verifier cannot be the performer.
-
-### Incident closure
-
-An Incident closes only when **all linked tasks are verified**.
-
-### Slide / demo baseline
-
-```text
-SYSTEM
-Send Task Notification
-        ↓
-STAFF
-View & Accept Task
-→ Start Task
-→ Perform Task
-→ Submit Evidence
-        ↓
-OPERATOR
-Review Evidence
-    ├─ Valid → Task Verified
-    └─ Rejected → STAFF Continue / Correct Work → Submit Evidence again
-        ↓
-SYSTEM
-Update Task & Incident Status
-```
-
-`Review Evidence` and `Task Verified` are intentionally separate semantics: review is the Operator action; `Verified` is the successful task state. `Continue / Correct Work` belongs to Staff.
-
-### Current SLA targets
-
-```text
-CRITICAL → 10 min
-WARNING  → 20 min
-INFO     → 60 min
-```
-
----
+- Staff may decline/cannot-handle with reason. `Accept and Handle Later` can set `planned_start_at`, but does not eliminate response targets.
+- Only the current eligible assignee performs the work; competing offers withdrawn transactionally.
+- Task evidence may require before/after photos by category; no universal before-photo requirement.
+- `TaskEvidence.reject_reason` already exists. `Task.rejection_count` supports BR-29 **reassign after two rejections**.
+- A linked Incident closes only after required corrective Tasks are verified and independent Incident closure conditions hold.
 
 ## MF-04 — Manager Operations Planning, Analytics & Reporting
 
-**Primary actor:** Manager  
-**System actor/component:** System / AI
+**Planning:** future staff shifts, zone coverage, availability and `SWAP`/`COVER` approval.
+**Analytics:** independent Event and Incident KPIs, staff/task performance, camera health, incident response and resolution, exports and advisory recommendations.
 
-MF-04 contains **two related but independently enterable subflows**:
+Planning and analytics are **independently accessible**. Do not force a schedule-edit action before viewing analytics. The proposed `Zone.min_staff` is **zone-level**, not shift-specific; do not reintroduce `ZoneShiftRequirement`.
 
-1. Operations Planning
-2. Analytics & Reporting
-
-**Do not connect successful planning validation directly to `Open Dashboard`.** A Manager may open analytics without first creating or validating a new shift plan.
-
-### A. Operations Planning
-
-Manager actions:
+### Shift-swap approval flow (current)
 
 ```text
-Create Shift Plan
-    ↓
-Assign Staff to Zones
-    ↓
-System validates Shift & Zone Coverage
+Staff A submits SWAP/COVER on future ShiftAssignment
+   → PENDING_PEER (Staff B accepts or declines)
+   → PENDING_MANAGER (if B accepts)
+   → Manager APPROVES / REJECTS (records reason as applicable)
+   → atomic shift-assignment update ONLY on approval
 ```
 
-If validation fails:
-
-```text
-Invalid / adjust plan
-    ↓
-back to Assign Staff to Zones
-```
-
-Planning rules:
-
-- default minimum: 1 Staff per active Zone per Shift;
-- no overlapping shifts;
-- weekly work limit: 48 h;
-- started Shift cannot be changed;
-- staff marked unavailable cannot be scheduled;
-- Staff may request a shift swap/change;
-- swap approval is Operator-controlled, not direct Staff-to-Staff negotiation;
-- the system proposes suitable Staff candidates after validating scheduling rules;
-- the Operator selects/approves the candidate before the ShiftAssignment is updated;
-- a swap must not create overlapping shifts, unavailable assignments, invalid zone coverage, invalid workload, or invalid working-hour totals;
-- scheduling constraints are configurable business rules; do not hardcode one rigid scheduling policy;
-- no HR/payroll/recruitment/general HR subsystem.
-
-Account/Staff CRUD remains a supporting Admin capability and is not part of MF-04.
-
-### B. Analytics & Reporting
-
-The interaction should visibly alternate between Manager actions and System/AI processing:
-
-```text
-MANAGER
-Open Dashboard
-    ↓
-Filter Analysis Scope
-    ↓
-SYSTEM / AI
-Aggregate Operational Data
-    ↓
-Calculate KPIs & Trends
-    ↓
-MANAGER
-Review KPIs, Trends & Staff Operational Performance
-    ↓
-SYSTEM / AI
-Generate AI Advisory Recommendations
-    ↓
-MANAGER
-Review AI-Assisted Recommendations
-    ↓
-View / Export Operational Report
-```
-
-`Aggregate Operational Data` means combining the selected monitoring, Incident, Task-resolution, and shift/assignment data for the chosen analysis scope before KPI calculation.
-
-Manager may inspect operational analytics such as:
-
-- traffic / footfall;
-- queue history;
-- waiting time;
-- crowd patterns;
-- heatmaps;
-- incident volume/severity;
-- response time;
-- resolution time;
-- task completion;
-- staff operational performance.
-
-No revenue/sales/best-selling-product/general ERP analytics.
-
-### Decision support
-
-AI may recommend operational actions such as:
-
-- open another checkout counter;
-- adjust staffing;
-- investigate recurring congestion;
-- investigate repeated incident patterns.
-
-Recommendation is informational/advisory only:
-
-```text
-AI recommends
-→ Manager reviews
-→ human decides
-```
-
-AI recommendations must not automatically change shifts, staffing, or store operations.
+- SWAP exchanges affected A/B assignments; COVER transfers coverage for A's shift using an eligible B.
+- A may cancel while pending. B may decline before acceptance, or withdraw/cancel while awaiting Manager. No cancellation after final approval.
+- Unresolved requests **expire exactly when 24 hours remain before the earliest affected shift begins**. For SWAP use the earlier of both shifts; for COVER use A's shift. This is **not** 24h after request creation.
+- Recheck future start, overlap, availability, weekly hours, relevant zone coverage and permissions **at approval time**; preserve original assignments on rejection, cancellation or expiry.
+- Preserve actor/time/reason for peer/Manager/cancellation outcomes as allowed by the schema.
 
 ---
 
 # 5. Domain vocabulary — do not mix these concepts
 
-## Detection
+| Term | Meaning |
+| --- | --- |
+| **Detection** | One AI inference result (bbox/class/confidence), not a final operational event. |
+| **Track** | Camera-local tracking of observations; no cross-camera ID. |
+| **Measurement** | Aggregated count, waiting time, flow, density or utilization over validated camera/zone/time context. |
+| **MonitoringRule** | One configurable condition with `outcome_type`: `OPERATIONAL_EVENT` **or** `INCIDENT`. |
+| **OperationalEvent** | Sustained operational condition/episode and operational priority (`WARNING`/`CRITICAL` as applicable). |
+| **ResponsePolicy/Action** | Configured response to OperationalEvents, not an independent Incident generator. |
+| **Incident** | Qualified safety/corrective issue, sourced directly from one approved INCIDENT rule or one confirmed StaffReport. |
+| **StaffReport** | Explicitly confirmed staff-origin input after human review of AI extraction. |
+| **Task** | Work assignment from one of four origins, separate from notification and evidence. |
+| **Notification** | Delivery/in-app record; provider send or read is **not** Task acceptance. |
+| **Recommendation** | Advisory only, never automatically enacts a consequential change. |
 
-Raw model output, e.g. a YOLO person detection.
-
-Example:
-
-```json
-{
-  "class": "person",
-  "confidence": 0.83
-}
-```
-
-Low-confidence detections can be filtered before tracking.
-
-## Track
-
-A tracked person within one camera using ByteTrack.
-
-Track IDs are **camera-local / stream-local**. They are not identities and must not be used for cross-camera re-identification.
-
-## Operational Measurement
-
-A derived operational value:
-
-- people count;
-- zone entry/exit;
-- queue length;
-- waiting time;
-- crowd density;
-- checkout utilization.
-
-## OperationalEvent
-
-A timestamped structured observation produced from operational measurements.
-
-An OperationalEvent is **not automatically an Incident**.
-
-## OperationalEventType and IncidentType
-
-`OperationalEventType` is the target reusable classification for AI operational conditions. `IncidentType` remains for separately qualified Incident categories and staff-report workflows; do not treat the two catalogs as interchangeable.
-
-### AI-detected baseline OperationalEventTypes
-
-1. Long Queue
-2. Excessive Waiting Time
-3. Overcrowding / Congestion
-4. Checkout Capacity Issue
-
-### Staff-report / qualified-Incident baseline categories
-
-5. Spill / Broken Equipment
-6. Equipment Malfunction
-7. Pathway Obstruction
-8. Cleanliness Issue
-9. Safety Hazard
-10. Other Operational Issue
-
-AI-detected OperationalEventTypes use operational measurements + MonitoringRules.
-
-Staff-report categories do not require an AI measurement and follow the StaffReport confirmation path.
-
-## MonitoringRule
-
-Defines when an AI measurement becomes a business Incident for a particular monitoring context/Zone.
-
-Conceptually it owns:
-
-- OperationalEventType reference;
-- Warning threshold;
-- Critical threshold;
-- threshold unit;
-- sustain time;
-- cooldown;
-- enabled/status.
-
-The same OperationalEventType may use different thresholds in different Zones.
-
-**ERD v4 is the provisional target for the concrete MonitoringRule structure. The live database currently remains IncidentType-based; do not hardcode a target-only schema or add a competing migration.**
-
-## Incident
-
-Business-relevant operational situation.
-
-Severity:
-
-```text
-INFO
-WARNING
-CRITICAL
-```
-
-For AI incidents, Warning/Critical derives from the active MonitoringRule.
-
-Info is mainly useful for staff-reported/informational incidents that are not threshold-triggered.
+`Incident.source_type ∈ {STAFF_REPORT, MONITORING_RULE}`. An Incident refers to **exactly one** corresponding source; rule-originated Incidents do not carry a fabricated staff reporter. Event-originated Incidents are not allowed in target behavior.
 
 ---
 
 # 6. Spatial model — critical implementation rules
 
-The spatial hierarchy is:
-
-```text
-Supermarket
-    └── Floor
-         ├── Zone
-         └── Camera
-```
-
-Do **not** model Camera as owned by Zone.
-
-A Camera:
-
-- belongs to exactly one Floor;
-- may monitor one or more Zones on that Floor.
-
-A Zone:
-
-- belongs to exactly one Floor;
-- may be monitored by multiple Cameras.
-
-Therefore Camera ↔ Zone is many-to-many through `CameraZoneMapping`.
-
-## 6.1 Same-floor invariant
-
-When creating a `CameraZoneMapping`:
-
-```text
-Camera.floor_id MUST equal Zone.floor_id
-```
-
-Reject cross-floor mappings at the backend/domain layer.
-
-## 6.2 Two different polygons exist
-
-Do not confuse:
-
-### `Zone.map_polygon`
-
-The Zone boundary drawn on the **2D floor map**.
-
-### `CameraZoneMapping.roi_polygon`
-
-The Zone/monitoring ROI drawn in a **specific camera frame**.
-
-These are different coordinate spaces and serve different purposes.
-
-## 6.3 Normalized coordinates
-
-Persist floor-map and camera-frame spatial points as normalized coordinates where applicable:
-
-```text
-x ∈ [0, 1]
-y ∈ [0, 1]
-```
-
-Do not persist absolute stream pixel coordinates as the source of truth.
-
-Frontend:
-
-```text
-normalized_x = click_x / displayed_frame_width
-normalized_y = click_y / displayed_frame_height
-```
-
-AI runtime:
-
-```text
-pixel_x = normalized_x * current_frame_width
-pixel_y = normalized_y * current_frame_height
-```
-
-This prevents ROI breakage when stream resolution changes.
-
-Normalization handles resolution scaling, **not arbitrary aspect-ratio changes, crop changes, or lens/perspective changes**. Keep equivalent aspect/crop behavior or define a canonical processing frame.
-
-## 6.4 Polygon validation
-
-`ISJSON()` only validates JSON syntax.
-
-Application logic must validate:
-
-- at least 3 points;
-- each x/y is within `[0,1]`;
-- no malformed points;
-- polygon geometry is usable;
-- same-floor Camera/Zone rule.
-
-Self-intersection policy should be consistent across frontend/backend.
+- `Supermarket` 1:N `Floor`; `Floor` 1:N `Zone` and 1:N `Camera`.
+- `Camera` N:M `Zone` via `CameraZoneMapping`; each mapping must reference the **same Floor**.
+- `Zone.map_polygon`: **floor-plan coordinates**; `CameraZoneMapping.roi_polygon`: **camera-frame coordinates**. Do not project automatically.
+- Existing backend persists normalized `[0,1]` geometry. Keep polygon validity/point-count requirements and boundary checks.
+- Floor-plan replacement affects floor/map geometry references; do not silently delete unrelated camera mappings.
+- One Zone may be seen by multiple cameras. That does not justify summing counts or cross-camera deduplication without an approved source-selection strategy.
 
 ---
 
 # 7. Multiple cameras monitoring the same Zone
 
-The system explicitly does **not** perform cross-camera identity matching.
-
-Therefore do not attempt:
-
-```text
-Camera A track 14 == Camera B track 83
-```
-
-or global person identity assignment.
-
-When multiple cameras monitor one Zone, an operational measurement should use either:
-
-- a designated source camera; or
-- configured non-overlapping counting regions.
-
-This rule prevents double counting without introducing cross-camera re-identification.
-
-The exact measurement-source configuration remains an open design item. Do not sum overlapping camera counts or infer cross-camera identity until the team approves the strategy.
+The schema supports many camera-zone mappings. **Current ROI runtime does not yet support arbitrary multi-camera measurement-source selection**; a narrower one-active-mapping-per-Zone activation policy was used in its October implementation. Preserve the general ERD cardinality while leaving runtime selection/fallback as a planned design decision. Avoid double-counting people across overlapping camera views.
 
 ---
 
 # 8. Crowd analysis and heatmaps
 
-Heatmap and physical crowd density are related but not identical.
-
-## Heatmap
-
-Heatmap uses tracked positions accumulated over time:
-
-```text
-tracks
-→ positions
-→ spatial accumulation
-→ heatmap
-```
-
-A heatmap answers:
-
-> Where do people tend to concentrate?
-
-It does not require real-world square metres.
-
-## Crowd density
-
-Current BR formula:
-
-```text
-crowd density = current people in Zone / Zone area in m²
-```
-
-Current baseline thresholds:
-
-```text
-Warning  >= 2 people/m²
-Critical >= 3 people/m²
-```
-
-This requires a real physical area value.
-
-### ERD v4 target persistence
-
-`Zone.area_m2` exists in ERD v4. It is the physical area value used for the agreed people-per-square-metre density formula and may be entered by Admin for Zones that use physical density.
-
-Do **not** implement camera-based physical area estimation, homography-based local-density estimation, or 3D calibration just to obtain square metres unless the scope is formally expanded.
-
-Keep heatmap implementation independent from `area_m2`; heatmaps use tracked positions and do not require real-world square metres.
+- **Queue length:** count tracks satisfying queue-region residence criteria; existing baseline uses ≥5s presence.
+- **Waiting time:** time spent from entry to checkout service, not simply queue count converted to minutes.
+- **Crowd density:** qualified people count ÷ calibrated real zone area in m². Never infer m² solely from a normalized polygon.
+- **Heatmap:** aggregate occupancy/movement spatially within a defined frame/time, with source and calibration limitations documented.
+- **Checkout utilization:** staffed checkout counters ÷ total relevant counters; a validated counter model/source is still needed for full implementation.
+- `ZoneMetric` holds historical metric aggregates; V6 includes `config_version` for configuration provenance.
 
 ---
 
-# 9. Database V2 implementation baseline and ERD v4 target
+# 9. Physical ERD V6 target vs implemented database
 
-The live development database was inspected again on 11/10/2026 after applying Database V2. The OperationalEvent episode subset is present: `OperationalEventType`, `MonitoringRule.event_type_id`, and the revised OperationalEvent fields `event_type_id`, `priority`, `last_observed_at`, `cleared_at`, and `updated_at`.
+**Approved design:** [V6](https://drive.google.com/file/d/17HEN6bpP-hxOfckGZWo2bKzPw4CHsP7S/view), **37 native draw.io tables and 72 Crow's Foot relationship edges**. V6 is a **design baseline**, not a claim that SQL Server already has those tables/columns. The current backend still has an older SQL-first scaffold and legacy incident connection.
 
-This is implementation-state evidence for that subset, not proof that the complete ERD v4 workflow is implemented. Inspect the live database and code before claiming StaffReport, ResponsePolicy/ResponsePolicyAction execution, Task assignment/evidence, notifications/recommendations, shift/coverage, ZoneAdjacency behavior, ZoneMetric analytics, or AuditLog behavior.
+## 9.1 Complete V6 table inventory (37)
 
-The existing MF-01 database baseline contains the following core entities.
+| Domain | Target entities |
+| --- | --- |
+| Identity / store | `Role`, `UserAccount`, `Supermarket`, `Floor`, `Zone` |
+| Cameras / mapping | `Camera`, `CameraConnection`, `CameraZoneMapping`, `CameraHealthEvent` |
+| AI monitoring | `MonitoringConfiguration`, `MonitoringRule`, `OperationalEventType`, `OperationalEvent`, `ZoneMetric` |
+| Incident / reports | `IncidentType`, `Incident`, `IncidentMedia`, `StaffReport`, `StaffReportMedia` |
+| Tasks | `Task`, `TaskAssignmentHistory`, `TaskEvidence` |
+| Staff / scheduling | `Shift`, `ShiftAssignment`, `StaffZoneAssignment`, `StaffUnavailability`, `ShiftSwapRequest`, `ZoneAdjacency` |
+| Notifications / policies | `Notification`, `NotificationRecipient`, `UserDevice`, `ResponsePolicy`, `ResponsePolicyAction` |
+| Administration / analytics | `Recommendation`, `AuditLog`, **`ServiceHealthEvent`**, **`SystemSetting`** |
 
-## Stable / safe to implement now
+## 9.2 V6 changes from V5
 
-### `Role`
+**Removed** `NotificationConfig` (settings now managed through `SystemSetting`) and `ZoneShiftRequirement` (`Zone.min_staff` is sufficient for the agreed scope). **Do not recreate either table without a new decision.**
 
-Purpose: RBAC role definition.
+**Added** `ServiceHealthEvent` (service name/status/error and detection/recovery timestamps), `SystemSetting` (unique key, value, type, updater and timestamp).
 
-Expected roles:
+**Added attributes:**
 
-```text
-ADMIN
-OPERATOR
-MANAGER
-STAFF
-```
+| Table | Attributes |
+| --- | --- |
+| `Zone` | `min_staff` |
+| `ShiftSwapRequest` | `expires_at`, `cancelled_by_user_id` (FK), `cancelled_at`, `cancellation_reason` |
+| `AuditLog` | `result_status` |
+| `ZoneMetric` | `config_version` |
 
-### `UserAccount`
+| `Incident` | `monitoring_rule_id` |
+| `Task` | `rejection_count` |
+| `NotificationRecipient` | `attempt_count`, `last_attempt_at`, `provider_status` |
 
-Purpose: login identity.
+**Not added:** `NotificationDeliveryAttempt`, `TaskVerification`, `MonitoringRun`, or additional shift staffing requirement tables. Existing `TaskEvidence.review_status` and `TaskEvidence.reject_reason` provide evidence-review outcomes; existing `Task` records current verified state. The team deliberately preferred minimal persistence.
 
-Important decisions:
+## 9.3 Important relationships / provenance
 
-- no separate generic `User` table is required for login identity;
-- no self-registration approval workflow;
-- no `PENDING`;
-- no `reviewed_by_user_id`;
-- no `reviewed_at`;
-- status is `ACTIVE` / `DISABLED`;
-- password is stored only as a password hash.
+- Exactly one `MonitoringRule.outcome_type`; its Event/Incident type reference follows the chosen outcome.
+- Event and Incident are **parallel** branches; `OperationalEvent` has no target `incident_id` FK in V6.
+- `ResponsePolicy` / `ResponsePolicyAction` apply to operational Event action routing.
+- `Task.origin_type ∈ {OPERATIONAL_EVENT, INCIDENT, STAFF_REPORT, MANUAL}`; populate only the corresponding origin FK (none for MANUAL).
+- `ShiftSwapRequest`: A requester, B colleague, their applicable future assignment(s), decision maker and cancellation actor; Manager approval applies changes.
+- `NotificationRecipient` is user-level delivery summary; `UserDevice` is an active push token/device record. `NotificationRecipient` retry counters **do not represent a permanent per-device send-attempt audit table**.
+- `SystemSetting` stores **non-secret** configuration only; credentials, tokens and cryptographic keys stay in protected environment/secret storage.
 
-Use ASP.NET Core Identity / `PasswordHasher` or an equivalent proven password hasher.
+## 9.4 DB implementation status — do not overstate
 
-Never store plaintext passwords or hand-roll SHA-256 password storage.
+At inspected `dev` commit, `src/Supermarket.Infrastructure/Persistence/Scaffolded/MonitoringRule.cs` still has **non-null** `IncidentTypeId` and `EventTypeId` and lacks the V6 `outcome_type` discriminator. `OperationalEvent.cs` still exposes `IncidentId`. `MonitoringIncidentWriter` still creates/links a `DETECTED` Incident from an Event for legacy compatibility. **Those are known divergences, not approved new requirements.**
 
-### `Supermarket`
-
-One branch for the project baseline. **Decision 03/10/2026:** the system runs with exactly one default Supermarket record, provided by seed/initial data. There is no store setup step, screen, or create/edit store workflow; Admin setup starts at Floor. Keep the table and the `Floor.supermarket_id` FK as in the ERD; clients read the default store with `GET /supermarkets` and do not let users pick or create one.
-
-### `Floor`
-
-Belongs to `Supermarket`.
-
-Can store:
-
-- floor number;
-- name;
-- floor map asset URL;
-- map width / height metadata.
-
-Map width/height are render/debug metadata. Normalized spatial points remain the logical source of truth.
-
-### `Zone`
-
-Belongs to `Floor`.
-
-Current/target important values:
-
-- code;
-- name;
-- zone type;
-- `map_polygon`;
-- `area_m2` from ERD v4 for physical density calculations;
-- status.
-
-`map_polygon` uses normalized floor-map coordinates.
-
-### `Camera`
-
-Belongs to `Floor`.
-
-Current important values include:
-
-- camera code/name;
-- manufacturer/model/serial;
-- installation date;
-- warranty end date;
-- most recent maintenance/repair date once ERD is updated for BR-03;
-- floor-map x/y;
-- rotation;
-- operational status;
-- health status;
-- last seen timestamp.
-
-Camera map x/y should be normalized `[0,1]`.
-
-Application transport-health states:
-
-```text
-UNKNOWN
-ONLINE
-OFFLINE
-```
-
-The current database constraint may still accept legacy `ERROR`, but application health checks do not emit it. Visual usability and processing readiness are separate from transport status and are represented by unresolved `CameraHealthEvent` types plus a derived `READY` / `NOT_READY` service projection.
-
-### `CameraConnection`
-
-Current MVP relationship:
-
-```text
-Camera 1 : 1 CameraConnection
-```
-
-Purpose:
-
-- live/demo/test source;
-- protocol;
-- stream URI;
-- optional snapshot URI;
-- username;
-- recoverable camera credential reference;
-- enabled state;
-- last connection test result/message.
-
-Expected source types:
-
-```text
-LIVE
-RECORDED
-```
-
-Synthetic `DEMO` camera connections are not accepted. Existing legacy `DEMO` rows are invalid configuration and must be reconfigured as `LIVE` or `RECORDED`; they must not report ONLINE from a generated frame.
-
-Expected protocols can include:
-
-```text
-RTSP
-HTTP
-HLS
-WEBRTC
-FILE
-```
-
-New connection should start disabled.
-
-Intended flow:
-
-```text
-configure
-→ test
-→ preview/manual verification
-→ enable
-```
-
-### `CameraZoneMapping`
-
-Bridge for Camera N:M Zone.
-
-Stores the camera-specific Zone ROI.
-
-Constraint:
-
-```text
-UNIQUE(camera_id, zone_id)
-```
-
-The backend must ensure both belong to the same Floor.
-
-### `MonitoringConfiguration`
-
-Current MF-01 concept: per-Zone monitoring/AI configuration.
-
-Current baseline assumes at most one active/current configuration per Zone in the MVP.
-
-Contains AI/runtime settings such as model detection confidence.
-
-### `CameraHealthEvent`
-
-Separate system-health history for camera/stream failures and recovery. Transport, visual usability, and processing availability are distinct: an ONLINE camera may still have `CAMERA_VIEW_BLOCKED`, `CAMERA_VIEW_BLURRED`, `CAMERA_VIEW_FROZEN`, or `CAMERA_FRAME_INVALID`. AI-service availability is broader pipeline health and must not be mislabeled as a camera failure.
-
-Example states:
-
-```text
-OPEN
-INVESTIGATING
-RESOLVED
-```
-
-`investigated_by_user_id` is valid here because it records who actually investigated a health problem.
-
-This is unrelated to the removed account/camera-review fields.
-
-## ERD v4 target model and remaining alignment
-
-### `MonitoringRule`
-
-ERD v4 target rules reference `OperationalEventType`, not `IncidentType`. The target concepts include:
-
-```text
-rule_id
-config_id
-operational_event_type_id
-warning_threshold
-critical_threshold
-threshold_unit
-sustain_sec
-cooldown_sec
-parameters_json
-enabled
-UNIQUE(config_id, operational_event_type_id)
-```
-
-Do not resurrect the historical generic `rule_type` / `threshold_value` / `severity` shape. Database V2 and the current backend model use `event_type_id` for MonitoringRule. Preserve database-first alignment through the canonical Database repository script and reviewed persistence mappings.
-
-### `IncidentType` / `OperationalEventType`
-
-The current live database retains `IncidentType` for incidents and now has `OperationalEventType` as the separate AI operational-event catalog. MonitoringRule maps to OperationalEventType in Database V2 and the backend implementation; this does not by itself implement ResponsePolicy or Incident qualification.
-
-```text
-incident_type_id
-code
-name
-description
-source_type
-measurement_type
-requires_before_photo
-default_severity
-status
-timestamps
-```
-
-Incident qualification and any review/approval behavior must follow the 40-rule Business Rules. Do not invent a `requires_operator_review` column or create a competing table/migration while its target persistence representation remains unsettled.
+The scaffold covers a **subset** of V6 entities. Do not infer that ShiftSwapRequest, SystemSetting, ServiceHealthEvent or other target workflows are implemented until verified in code, SQL metadata and tests. The canonical Database repo and applied SQL Server version must be checked before writing migrations.
 
 ---
 
 # 10. Authentication and secret handling
 
-## User password
-
-Must be one-way hashed.
-
-```text
-password → proper password hasher → password_hash
-```
-
-Never recover plaintext user password.
-
-## Camera/RTSP credential
-
-Different requirement: the system must use the secret to connect to the camera.
-
-Therefore it cannot be a one-way password hash.
-
-Preferred pattern:
-
-```text
-CameraConnection
-    credential_secret_ref
-             ↓
- encrypted secret / secret store
-```
-
-Do not embed credentials directly in persisted RTSP URLs.
-
-Never log camera passwords/tokens.
-
-For local development use environment-specific secrets.
+- Hash staff/admin passwords. Keep account disabled/revoked/role changes effective at API authorization boundaries.
+- Only Admin creates/manages accounts; prevent disabling/deleting the last active Admin.
+- JWT keys, SQL credentials, camera passwords and Data Protection keys must **never** be committed or logged.
+- Camera credentials may be encrypted via ASP.NET Core Data Protection; service instances sharing encrypted credentials need the correct protected key ring.
+- Keep `appsettings.Local.json`, deployment `api.env`, build output and recorded videos outside Git. Use example files only as templates.
 
 ---
 
 # 11. Current architecture / stack
 
-## Web frontend
-
 ```text
-ReactJS
-TypeScript
-Vite
+Web frontend / Flutter mobile app
+           ↓ HTTPS + authenticated API
+ASP.NET Core (.NET 10)
+  ├── Supermarket.Api            controllers, auth, API composition
+  ├── Supermarket.Application    use cases, contracts, transactions
+  ├── Supermarket.Domain         business rules, geometry, state validation
+  └── Supermarket.Infrastructure SQL Server EF scaffolds, AI/video/health adapters
+           ↓
+SQL Server authoritative DB       Redis only for transient coordination/cache
+Python AI service / OpenCV / detection + tracking   → observations (not DB ownership)
+Firebase Cloud Messaging / push   → communication (not Task acceptance)
 ```
 
-## Mobile
-
-```text
-Flutter
-```
-
-MF-01 is mainly Web/Admin. Do not block MF-01 on the mobile app.
-
-## Backend
-
-```text
-ASP.NET Core .NET 10
-EF Core
-```
-
-Backend is responsible for:
-
-- authentication/authorization;
-- business validation;
-- relational persistence;
-- camera configuration APIs;
-- monitoring configuration APIs;
-- domain invariants;
-- service integration.
-
-## AI / video analytics
-
-```text
-Python
-PyTorch
-Ultralytics YOLO
-ByteTrack
-OpenCV
-ONNX Runtime
-FFmpeg
-```
-
-The AI service should not own business truth.
-
-AI produces detections/tracks/measurements/events. ASP.NET/domain persistence remains responsible for operational business workflow.
-
-## Database
-
-```text
-Microsoft SQL Server — primary relational source of truth
-Redis — transient/cache/realtime support when required
-```
-
-Do not use Redis as the authoritative store for MF-01 configuration.
-
-## Deployment
-
-```text
-Kitsura VPS
-Nginx
-Docker
-GitHub Actions
-```
+- SQL Server is canonical persistence; no code-first schema migration or EF `EnsureCreated` for the shared database.
+- `src/Supermarket.Infrastructure/Persistence/Scaffolded/` is **generated**. Put custom behavior outside; re-scaffold only after approved SQL changes.
+- Keep thin controllers, role-aware application services, domain invariants independent of ASP.NET/EF, explicit DTOs, sanitized errors and bounded retries.
+- Deployment workflow/config lives under `.github/workflows`, `deploy/dev`, and [`docs/DEPLOY_DEV.md`](DEPLOY_DEV.md); historical deployment validation must not be presented as a fresh availability guarantee.
 
 ---
 
-## 11.1 Backend design pattern — pragmatic N-layer architecture
+# 12. MF-01 service boundaries
 
-The backend uses a pragmatic N-layer architecture with four primary layers:
-
-```text
-API / Presentation
-        ↓
-Application / Use Cases
-        ↓
-Domain / Business Rules
-        ↓
-Infrastructure / Technical Services
-```
-
-### API / Presentation
-
-Owns HTTP controllers/endpoints, authentication and authorization middleware, request/response DTOs, basic request-shape validation, exception handling, HTTP status mapping, and OpenAPI documentation.
-
-Rules:
-
-- Controllers stay thin and call Application use cases.
-- Controllers must not contain business decisions or access `DbContext` directly.
-- Scaffolded database entities must not be exposed as public API DTOs.
-
-### Application / Use Cases
-
-Owns commands, queries, use-case orchestration, use-case authorization, transaction boundaries, repository/service abstractions, external-service abstractions, pagination/filtering/idempotency, application validation, and mapping to API DTOs.
-
-Expected MF-01 use cases include:
-
-```text
-CreateFloor
-CreateZone
-RegisterCamera
-TestCameraConnection
-EnableCameraConnection
-DisableCameraConnection
-MapCameraToZone
-SaveMonitoringConfiguration
-ActivateMonitoringConfiguration
-ResolveCameraHealthEvent
-```
-
-Application services coordinate use cases; they must not become one global business-logic service. Application code may depend on Domain, but must use abstractions instead of concrete SQL Server, EF Core, HTTP, or camera implementations. Typical abstractions include `ICameraRepository`, `ICameraConnectionTester`, `ICurrentUser`, `IUnitOfWork`, and `IClock`.
-
-### Domain / Business Rules
-
-Owns entities, aggregates, value objects, domain services/events, business invariants, state transitions, and domain validation.
-
-The Domain layer must enforce these rules:
-
-```text
-Camera belongs to a Floor, not directly to a Zone.
-Camera ↔ Zone is many-to-many through CameraZoneMapping.
-Camera and mapped Zone must belong to the same Floor.
-Floor-map Zone polygon and camera-frame ROI are different coordinate spaces.
-Spatial coordinates are persisted as normalized values where applicable.
-OperationalEvent is not Incident.
-CameraHealthEvent is not an operational Incident.
-The last active Admin account cannot be disabled or removed.
-Camera connections cannot be enabled before required validation succeeds.
-```
-
-Domain must not depend on ASP.NET Core, EF Core, external APIs, or configuration files. It must be unit-testable without a database or running web server.
-
-### Infrastructure / Technical Services
-
-Owns EF Core persistence, scaffolded database entities, entity configurations, repositories, transactions, SQL Server, Redis adapters, camera/RTSP adapters, health-monitoring workers, secret handling, external clients, and Python AI-service integration.
-
-Infrastructure implements interfaces defined by Application or Domain. SQL Server is authoritative; Redis is only transient/cache/realtime support. The AI service produces detections, tracks, measurements, and events; the ASP.NET Core backend owns business workflow and persistence.
-
-### Dependency direction and request flow
-
-```text
-Domain
-  ↑
-Application
-  ↑
-Infrastructure
-
-API → Application
-API → Infrastructure (dependency-injection composition only)
-```
-
-```text
-HTTP Request
-    ↓
-API Controller
-    ↓
-Application Command or Query
-    ↓
-Application Validation
-    ↓
-Domain Entity or Domain Service
-    ↓
-Repository or External Adapter
-    ↓
-Unit of Work / Database Transaction
-    ↓
-Application Result
-    ↓
-API Response DTO
-```
-
-### Validation boundaries
-
-- **API:** request shape, required fields, string lengths, enum format, JSON structure, and basic numeric ranges.
-- **Application:** resource existence, permission, allowed workflow operation, and duplicate-request handling.
-- **Domain:** same-floor mapping, normalized coordinate ranges, polygon minimum points, connection preconditions, status transitions, and last-active-Admin protection.
-
-Frontend validation is for user experience only. Backend and Domain validation remain authoritative.
-
-### Error handling and testing
-
-Use consistent `ProblemDetails` responses: `400` malformed request, `401` unauthenticated, `403` unauthorized, `404` not found, `409` business conflict, `422` semantic validation failure, and `500` unexpected failure. Never expose stack traces, SQL errors, connection strings, camera credentials, or secrets.
-
-Test at the layer boundary:
-
-```text
-Domain tests        → invariants and state transitions
-Application tests   → use-case orchestration and validation
-Infrastructure tests→ EF mappings, repositories, persistence
-API integration     → auth, HTTP contracts, end-to-end workflows
-```
-
-Do not put business rules only in React, call `DbContext` from controllers, expose EF entities as API DTOs, put ASP.NET/EF dependencies in Domain, allow AI to modify incidents/tasks directly, use Redis as the source of truth, combine OperationalEvent with Incident, or treat CameraHealthEvent as an operational Incident.
-
-## 11.2 Database-first persistence and EF Core scaffolding
-
-The backend uses a database-first persistence workflow. The approved SQL Server schema and synchronized ERD are authoritative for tables, columns, keys, relationships, nullability, constraints, indexes, and persistence-specific status values. EF Core entities and `DbContext` code are scaffolded from the approved database schema.
-
-Generated persistence code belongs under Infrastructure:
-
-```text
-Supermarket.Infrastructure/
-  Persistence/
-    Scaffolded/
-      AppDbContext.cs
-      UserAccount.cs
-      Supermarket.cs
-      Floor.cs
-      Zone.cs
-      Camera.cs
-      CameraConnection.cs
-      CameraZoneMapping.cs
-      MonitoringConfiguration.cs
-      CameraHealthEvent.cs
-    Configurations/
-    Mappings/
-    Repositories/
-```
-
-Scaffolded files are generated artifacts. Do not put business rules or API behavior in them, manually patch them expecting changes to survive re-scaffolding, or use them directly as API DTOs. Put custom behavior in Domain, Application, Infrastructure adapters, mappings, or supported partial extensions. The generated `DbContext` must not contain production secrets or hardcoded connection strings; configure it through application configuration and dependency injection.
-
-### Database-first change workflow
-
-```text
-Approved ERD or database-schema change
-    ↓
-Apply the approved SQL Server schema change
-    ↓
-Re-scaffold EF Core entities and DbContext
-    ↓
-Review generated changes
-    ↓
-Update Infrastructure mappings and repositories
-    ↓
-Update Domain/Application behavior if required
-    ↓
-Update API contracts and tests if required
-```
-
-Database changes must not be introduced only by changing C# classes. Migration scripts or database deployment tooling may apply approved changes, but must remain synchronized with the approved ERD and SQL Server schema.
-
-Keep persistence and business models separate:
-
-```text
-Scaffolded EF entity ↕ Infrastructure mapping
-Domain entity/value object ↕ Application mapping
-Application DTO ↕ API mapping
-API request/response
-```
-
-Direct mapping may be used for simple MF-01 operations only when it does not weaken business rules. Important invariants remain in Application or Domain code.
-
-Do not freeze or invent scaffolded contracts for the remaining unresolved alignment points: SLA/escalation semantics, threshold/policy provenance, concurrency/idempotency, StaffReport media retention, multiple-camera measurement-source selection, checkout-counter representation, Manager-on-duty representation, optional policy-action traceability, or the operational use of `ZoneAdjacency`. ERD v4 defines `Zone.area_m2`, the concrete target `MonitoringRule`/`OperationalEventType` relationship, and the `ZoneAdjacency` entity; the live schema remains older.
-
-# 12. Recommended MF-01 service boundaries
-
-Keep components separable even if deployed together initially.
-
-```text
-React Admin Web
-       ↓ HTTPS
-ASP.NET Core API
-       ├── MSSQL
-       ├── Secret handling
-       ├── Camera connection/preview adapter
-       ├── Health monitoring worker
-       └── AI service configuration/integration
-                         ↓
-                    Python AI Service
-```
-
-Avoid frontend → AI service direct calls for persistent configuration.
-
-Backend should own authorization and persistence.
+Account/RBAC; floor-plan/zone geometry; camera metadata, stream credentials and validation; camera-zone mapping; MonitoringConfiguration/Rule; preview; background monitoring; camera health; status/overview. Keep camera preview read-only and monitoring processing owned by the runtime worker. Do not add unapproved functionality merely because a scaffold allows it.
 
 ---
 
 # 13. MF-01 API capability checklist
 
-Exact route naming may vary, but the capabilities should exist consistently.
+Current `dev` contains controllers for accounts, store/floor setup, cameras, monitoring config/review/activation, monitoring live/health, recorded-video upload and AI preview, plus an IncidentType controller. For precise route/response status, inspect [`docs/API.md`](API.md), [`docs/openapi.json`](openapi.json) and actual controller source.
 
-## Authentication / accounts
-
-```text
-POST   /auth/login
-GET    /users
-POST   /users
-PATCH  /users/{id}
-POST   /users/{id}/disable
-POST   /users/{id}/enable
-GET    /roles
-```
-
-Rules:
-
-- Admin-only account administration;
-- no public self-registration;
-- last active Admin cannot be disabled/removed.
-
-## Supermarket
-
-Single default store, read-only for clients (no store setup in the current baseline):
-
-```text
-GET    /supermarkets
-GET    /supermarkets/{id}
-```
-
-## Floors
-
-```text
-GET    /supermarkets/{supermarketId}/floors
-POST   /supermarkets/{supermarketId}/floors
-GET    /floors/{id}
-PATCH  /floors/{id}
-```
-
-Support floor-map metadata/upload flow as agreed by the frontend/storage implementation.
-
-## Zones
-
-```text
-GET    /floors/{floorId}/zones
-POST   /floors/{floorId}/zones
-GET    /zones/{id}
-PATCH  /zones/{id}
-```
-
-Validate `map_polygon`.
-
-## Cameras
-
-```text
-GET    /floors/{floorId}/cameras
-POST   /floors/{floorId}/cameras
-GET    /cameras/{id}
-PATCH  /cameras/{id}
-```
-
-## Camera connection
-
-```text
-PUT    /cameras/{id}/connection
-POST   /cameras/{id}/connection/test
-GET    /cameras/{id}/preview
-POST   /cameras/{id}/connection/enable
-POST   /cameras/{id}/connection/disable
-```
-
-Enabling should not silently bypass required connection validation.
-
-Manual preview approval does not need a `reviewed_by` database field.
-
-## Camera-Zone mapping
-
-```text
-GET    /cameras/{id}/zones
-PUT    /cameras/{id}/zones/{zoneId}
-DELETE /cameras/{id}/zones/{zoneId}
-```
-
-Mapping payload includes normalized `roi_polygon`.
-
-Reject cross-floor mapping.
-
-## Monitoring configuration
-
-```text
-GET    /zones/{zoneId}/monitoring
-PUT    /zones/{zoneId}/monitoring
-POST   /zones/{zoneId}/monitoring/activate
-POST   /zones/{zoneId}/monitoring/deactivate
-```
-
-Exact MonitoringRule/OperationalEventType endpoints should follow the approved target contract; the current live API may still expose older IncidentType-based routes until migration.
-
-## Camera health
-
-```text
-GET    /cameras/{id}/health
-GET    /camera-health-events
-POST   /camera-health-events/{id}/investigate
-POST   /camera-health-events/{id}/resolve
-```
-
-These routes are examples of capabilities, not mandatory naming.
+**Do not assume** there are current endpoints for final Task acceptance/verification, fully independent rule-target Incident handling, StaffReport confirmation, SWAP/COVER approval, SystemSetting or ServiceHealthEvent. They remain target requirements until implemented and tested.
 
 ---
 
 # 14. Backend validation rules for MF-01
 
-At minimum enforce:
-
-## Accounts
-
-- email unique;
-- role exists;
-- user status valid;
-- last active Admin protection.
-
-## Supermarket / Floor / Zone
-
-- floor belongs to supermarket;
-- floor number unique inside supermarket;
-- zone belongs to floor;
-- zone code unique inside floor;
-- floor map dimensions are both null or both positive;
-- polygon JSON valid;
-- polygon points valid and normalized.
-
-## Camera
-
-- camera belongs to floor;
-- normalized map x/y if present;
-- valid rotation;
-- valid operational/health status;
-- installation/warranty metadata obeys sensible chronology;
-- update most recent maintenance/repair timestamp only when maintenance occurs.
-
-## CameraConnection
-
-- supported source type/protocol;
-- no plaintext secret persisted;
-- connection test updates `last_tested_at`, result, message;
-- new connection disabled by default;
-- enabling failed/invalid connection should be rejected.
-
-## CameraZoneMapping
-
-- Camera and Zone exist;
-- same Floor;
-- unique pair;
-- ROI JSON valid;
-- ROI coordinates normalized;
-- geometry valid.
-
-## MonitoringConfiguration
-
-- Zone exists;
-- model confidence range `[0,1]`;
-- status valid;
-- only the allowed current/active configuration policy for the MVP.
+- Check foreign keys/roles and same-floor camera-zone relation; reject invalid or self-intersecting polygons.
+- Normalize floor/camera coordinates; never mix map coordinates and camera ROI.
+- Validate camera connection source/protocol/credential state before enabling, and invalidate stale test results after changes.
+- Validate MonitoringConfiguration readiness, rule thresholds/units, ROI mapping and source constraints before activation.
+- New AI capabilities require actual model/measurement readiness; do not enable an unsupported checkout/wait-time detector for a demo.
+- Enforce status transitions in backend; do not rely solely on frontend disable/visibility.
 
 ---
 
 # 15. Timestamp conventions
 
-Use UTC for persisted timestamps:
-
-```text
-SYSUTCDATETIME()
-DateTimeOffset / UTC DateTime in application code
-```
-
-Important SQL Server detail:
-
-```text
-updated_at DEFAULT SYSUTCDATETIME()
-```
-
-only initializes the value on INSERT.
-
-It does **not** automatically update on UPDATE.
-
-EF Core/application code must update `updated_at` on mutations, or use another explicit DB mechanism.
+Persist unambiguous timestamps (normally UTC) and convert to the configured supermarket local timezone in UI/reporting. Treat video capture time and processing time separately for sustained-condition evaluation. For SWAP/COVER expiry, calculate the **absolute deadline** from the earliest affected local shift start and store an unambiguous instant in `expires_at`. Never subtract 24 hours from request creation.
 
 ---
 
 # 16. MF-01 state semantics
 
-## Camera operational status
+| State category | Example meaning |
+| --- | --- |
+| Camera status | Asset/admin operational enablement, not proof stream works. |
+| Camera health | Recent stream/observation health and health-history events. |
+| CameraConnection enabled | Configured source may be consumed, subject to validated test. |
+| MonitoringConfiguration state | DRAFT / ACTIVE / INACTIVE or equivalent; separate from camera health and preview. |
+| Runtime state | Starting/active/stopping/completed/error; capture-worker ownership matters. |
 
-Represents administrative availability:
-
-```text
-ACTIVE
-INACTIVE
-DISABLED
-```
-
-## Camera health status
-
-Represents runtime health:
-
-```text
-UNKNOWN
-ONLINE
-OFFLINE
-```
-
-This field is transport/connectivity-oriented. Visual health uses event-specific `CameraHealthEvent` records and monitoring usability is derived as `READY` / `NOT_READY`. Monitoring activation remains independent and is not automatically changed by temporary health failures.
-
-Do not use these interchangeably.
-
-Example:
-
-```text
-Camera.status = ACTIVE
-Camera.health_status = OFFLINE
-```
-
-means the camera is configured/expected to run but currently unavailable.
-
-## CameraConnection enabled
-
-`is_enabled` means the configured connection may be used operationally.
-
-It should not mean "a test succeeded once".
-
-Test outcome is separately represented by:
-
-```text
-last_tested_at
-last_test_result
-last_test_message
-```
+A status change in one category must not silently imply changes to the others.
 
 ---
 
 # 17. MF-01 sequence to implement and demo
 
-A clean end-to-end demo should be possible in this order:
-
-1. Admin logs in.
-2. Admin opens the default store (pre-seeded; no store creation step).
-3. Admin creates a Floor.
-4. Admin attaches a floor-map asset.
-5. Admin draws a Zone polygon on the floor map.
-6. Admin registers a Camera on that Floor.
-7. Admin places the Camera on the floor map.
-8. Admin configures the approved live or recorded-source connection settings.
-9. Backend tests the connection.
-10. Admin previews the stream.
-11. Admin manually enables the connection.
-12. Admin maps the Camera to a Zone.
-13. Admin draws that Zone's ROI in the Camera frame.
-14. Backend stores normalized ROI coordinates.
-15. Admin configures the Zone monitoring configuration.
-16. Admin activates monitoring.
-17. Camera health becomes ONLINE / last_seen is updated.
-18. Simulate camera failure.
-19. Transport becomes OFFLINE or a confirmed visual-health issue opens its event-specific CameraHealthEvent.
-20. Admin investigates/restores the connection.
-21. Health event resolves.
-
-Although ERD v4 defines the target MonitoringRule/OperationalEventType relationship, steps that depend on unapproved target persistence may be stubbed behind a stable domain/service interface rather than committing a competing migration.
+Admin login → existing default store → create floor/zone/map → register Camera → configure/test/preview connection → map ROI → save/review monitoring rules → activate → see monitoring/health status → simulate connection/config error → investigate/fix/retest → recover. Show auth failures and invalid geometry as negative paths.
 
 ---
 
 # 18. MF-01 Definition of Done
 
-MF-01 is not "done" just because CRUD pages exist.
-
-It is done when a working end-to-end setup can be demonstrated and tested.
-
-Minimum DoD:
-
-- [ ] Admin authentication works.
-- [ ] RBAC protects Admin configuration endpoints.
-- [ ] Default store is available; Floor/Zone CRUD works.
-- [ ] Floor map can be referenced/displayed.
-- [ ] Zone polygon can be created and reloaded.
-- [ ] Camera can be registered and placed on a Floor.
-- [ ] Camera has installation/warranty metadata.
-- [ ] Camera connection can be configured.
-- [ ] Connection test works with deterministic result handling.
-- [ ] Preview path works for the agreed live/demo source.
-- [ ] New connection starts disabled.
-- [ ] Admin can enable/disable after validation.
-- [ ] Camera can map to multiple Zones on the same Floor.
-- [ ] A Zone can map to multiple Cameras.
-- [ ] Cross-floor mapping is rejected.
-- [ ] ROI polygon persists in normalized coordinates.
-- [ ] Monitoring configuration can be saved/activated.
-- [ ] Camera health state updates.
-- [ ] Health events can be opened/investigated/resolved.
-- [ ] Credentials are not persisted/logged in plaintext.
-- [ ] Core validation has unit tests.
-- [ ] Critical API + DB integration paths have integration tests.
-- [ ] OpenAPI/API contract is kept in sync.
-- [ ] No MF-02/MF-03 feature is accidentally implemented as hidden MF-01 coupling.
+The API behavior is implemented, documented and tested; relevant SQL schema is approved/applied; user-facing flows are demonstrable; errors are sanitized; permissions verified; non-SQL tests pass; relevant SQL integration tests run when maintained fixtures are available; limitations and deferred capabilities are recorded. A successful local build alone does not prove completed MF-01 acceptance.
 
 ---
 
 # 19. MF-01 required tests
 
-## Unit/domain tests
+- Geometry valid/invalid, normalized map/ROI, same-floor mapping.
+- Camera connection test/enable/invalidation, stream unavailable/recovery and health-history behavior.
+- Monitoring draft/review/activation/deactivation, confidence/threshold validation, runtime worker ownership and recorded EOF.
+- Auth/Admin-only setup, last-Admin protection, secret redaction, exception/status codes.
+- Concurrent/repeated monitoring batches and active episode idempotency where implemented.
 
-At minimum:
-
-- normalized coordinate validation;
-- polygon minimum point count;
-- cross-floor CameraZoneMapping rejection;
-- unique mapping;
-- connection enable preconditions;
-- status transition rules;
-- model confidence range;
-- last active Admin protection;
-- floor map width/height validation;
-- credential sanitization/no secret in log DTO;
-- `updated_at` application behavior where appropriate.
-
-## Integration tests
-
-At minimum:
-
-### Store setup
-
-```text
-default supermarket exists
-→ create floor
-→ create zone
-→ reload
-```
-
-### Camera setup
-
-```text
-create camera
-→ create connection
-→ test
-→ enable
-→ reload
-```
-
-### Camera-zone geometry
-
-```text
-create camera + zone same floor
-→ save mapping
-→ reload normalized ROI
-```
-
-Negative:
-
-```text
-camera floor A + zone floor B
-→ reject
-```
-
-### Camera health
-
-```text
-online
-→ simulated disconnect
-→ CameraHealthEvent OPEN
-→ investigate
-→ restore
-→ RESOLVED
-```
+Tests must be explicitly identified as local unit, mock integration, disposable SQL or actual stream/GPU smoke tests; do not conflate them.
 
 ---
 
 # 20. Report 2 quality expectations relevant to coding
 
-Current project process expects:
-
-- incremental Mainflow-based implementation;
-- end-to-end demonstrable behavior;
-- at least **80% coverage of testable core business logic** as the unit-test target;
-- **100% of identified critical integration flows** covered by integration testing;
-- critical workflow behavior verified at system/acceptance level;
-- Pull Requests reviewed before merging into `dev`.
-
-Do not chase a numeric test metric by testing trivial getters. Prioritize deterministic domain rules and critical boundaries.
+Report 2 plans ≥80% coverage of **testable core business logic**, 100% of critical identified integration flows and 100% of P0/P1 Mainflow test scenarios; these are *targets*, not claims of achievement. Focus additional tests on direct Incident qualification, independent Event lifecycles, atomic Task acceptance, evidence rejection/reassignment and Staff A → B → Manager SWAP/COVER cancellation/expiry.
 
 ---
 
 # 21. Git and contribution conventions
 
-## 21.1 Branching and integration workflow
-
-`dev` is the integration branch. Feature work must not start directly on `dev`.
-
-Standard workflow:
-
-```text
-Update local dev from the shared dev branch
-    ↓
-Create a feature/fix branch from dev
-    ↓
-Implement and commit only on that branch
-    ↓
-Run focused tests, build checks, and required validation
-    ↓
-Request review through a pull request
-    ↓
-Merge into dev only after review and verification
-```
-
-Recommended branch names:
-
-```text
-feature/<short-description>
-fix/<short-description>
-refactor/<short-description>
-docs/<short-description>
-```
-
-Rules:
-
-- Never implement feature work directly on `dev`.
-- Never commit unfinished or unverified feature work to `dev`.
-- Keep unrelated changes out of the feature branch.
-- Keep commits focused and reviewable.
-- Do not bypass pull-request review for normal feature work.
-- Resolve merge conflicts against the current `dev` before merging.
-- A branch is not complete until focused verification evidence is available.
-
-## 21.2 Agent instruction and project-convention workflow
-
-Before implementation, the coding agent must read:
-
-1. The repository-root `AGENTS.md`.
-2. Any relevant project-specific instruction files.
-3. Relevant architecture, ERD, business-rule, and validation documents.
-4. Existing contribution, branching, and test instructions.
-
-Prior project configurations and architecture documents may be used as reference material, but this repository's `AGENTS.md`, approved ERD, current business rules, and explicit team decisions take precedence.
-
-The agent must:
-
-- preserve established team conventions unless this repository explicitly overrides them;
-- inspect the current branch and working tree before editing;
-- make changes on a feature/fix branch created from `dev`;
-- avoid direct edits to `dev` for feature implementation;
-- keep generated database code separate from business logic;
-- add or update tests for behavior changes;
-- run focused verification before requesting review;
-- report changed files and verification evidence;
-- ask before destructive or irreversible workspace actions.
-
-Current project plan:
-
-```text
-main
-  └── stable
-
-dev
-  └── integration
-
-feature/<feature-name>
-  └── feature work
-```
-
-Commit prefixes:
-
-```text
-feat:
-fix:
-refactor:
-docs:
-test:
-```
-
-Expected workflow:
-
-```text
-feature branch
-→ PR
-→ at least one review
-→ dev
-→ milestone/release validation
-→ main
-```
-
-Link work/PRs to Jira tickets when applicable.
-
-Do not commit:
-
-- secrets;
-- camera passwords;
-- `.env` with credentials;
-- build outputs;
-- local databases;
-- generated caches.
+- `main` stable, `dev` integration; make changes on reviewed feature/fix/docs branches and PR into `dev`.
+- Read root [`AGENTS.md`](../AGENTS.md) and relevant scoped instructions before implementation.
+- Keep `docs/PROJECT_CONTEXT.md`, root AGENTS and README aligned when a **new approved** behavior changes shared context.
+- Commit only intended changes. Do not rewrite teammate diagrams, Drive reports, SQL history or generated scaffolds outside the assigned scope.
+- Run `git diff --check` for doc changes; for code changes use focused tests + applicable build. Never commit private credentials.
 
 ---
 
-# 22. Suggested parallel implementation split for MF-01
+# 22. Suggested parallel implementation split
 
-This is a coordination suggestion, not a formal RACI replacement.
+| Workstream | Responsibility |
+| --- | --- |
+| Backend/API | Controllers, domain flows, secure DTOs, response policies, Task/Incident workflow. |
+| Database | Approved SQL Server schema V6 migration, indexes and EF re-scaffold (team coordination required). |
+| AI/video | Tracked observations, ROI measurements, version/timestamp provenance, validated safety rules. |
+| Web/Mobile | Monitoring dashboard, staff offers/evidence/report confirmation, shift request and Manager review. |
+| QA/DevOps | Critical-flow tests, isolated fixtures, health/recovery, deployment and monitoring. |
 
-## Backend / Database track
-
-Can start immediately on stable entities:
-
-- Role/UserAccount;
-- Supermarket/Floor/Zone;
-- Camera;
-- CameraConnection;
-- CameraZoneMapping;
-- CameraHealthEvent;
-- MonitoringConfiguration baseline;
-- auth/RBAC;
-- validation;
-- migrations;
-- API contracts.
-
-Integrate future MonitoringRule/OperationalEventType, ResponsePolicy, Task, and StaffReport persistence only against an approved ERD v4 SQL schema. Do not create a competing migration from this context file.
-
-## Web/Admin track
-
-Can start against API contracts/mocks:
-
-- login;
-- floor management (single default store);
-- floor map view;
-- zone editor;
-- camera management;
-- connection form;
-- connection test state;
-- preview page/component;
-- camera placement;
-- camera-zone ROI editor;
-- monitoring configuration;
-- health status.
-
-## Camera/video track
-
-Can start independently:
-
-- live/recorded-source adapter;
-- connection test;
-- snapshot/preview;
-- reconnect behavior;
-- health heartbeat/status;
-- FFmpeg/MediaMTX/WebRTC/HLS approach if used.
-
-## AI track
-
-For MF-01, only configuration/integration scaffolding is necessary.
-
-Full OperationalEvent generation belongs to MF-02.
-
-Can prepare:
-
-- configuration contract;
-- normalized ROI loading;
-- de-normalization to current frame dimensions;
-- stream startup/shutdown interface;
-- health/heartbeat interface.
+Coordinate interface contracts first; do not allow separate teams to define conflicting Event/Incident source semantics.
 
 ---
 
-# 23. ERD v4 target entities — do not prematurely force into MF-01
+# 23. V6 target entities — do not prematurely force into MF-01
 
-ERD v4 includes the following target entities/concepts. Their presence in the diagram does not mean they are already present in the current database or implementation:
+Later feature tables (`Shift*`, `StaffReport*`, `Task*`, `Notification*`, `ResponsePolicy*`, `ZoneMetric`, `Recommendation`, `AuditLog`, `SystemSetting`, `ServiceHealthEvent`) are approved **as diagram structures** but not assumed deployed or implemented. Build work by the assigned Mainflow/increment; SQL first, then scaffold, code, tests, docs.
 
-```text
-OperationalEvent
-OperationalEventType
-Incident
-StaffReport
-ResponsePolicy
-ResponsePolicyAction
-Notification
-Staff
-Shift
-ShiftAssignment
-Task
-TaskAssignmentHistory
-TaskEvidence
-Recommendation
-ZoneAdjacency
-ZoneMetric
-AuditLog
-```
-
-The current live database is still the 14-table MF-01 implementation baseline. Add target entities only through an approved SQL/ERD implementation task; do not infer a migration from this context file.
-
-Potential concepts such as Manager-on-duty remain required by later escalation/shift rules, but their representation is not settled.
-
-ZoneAdjacency exists in ERD v4. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
-
-Do not add speculative tables simply to make the schema "look complete".
-
-Add them when the corresponding Mainflow contract is being implemented and the ERD is approved.
+`ServiceHealthEvent` covers backend/AI/database/cache/notification service history. It is intentionally separate from `CameraHealthEvent`. `SystemSetting` stores admin-editable *non-secret* global settings and notification retry parameters.
 
 ---
 
 # 24. Later-flow rules that MF-01 must not block
 
-Even though MF-01 does not implement them yet, avoid architectural decisions that make these impossible:
+### Event episodes
 
-## OperationalEvent episode continuity
+A validated sustained breach opens/updates a corresponding unresolved episode. Priority can escalate in the same Event row. A sustained *valid recovery* clears it. Missing frames/data do **not** represent zero, recovery or closure. Do not auto-close Incidents when an Event clears.
 
-```text
-one active OperationalEvent episode
-per event type / configured scope
-```
+### Task dispatch and acceptance
 
-Do not collapse an OperationalEvent episode into an Incident. Incident qualification is a separate response-policy outcome.
+Notify eligible checked-in/on-shift Staff; explicit first valid acceptance wins atomically. `NotificationRecipient` delivery/read and retry state is not proof of assignment. Unaccepted offers retry according to *configured* values, then Operator escalation; critical Incident routing may also notify duty Manager subject to approved policy.
 
-## Sustain time
+### Shift/Zone eligibility
 
-AI condition must remain true for the MonitoringRule sustain duration before an OperationalEvent episode is opened or escalated.
+`Zone.min_staff` sets one minimum per Zone; actual coverage is represented by `ShiftAssignment` + `StaffZoneAssignment`. `StaffUnavailability` and working-time constraints must be evaluated when assigning or approving scheduling changes. No shift-specific staffing-requirement table.
 
-Current baseline:
+### SWAP/COVER
 
-```text
-30 s
-```
-
-## Cooldown
-
-After closure, the same event type and configured scope is suppressed until cooldown passes.
-
-Current baseline:
-
-```text
-5 min
-```
-
-## Notification / assignment
-
-Response is policy/action based:
-
-```text
-OperationalEvent + priority
-→ select ResponsePolicy
-→ execute or request approval for ResponsePolicyAction
-→ notification / recommendation / Operational Task / qualifying Incident
-→ first valid acceptance wins
-
-no eligible Staff OR retries exhausted
-→ Operator manual assign / reassign
-```
-
-Need atomic "first accept wins".
-
-Do not design task offers in a way that can assign multiple active Staff members to the same single-assignee Task.
-
-## Shift / Zone eligibility
-
-Future dispatch depends on:
-
-```text
-shift
-check-in
-zone assignment
-workload
-```
-
-ZoneAdjacency exists in ERD v4. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
-
-## Shift swap / change workflow
-
-The approved workflow is:
-
-```text
-Staff requests shift change/swap
-    ↓
-Operator reviews the schedule
-    ↓
-System validates suitable Staff candidates
-    ↓
-System proposes candidate(s)
-    ↓
-Operator reviews/selects
-    ↓
-Approved ShiftAssignment is updated
-```
-
-Candidate validation must respect the active scheduling rules, including availability, no overlap, zone coverage, workload, and configured working-hour limits. Use a transparent rule-based recommendation mechanism; do not introduce an optimization engine unless separately approved.
+Peer accepts first; Manager makes final decision; pending requests can cancel or expire; assignments update transactionally on approval. Keep expiry exactly 24h before earliest affected shift begins.
 
 ---
 
 # 25. Baseline calculations for later flows
 
-Current BR calculation definitions:
+| Measure | Definition / caveat |
+| --- | --- |
+| Queue length | Count qualified people continuously inside queue ROI (baseline residence ≥5 seconds). |
+| Waiting time | Elapsed time from queue entry to checkout service; aggregate over actual observations. |
+| Crowd density | Count / calibrated `Zone.area_m2`; never area inferred from screen pixels. |
+| Checkout utilization | Counters with cashier present / relevant total counters. |
+| Task response time | Explicit Task acceptance timestamp − actionable offer dispatch timestamp. |
+| Incident resolution time | Approved Incident start/dispatch reference through verified resolution/closure as defined by policy. |
+| Footfall | Directional line-crossing count with defined ROI/source and dedup limitations. |
 
-## Queue length
-
-Count people who have remained inside the queue area for at least 5 seconds.
-
-## Waiting time
-
-Time from entering queue area to reaching counter.
-
-Dashboard average:
-
-```text
-mean over people served in last 5 min
-```
-
-## Crowd density
-
-```text
-people in Zone / Zone area (m²)
-```
-
-`Zone.area_m2` is present in ERD v4 and is the physical area input for this formula.
-
-## Checkout utilization
-
-```text
-counters with cashier present / total counters
-```
-
-Exact checkout-counter representation will be finalized with the AI/monitoring design.
-
-## Response time
-
-```text
-staff accepted time - incident dispatched time
-```
-
-## Resolution time
-
-```text
-task verified time - incident created time
-```
-
-## SLA %
-
-```text
-verified tasks resolved within SLA / all verified tasks in period
-```
-
-## Footfall
-
-Count entries crossing the configured entrance line during the period.
+Keep Event and Incident statistics **separate**. Do not include revenue/sales metrics.
 
 ---
 
-# 26. Baseline AI incident thresholds
+# 26. Baseline AI thresholds and configuration
 
-These are configurable defaults, not hardcoded universal constants.
+Initial Long Queue/Wait/Congestion/Checkout event types are **categories**, not authority to hard-code universal numerical thresholds. `MonitoringRule` defines warning/critical threshold, unit, sustain and cooldown, and optional parameters. Detection confidence acts *before* tracking and measurement. Rule `outcome_type` controls which entity can be produced. Incident-targeting hazard rules require independently approved safety-risk criteria and **validated model feasibility**; do not treat general person detection as spill/equipment fault detection.
 
-## Long Queue
-
-```text
-Warning  >= 3 waiting people
-Critical >= 5 waiting people
-```
-
-## Excessive Waiting Time
-
-```text
-Warning  >= 4 min
-Critical >= 8 min
-```
-
-## Overcrowding / Congestion
-
-```text
-Warning  >= 2 people/m²
-Critical >= 3 people/m²
-```
-
-## Checkout Capacity Issue
-
-Warning and Critical depend on the condition of open counters and Long-Queue state. Treat this as a configurable composite operational rule, not a YOLO class.
-
-## Model detection confidence
-
-Current starting value:
-
-```text
-0.50
-```
-
-This is an AI input filter only.
-
-Do not use it for Incident routing.
+Legacy implementation constants (e.g., draft defaults and temporary people-count mode for congestion) remain **implementation checkpoints**, not a universal policy declaration. If an operational SLA/default is unapproved, mark it configurable/TBD.
 
 ---
 
 # 27. Privacy / data handling constraints
 
-Implementation must respect current project privacy/security rules.
-
-- display video-recording notice in monitored areas operationally;
-- customers are never identified by the system;
-- no face recognition;
-- no persistent customer identity;
-- continuous video is not stored as a normal feature;
-- incident-linked clips/snapshots may be retained according to the approved requirement;
-- staff operational personal data is only for store operations;
-- camera sensitive credentials must be protected;
-- RBAC + least privilege.
-
-Do not introduce a feature that requires customer identity unless scope is formally changed.
+- Live monitoring primary; uploaded recordings are testing/evaluation/fallback materials, not default operational capture.
+- **Do not store continuous video by default**. Clips/snapshots only when justified for a qualifying Incident or documented operational review and permitted by policy.
+- Proposed **20-second clip** and **30-day retention** are *provisional*, not approved production limits.
+- Visible surveillance notice for monitored areas; no customer identity extraction/storage.
+- Minimize exposure of staff, video and health data; role-based access, secured transport, audit administrative actions.
+- Dismissed Incidents are excluded from Incident performance KPIs.
+- Apply only finalized retention, security and legal requirements for production release; unresolved details need approval.
 
 ---
 
 # 28. Error handling conventions
 
-Recommended project-wide API convention:
-
-- `400` malformed/validation request;
-- `401` unauthenticated;
-- `403` authenticated but unauthorized;
-- `404` resource not found;
-- `409` uniqueness/state/concurrency conflict;
-- `422` optional for valid syntax but rejected domain state, if used consistently;
-- `500` unexpected server error with sanitized response.
-
-Do not expose:
-
-- stack traces;
-- database connection strings;
-- RTSP credentials;
-- tokens;
-- internal secret references.
-
-Use stable application error codes/messages for frontend behavior.
+Validate inputs at the API boundary and invariants in application/domain. Use structured error codes/ProblemDetails and authorization failures. Avoid leaking stream URIs, passwords, internal server paths or Data Protection key material. Distinguish no observation, unavailable source, invalid camera configuration, rejected approval, expired shift request and concurrency conflict.
 
 ---
 
 # 29. Logging and observability
 
-Log events that help diagnose operational failures without leaking secrets.
-
-Useful structured fields:
-
-```text
-request_id
-user_id
-camera_id
-floor_id
-zone_id
-connection_id
-health_event_id
-event_type
-status
-timestamp
-```
-
-Never log:
-
-```text
-password
-password_hash
-camera password
-JWT
-full RTSP URI if it embeds credentials
-secret value
-```
+Capture sanitized structured logs with correlation IDs and measured timings where feasible. `CameraHealthEvent` captures camera faults; **V6 `ServiceHealthEvent`** captures service health over time. Health telemetry is **not** operational `Incident`. `AuditLog.result_status` records action outcome. Detailed transient FCM attempt traces can remain operational logs; the team chose **not** to add a `NotificationDeliveryAttempt` SQL table.
 
 ---
 
 # 30. Do not over-engineer
 
-For this capstone, prefer explicit, defendable behavior over research-heavy infrastructure.
-
-Do not add without requirement:
-
-- Kafka;
-- Kubernetes;
-- event sourcing;
-- CQRS everywhere;
-- distributed microservices purely for style;
-- cross-camera ReID;
-- 3D calibration for zone area;
-- complicated geometry engines when normalized polygon validation is enough;
-- separate databases for every module.
-
-A modular monolith backend plus a separate Python AI service is acceptable and easier to integrate for the current scope.
+Do not introduce new tables just for logs, business state rules, or one-off edge cases when existing entities/attributes suffice. In particular, do not re-add `ZoneShiftRequirement`, `NotificationConfig`, `NotificationDeliveryAttempt` or `TaskVerification`. Do not add unapproved AI model types, automatic recommendation execution, speculative scheduling optimization or unnecessary cross-camera identity logic.
 
 ---
 
 # 31. Do not under-engineer either
 
-The following are core and should not be hand-waved:
-
-- authorization;
-- password hashing;
-- secret handling;
-- database constraints;
-- transaction/concurrency control;
-- normalized ROI persistence;
-- same-floor camera-zone validation;
-- camera connection test/health handling;
-- predictable state transitions;
-- unit/integration tests;
-- API contract;
-- observability;
-- reproducible environment/config.
+Maintain first-winner concurrency, idempotent Event episodes, correct role/eligibility checks, distinct Event/Incident lifecycles and source provenance, cancellation/expiry for swaps, evidence rejection/reassignment, password/credential protection, test-KPI exclusion, and traceable operational state changes. Minimized schema **does not** relax these requirements.
 
 ---
 
 # 32. Report 3 implications while implementation proceeds
 
-The current SRS/Report 3 draft will need:
+Report 3 FE-01..FE-12 remains the detailed behavior source. The following requirements are especially important:
 
-- Product Overview + System Context Diagram;
-- Actors;
-- Use Case Diagram(s);
-- Use Case summary/descriptions;
-- System Functional Overview;
-- Screen Flow;
-- Screen Descriptions;
-- Screen Authorization;
-- Non-Screen Functions;
-- ERD + entity descriptions;
-- detailed feature/function specifications later;
-- external interfaces;
-- quality attributes;
-- Business Rules;
-- common requirements;
-- application messages.
+- FE-03/04: `MonitoringRule` outcome selects separate Event vs Incident storage, not a conversion.
+- FE-05/06: recipient delivery distinct from Task acceptance; Tasks have exactly one source and independent verification.
+- FE-07/08: Manager schedules and approves swaps; Staff A/B request/respond on mobile.
+- FE-10: distinct historical metrics and proper demo/dismissed exclusions.
+- FE-12: service-health history and non-secret global settings.
 
-Whenever implementation introduces or changes behavior, make sure the corresponding Report 3 function/use-case/BR/ERD entry stays synchronized.
-
-For MF-01, implementation should produce enough concrete behavior to populate:
-
-- Admin screen flow;
-- Floor/Zone screens;
-- Camera setup screens;
-- connection test/preview screens;
-- monitoring config screens;
-- health screens;
-- authorization matrix;
-- non-screen functions for connection health/monitoring startup;
-- entity descriptions.
+**Pending documentation alignment:** some older Report 3 entity overview text still includes removed V5 entities (`ZoneShiftRequirement`, `NotificationConfig`); coordinate that correction with the report owner. Use Cases are teammate-owned and should not be silently updated here.
 
 ---
 
-# 33. Implementation questions and ERD v4 refinements that are currently OPEN
+# 33. Implementation questions and V6 refinements currently OPEN
 
-Do not silently decide these in code without team agreement. ERD v4 is the provisional target; the current live database is not proof that these target concepts are migrated.
+These require scoped decisions rather than a coding agent's invention:
 
-1. **SLA and escalation semantics**
-   - Define deadlines, breach behavior, escalation timing, and the responsible role.
+1. **Canonical V6 SQL migration:** exact approved SQL change sequence, applied DB version, re-scaffolding schedule and data migration of retired tables.
+2. **Safety Incident feasibility:** validated detection models, safety qualification and approval for INCIDENT-targeting rules, not inferred from Event confidence.
+3. **Multi-camera coverage:** source selection, failover and count aggregation without duplicate persons; preserve schema N:M while runtime remains limited.
+4. **Analytics/SLA:** final severity-specific deadlines/thresholds, timestamp reference points and operational reporting acceptance.
+5. **Task rejection history:** minimal `Task.rejection_count` + existing `TaskEvidence` evidence status/reject reason sufficient for agreed workflow; check actual query/audit needs during build.
+6. **Notification delivery:** recipient-level counters/status are approved; provider/device acceptance semantics and transient log retention still need engineering definition.
+7. **Global settings:** allowed keys, type validation, precedence with deployment configuration and audit; never put secrets here.
+8. **Privacy and video:** approved retention/storage/access controls for deployment; provisional durations are not binding.
+9. **Interface alignment:** current diagrams/Use Cases and older `AGENTS.md`/README require coordinated review; do not edit teammates' material unexpectedly.
 
-2. **Threshold and policy provenance**
-   - Preserve which MonitoringRule/policy version produced an event and make the result reproducible.
-
-3. **Concurrency and idempotency**
-   - Define durable guarantees for Task acceptance, OperationalEvent episodes, action outcomes, retries, and duplicate delivery.
-
-4. **StaffReport media retention**
-   - Confirm durable image/voice references, storage ownership, retention, and deletion behavior.
-
-5. **Optional policy-action traceability**
-   - `Task.response_policy_action_id` is not approved; do not add it without an explicit decision.
-
-6. **Measurement source when several cameras monitor one Zone**
-   - designated source camera vs non-overlapping measurement ROIs;
-   - no cross-camera ReID.
-
-7. **Checkout counter representation**
-   - needed later for checkout utilization/capacity;
-   - do not invent complex POS integration.
-
-8. **Manager-on-duty representation**
-   - required later for escalation;
-   - likely derived from shift/duty assignment.
-
-9. **Operational use of `ZoneAdjacency`**
-   - ZoneAdjacency exists in ERD v4. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
-
+These open items do not reverse approved target architecture or grant permission to create speculative tables.
 
 ---
 
 # 34. Coding-agent behavior for this repository
 
-When an AI coding agent works on this project:
-
-1. Read this file before making architectural changes.
-2. Preserve the Mainflow boundaries.
-3. Do not invent new business requirements.
-4. Do not change ERD/schema files owned by another task unless explicitly assigned.
-5. If a required business-to-persistence representation remains **OPEN/PENDING alignment**, implement against an interface/DTO/mock or stop and ask rather than creating a competing schema.
-6. Keep domain/business validation in backend/domain code, not only frontend.
-7. Keep UI logic from becoming the only source of business truth.
-8. Add tests with behavior changes.
-9. Do not expose or commit secrets.
-10. Keep API contracts/documentation in sync.
-11. Avoid scope creep.
-12. If a change affects Report 1/2/3 or BR semantics, flag it in the PR.
-13. Prefer small reviewable PRs by feature/capability.
-14. Do not "simplify" OperationalEvent and Incident into one object.
-15. Do not use model confidence as Incident routing confidence.
-16. Do not implement cross-camera person identity.
-17. Do not persist camera ROI in absolute pixels.
-18. Do not create a camera-reviewer field; manual preview verification is not tracked by user.
-19. Do not create an account-review/PENDING workflow.
-20. Keep CameraHealthEvent separate from supermarket Operational Incidents.
-21. Do not turn every OperationalEvent or CRITICAL priority into an Incident. Incident qualification is a separate ResponsePolicyAction outcome.
-22. Keep ResponsePolicyAction execution distinct from Task creation; actions may be automatic or approval-required. Route Tasks only through the configured response and eligibility rules.
-23. ZoneAdjacency exists in ERD v4. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
-24. Keep MF-04 Planning and Analytics as independent entry paths; successful shift validation is not a prerequisite for opening the dashboard.
-25. Keep Admin account/Staff CRUD as a supporting capability, not a required step in the four Mainflow diagrams.
+1. Identify assigned Mainflow/issue and read this guide plus root AGENTS, README, relevant API/domain/SQL sources.
+2. Inspect target branch + `git status` and latest approved artifacts. Preserve unrelated work.
+3. State which facts are **target requirements**, **present in code**, **in current database**, or **unknown**.
+4. Propose minimal schema/contracts first for database-impacting work. Require team-approved SQL before re-scaffolding.
+5. Prefer existing architecture/conventions; avoid changes to unrelated frontend, diagrams or team-owned documents.
+6. Verify changed behavior with focused tests; document which SQL/live/hardware tests **were not run**.
+7. Summarize changed files, requirements satisfied, known divergence, risks and follow-up actions for PR review.
 
 ---
 
 # 35. MF-01 quick mental model
 
-If you remember only one thing before coding MF-01, remember this:
-
 ```text
-ADMIN CONFIGURES THE WORLD
-────────────────────────────────────────
-
-UserAccount + Role
-
-Supermarket
-    ↓
-Floor
-   ├─────────────┐
-   ↓             ↓
- Zone          Camera
-   ↑             │
-   └── CameraZoneMapping
-       (normalized camera ROI)
-
-Camera
-   ↓
-CameraConnection
-   ↓
-test → preview → enable
-
-Zone
-   ↓
-MonitoringConfiguration
-   ↓
-MonitoringRule / OperationalEventType
-   (ERD v4 target; live DB still exposes IncidentType)
-
-OperationalEvent
-   ↓
-ResponsePolicy / ResponsePolicyAction
-   ↓
-Notification / Recommendation / Task / qualifying Incident
-
-StaffReport
-   ↓
-routine Task or separately qualified Incident
-
-Camera
-   ↓
-health monitor
-   ↓
-CameraHealthEvent
+One default Supermarket
+  → Floor: floor plan
+  → Zone: polygon on floor plan, min_staff, area_m2
+  → Camera: registered on same Floor
+  → CameraConnection: tested/validated source and credentials
+  → CameraZoneMapping: video-frame ROI for Zone
+  → MonitoringConfiguration + MonitoringRule: review and activate
+  → CameraHealthEvent: camera-specific health history
+  → MonitoringWorker: background measurements/events
 ```
 
-And the most important invariants:
-
-```text
-Camera belongs to Floor, not Zone.
-
-Camera N:M Zone.
-
-Camera and mapped Zone must be on same Floor.
-
-Floor-map Zone polygon != camera-frame ROI polygon.
-
-Persist normalized coordinates, not absolute stream pixels.
-
-Model confidence filters detections only.
-
-OperationalEvent != Incident.
-
-Camera health event != operational Incident.
-
-No account review workflow.
-
-No camera reviewer tracking.
-
-No cross-camera ReID.
-
-MSSQL is source of truth.
-```
+Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a shopper Incident. Do not derive physical density from pixel area. Do not confuse deployed V2 SQL with approved V6 design.
 
 ---
 
-# 36. Current implementation checkpoint
+# 36. Current implementation checkpoint — inspected `dev` 18/10/2026
 
-The team is ready to start MF-01 implementation **as long as the shared code treats the following as stable**:
+**Observed from source tree and specific inspected files, not fresh runtime execution:**
 
-```text
-Auth / RBAC
-Supermarket
-Floor
-Zone
-Camera
-CameraConnection
-CameraZoneMapping
-MonitoringConfiguration
-CameraHealthEvent
-normalized spatial model
-camera connection test/preview/enable flow
-camera health flow
-```
+| Area | Code evidence | Status/caveat |
+| --- | --- | --- |
+| .NET 10 N-layer backend | `src/Supermarket.Api`, `Application`, `Domain`, `Infrastructure`, tests | **Present**. |
+| Core setup/auth/camera/monitoring APIs | Current Controllers and README/API | **Present in repo**; do not infer live feature acceptance. |
+| Preview/recorded-video/monitoring worker | AI clients, `MonitoringWorker`, camera workers | **Present in repo**, specialized count/queue subset. |
+| OperationalEvent episodes | `MonitoringIncidentWriter`, scaffolded `OperationalEvent`, targeted tests | **Implemented subset**; Episode behavior detailed §40. |
+| V6 rule `outcome_type` | Scaffolded `MonitoringRule.cs` | **Not aligned**; has non-null `EventTypeId` and `IncidentTypeId` without outcome discriminator. |
+| Independent Incident path | `MonitoringIncidentWriter.cs`, `OperationalEvent.cs` | **Not aligned**; legacy Event → Incident link remains. |
+| Task acceptance, verification, StaffReport, SWAP/COVER, FCM delivery, complete analytics | Not established by inspected target controllers/scaffold | **Do not claim implemented**. |
+| `SystemSetting`, `ServiceHealthEvent`, V6 zone staffing fields | V6 only | **Design approved, DB implementation unverified**. |
+| Deployment health / CI results | Historical README, workflow and VALIDATION docs | **Dated evidence only**, no live deployment check performed for this synchronization. |
 
-The team should **coordinate before freezing target migrations** for:
-
-```text
-measurement-source selection
-policy/threshold provenance and action traceability
-checkout-counter representation
-Manager-on-duty representation
-operational use of ZoneAdjacency
-```
-
-Those are not reasons to block the rest of MF-01.
+Do not present a passing test score, deploy availability, complete SQL V6 migration or shipped features without running/verifying them.
 
 ---
 
 # 37. Final goal of MF-01
 
-At the end of MF-01, a reviewer should be able to watch this happen:
-
-> An Admin logs in, sets up the floor/zone structure of the default store, registers and configures a camera, triggers connection testing and preview, maps the camera to one or more valid Zones using normalized ROIs, configures and activates monitoring, sees continuous camera/stream health monitoring, then investigates, retests, and restores a detected connection/stream/configuration issue.
-
-That is an end-to-end **setup/configuration Mainflow**, not a collection of disconnected CRUD screens.
-
-The next increment, MF-02, begins when camera/video data becomes operational measurements/events and those events begin producing policy-driven responses, Tasks, notifications, recommendations, or separately qualified Incidents.
+A reviewer sees: authorized Admin prepares floor/zone/camera/ROI and monitoring configuration → preview/test/activate → continuous monitoring and health → handles a realistic failure/recovery. All actor-visible steps work with current configured sources, are documented, and have test evidence. This is distinct from MF-02 independent Event and Incident execution and later Staff/Manager workflows.
 
 ---
 
 # 38. Current decisions / superseded designs
 
-This section prevents historical designs from being reintroduced while preserving the current agreed behavior.
+## Superseded — do NOT reintroduce
 
-## Superseded
-
-- Model-confidence-based Incident routing or review.
-- High YOLO confidence meaning auto-dispatch and low confidence meaning Operator review.
-- Universal Operator pre-dispatch review for every Incident.
-- Universal Staff auto-notification for every Incident.
-- Staff reports passing through the camera Detection & Tracking pipeline.
-- Staff directly closing or verifying their own Task.
-- MF-04 Planning validation being a mandatory prerequisite for opening Analytics.
+- `OperationalEvent → Incident` conversion or `QUALIFY_INCIDENT` as an OperationalEvent ResponsePolicyAction; `OperationalEvent.incident_id` as a target relationship.
+- One mixed MonitoringRule simultaneously requiring both an Event and Incident type.
+- Operator final approval of Staff SWAP/COVER; direct automatic swap without peer acceptance and Manager decision.
+- `ZoneShiftRequirement` and shift-specific `min_staff` requirements; `Zone.min_staff` is the current design.
+- `NotificationConfig` as a separate table; retry config is in `SystemSetting`.
+- `NotificationDeliveryAttempt` / `TaskVerification` as new persistence entities; use the agreed existing summary and evidence fields.
+- Universal Operator pre-review for qualified Incidents; all confidence levels routing to manual Incident review.
+- Universal before-photo requirement, Staff self-verification, automatically executed AI recommendations.
+- V3/V4 ERD table counts and old v4 design-only relationships as a basis for new migrations.
 
 ## Current target decisions
 
-- Model confidence filters raw detections only.
-- OperationalEvent and Incident remain separate; threshold breach/CRITICAL priority alone does not create an Incident.
-- ResponsePolicyAction may be automatic or approval-required; do not impose universal Operator pre-dispatch review on confirmed reports or AI-qualified Incidents.
-- Task origins are exactly OPERATIONAL_EVENT, INCIDENT, STAFF_REPORT, or MANUAL, with exclusive nullable source FKs.
-- Staff-report extraction is a separate path from camera Detection & Tracking.
-- Operator independently verifies submitted evidence.
-- MF-04 Planning and Analytics are independently enterable.
-- AI recommendations are advisory; they do not automatically change store operations.
-- `Zone.area_m2`, the concrete `MonitoringRule` and `IncidentType` structures, and `ZoneAdjacency` are represented in ERD v4. Database V2 and the backend now map `MonitoringRule` to `OperationalEventType`; IncidentType remains the separate incident catalog.
-- ZoneAdjacency exists in ERD v4. Its use for MF-02 dispatch is currently an unresolved BR/Mainflow alignment point. Do not implement or remove adjacent-Zone dispatch until the behavior is explicitly confirmed by the team.
-
-# 39. Assigned ROI monitoring increment — 03/10/2026
-
-This is the current implementation checkpoint for the assigned ROI increment, **not** the full ERD v4 target implementation. Preserve the 10/10/2026 MF-02/MF-03 design as the eventual workflow. Temporary overcrowding uses **people count in ROI**, `PEOPLE` + explicit `parameters_json.measurementMode=PEOPLE_COUNT`; no m² inferred from normalized pixels/perspective. Legacy density remains untouched/unsupported at activation. Density calibration awaits team discussion. Long Queue counts a person after ≥5s continuously observed inside ROI, then threshold+sustain. Waiting/Checkout runtime stays deferred.
-
-Confidence applies before ByteTrack. ROI membership uses bbox bottom-center, current observed tracks only; per-confidence tracking contexts, no cross-camera identity/dedup. Each zone needs exactly one ACTIVE camera mapping to activate this increment. N:M camera-zone modeling remains unchanged; one camera can monitor several zones independently, counts never summed across cameras.
-
-After activation, a BE-owned worker consumes ordered AI batches even without a viewer, checks the current source/mapping/configuration version again when writing, evaluates independent Warning/Critical sustain clocks and records aggregate OperationalEvents. Gaps/reconnect/version changes reset continuity. Recorded-video source time, not inference wall time, drives sustain. As of 11/10/2026, repeated sustained observations update one active episode per Camera + Zone + OperationalEventType, priority can escalate on that row, sustained valid recovery clears it, and a later sustained breach creates a new episode. Missing/unavailable measurements do not become zero and do not clear an episode. The temporary Incident compatibility policy remains an implementation divergence from the ERD v4 target; no new product closure endpoint was added.
-
-New compatibility-path AI Incident status is **DETECTED — not dispatched** for this increment. `OperationalEventType` and episode lifecycle persistence are now implemented; Task, ResponsePolicy execution, StaffReport, notification, dispatch, evidence/media, and ZoneMetric/analytics workflows remain outside this increment unless separately verified. The application never auto-migrates; shared Dev must be backed up and migrated by the user/team. CameraHealthEvent remains a separate system-health concept.
-
-FE keeps team floor overview/detail/edit and ROI/minimap; Live adds runtime/count/progress/cooldown and real incident feed with DEMO tags. Active viewer start/stop attaches/detaches without restarting monitoring. Recorded EOF is COMPLETED, never auto-loop; stop all active configurations on that camera and let the worker release ownership before reactivation/replay. See README/API for contracts and VALIDATION for actual test evidence; separate fake transport SQL tests from native GPU smoke and full-system acceptance.
-
-Deactivate requests an owner stop asynchronously. Runtime reports STOPPING until the worker clears its owned job; reactivation with no other active zone is rejected with MONITORING_STOP_PENDING during that interval. This avoids falsely treating desired INACTIVE as proof that a recorded source is released/replay-ready.
+- Separate `OPERATIONAL_EVENT` and `INCIDENT` MonitoringRule outcomes; direct staff-confirmed Incidents.
+- Exactly four Task origins, explicit first-eligible acceptance and independent verification.
+- Staff A → B → Manager SWAP/COVER; 24h-before-shift expiry and cancellation data in V6.
+- Per-zone minimum staffing in `Zone.min_staff`, not per-shift requirement records.
+- V6 37-table simplified ERD including non-secret `SystemSetting` and service-level `ServiceHealthEvent`.
+- Dismissed-Incident KPI exclusions; continuous video storage excluded by default; privacy numbers provisional.
 
 ---
 
-# 40. OperationalEvent episode implementation — 11/10/2026
+# 39. Assigned ROI monitoring increment — implementation snapshot, not target design
 
-The implemented episode identity is the unresolved tuple:
+The inspected implementation uses camera-local tracked observations, ROI footpoints and a narrowed measurement set (people count / queue length). In the earlier increment, count-based congestion is expressed through `PEOPLE_COUNT` parameters, **not** density computed from screen area. Waiting-time and checkout-utilization full runtime require further measurement work. The runtime previously required exactly one ACTIVE camera mapping per Zone and does not provide automatic overlapping-camera deduplication.
+
+A backend-owned worker consumes batches independently of a viewer. It must recheck current configuration/source mapping before persistence. Gaps/reconnect/config changes can reset sustain continuity; unavailable data must not be interpreted as a valid zero. Recorded video can complete at EOF and is not an automatically looping production stream. Preview is read-only relative to monitoring-owned runtime and does not itself generate production measurements.
+
+**Legacy compatibility warning:** `MonitoringIncidentWriter` may still create a `DETECTED` Incident linked from an OperationalEvent. This is a **code/SQL migration gap** relative to approved V6; it is not evidence that the old model should survive. Do not extend that pathway. Coordinate the direct `INCIDENT` rule route and legacy migration as a separate change.
+
+---
+
+# 40. OperationalEvent episode implementation — evidence through inspected `dev`
+
+The earlier implemented episode identity is the unresolved tuple:
 
 ```text
-Camera + Zone + OperationalEventType
+(Camera, Zone, OperationalEventType)
 ```
 
-The database enforces this with the filtered unique index `UX_OperationalEvent_Active_Camera_Zone_EventType` on `(camera_id, zone_id, event_type_id)` where `cleared_at IS NULL`. This permits the same event type to be active in two Zones at once and permits independent active episodes from different configured cameras, without performing cross-camera identity deduplication or automatic fallback.
-
-Episode behavior is:
+Code and dated plan describe an active filtered uniqueness constraint (`UX_OperationalEvent_Active_Camera_Zone_EventType`) where `cleared_at IS NULL`; verify the actual SQL Server index before depending on it. The intended implemented episode behavior is:
 
 ```text
-first sustained breach        -> create active OperationalEvent
-repeated observations         -> update that row and last_observed_at
-WARNING -> CRITICAL           -> update priority on the same row; never downgrade it
-sustained valid recovery      -> set status CLEARED and cleared_at
-later sustained breach        -> create a new OperationalEvent episode
-missing/unavailable evidence  -> publish no measurement; do not synthesize zero or recovery
+first sustained breach       → open one active OperationalEvent
+subsequent observations      → update its metric + last_observed_at
+WARNING → CRITICAL          → escalate same row, no automatic downgrade
+valid sustained recovery     → mark CLEARED and set cleared_at
+new breach after clear       → start a new episode
+missing/unavailable readings → do NOT synthesize zero or clear automatically
 ```
 
-Recovery uses configurable hysteresis (`recoverySec` when supplied, otherwise `sustainSec`). A renewed breach interrupts the recovery timer. The existing runtime still rejects ambiguous multi-camera measurement-source selection; the database key supports camera separation but does not establish a fallback/source-selection policy.
+Recovery/hysteresis, source capture timestamps, selected camera and stale-config protection require the exact implementation/tests to be checked for every change. This implementation checkpoint **does not** authorize Event-origin Incident generation. Task, ResponsePolicy execution, confirmed StaffReports, SWAP/COVER, notification, historical KPI completeness and V6 migrations remain separate implementation tasks until independently verified.
 
-The canonical schema change is `FA26SE103_Database_V2.sql` in the separate Database repository. Do not create one SQL file per test, generate schema from C# models, or recreate missing legacy bootstrap migrations solely to run the disposable SQL integration fixture. For the current phase, completion evidence is the backend build, focused/non-SQL tests, SQL parse validation of the canonical V2 script, and focused live-schema/data checks. Run disposable-database SQL integration only when its maintained bootstrap prerequisites are available, and otherwise report it accurately as not run rather than blocking delivery.
+---
+
+> **Maintenance note:** When this file is committed, update stale conflicting rules in root `AGENTS.md` and `README.md` in the **same reviewed PR**. Preserve the `AGENTS.md` instruction to read this guide in full. Update this synchronization date only after re-reading changed official documents and relevant code; do not append another superseding addendum to the top of the file.
