@@ -20,13 +20,22 @@ public sealed class MonitoringSnapshotReader(ISetupStore store):IMonitoringSnaps
             try { MonitoringPolicy.Confidence(configuration.ConfidenceThreshold); } catch(DomainException e) { issue??=e.Code; }
             foreach(var rule in enabled.OrderBy(r=>r.RuleId))
             {
-                var type=UseCase.Found(await store.Find<IncidentType>(rule.IncidentTypeId,ct));
-                var eventType=await store.Find<OperationalEventType>(rule.EventTypeId,ct);
-                if(eventType is null || eventType.Status!="ACTIVE") issue??="OPERATIONAL_EVENT_TYPE_UNAVAILABLE";
-                try { MonitoringPolicy.ValidateForActivation(rule,type); } catch(DomainException e) { issue??=e.Code; }
-                var definition=MonitoringPolicy.RuntimeDefinition(rule,type);
-                rules.Add(new(rule.RuleId,rule.IncidentTypeId,type.Code,type.Name,definition.Mode,definition.Unit,rule.WarningThreshold,rule.CriticalThreshold,
-                    rule.SustainSec,rule.CooldownSec,rule.EventTypeId,eventType?.Code??"",MonitoringPolicy.RecoverySeconds(rule)));
+                if(rule.OutcomeType=="OPERATIONAL_EVENT")
+                {
+                    var eventType=rule.EventTypeId is { } eventTypeId ? await store.Find<OperationalEventType>(eventTypeId,ct) : null;
+                    if(eventType is null || eventType.Status!="ACTIVE") issue??="OPERATIONAL_EVENT_TYPE_UNAVAILABLE";
+                    if(eventType is not null) try { MonitoringPolicy.ValidateForActivation(rule,eventType); } catch(DomainException e) { issue??=e.Code; }
+                    var definition=eventType is null ? new RuntimeMeasurementDefinition("UNSUPPORTED",rule.ThresholdUnit,false,"Operational event type unavailable.")
+                        : MonitoringPolicy.RuntimeDefinition(rule,eventType);
+                    rules.Add(new(rule.RuleId,null,eventType?.Code??"UNKNOWN",eventType?.Name??"Unknown event type",definition.Mode,definition.Unit,
+                        rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec,rule.EventTypeId,eventType?.Code??"",
+                        MonitoringPolicy.RecoverySeconds(rule),rule.OutcomeType));
+                    continue;
+                }
+                var incidentType=rule.IncidentTypeId is { } incidentTypeId ? await store.Find<IncidentType>(incidentTypeId,ct) : null;
+                issue??=incidentType is null?"INCIDENT_TYPE_UNAVAILABLE":"INCIDENT_RULE_RUNTIME_UNSUPPORTED";
+                rules.Add(new(rule.RuleId,rule.IncidentTypeId,incidentType?.Code??"UNKNOWN",incidentType?.Name??"Unknown incident type","UNSUPPORTED",rule.ThresholdUnit,
+                    rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec,null,"",MonitoringPolicy.RecoverySeconds(rule),rule.OutcomeType));
             }
             foreach(var mapping in mappings)
             {

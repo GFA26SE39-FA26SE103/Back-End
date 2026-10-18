@@ -7,8 +7,6 @@ public sealed class IncidentType : TrackedEntity
     public string Code { get; set; } = "";
     public string Name { get; set; } = "";
     public string? Description { get; set; }
-    public string SourceType { get; set; } = "";
-    public string? MeasurementType { get; set; }
     public bool RequiresBeforePhoto { get; set; }
     public string DefaultSeverity { get; set; } = "WARNING";
     public string Status { get; set; } = "ACTIVE";
@@ -17,8 +15,9 @@ public sealed class MonitoringRule : TrackedEntity
 {
     public Guid RuleId { get; set; }
     public Guid ConfigId { get; set; }
-    public Guid IncidentTypeId { get; set; }
-    public Guid EventTypeId { get; set; }
+    public Guid? IncidentTypeId { get; set; }
+    public Guid? EventTypeId { get; set; }
+    public string OutcomeType { get; set; } = "OPERATIONAL_EVENT";
     public decimal WarningThreshold { get; set; }
     public decimal CriticalThreshold { get; set; }
     public string ThresholdUnit { get; set; } = "";
@@ -31,7 +30,7 @@ public sealed record MeasurementDefinition(string Unit, decimal Warning, decimal
 public sealed record RuntimeMeasurementDefinition(string Mode, string Unit, bool Supported, string? Reason);
 public static class MonitoringPolicy
 {
-    public static string? OperationalEventCode(IncidentType type) => type.Code switch
+    public static string? OperationalEventCode(string incidentCode) => incidentCode switch
     {
         "LONG_QUEUE" => "LONG_QUEUE",
         "EXCESSIVE_WAITING_TIME" => "EXCESSIVE_WAIT",
@@ -39,6 +38,7 @@ public static class MonitoringPolicy
         "CHECKOUT_CAPACITY_ISSUE" => "CHECKOUT_CAPACITY",
         _ => null
     };
+    public static string? OperationalEventCode(IncidentType type) => OperationalEventCode(type.Code);
     public static int RecoverySeconds(MonitoringRule rule)
     {
         if(string.IsNullOrWhiteSpace(rule.ParametersJson)) return rule.SustainSec;
@@ -51,11 +51,11 @@ public static class MonitoringPolicy
         }
         catch(JsonException) { return rule.SustainSec; }
     }
-    public static RuntimeMeasurementDefinition RuntimeDefinition(MonitoringRule rule, IncidentType type)
+    public static RuntimeMeasurementDefinition RuntimeDefinition(MonitoringRule rule, OperationalEventType type)
     {
         if (type.Code=="LONG_QUEUE" && type.MeasurementType=="QUEUE_LENGTH" && rule.ThresholdUnit=="PEOPLE")
             return new("QUEUE_LENGTH","PEOPLE",true,null);
-        if (type.Code=="OVERCROWDING_CONGESTION" && type.MeasurementType=="CROWD_DENSITY")
+        if (type.Code=="CONGESTION" && type.MeasurementType=="CROWD_DENSITY")
         {
             var explicitCount=false;
             try {
@@ -68,18 +68,18 @@ public static class MonitoringPolicy
         }
         return new(type.MeasurementType??"UNSUPPORTED",rule.ThresholdUnit,false,"This measurement has no runtime yet; keep its rule disabled in Draft.");
     }
-    public static void ValidateForActivation(MonitoringRule rule, IncidentType type)
+    public static void ValidateForActivation(MonitoringRule rule, OperationalEventType type)
     {
         Validate(rule,type);
         var runtime=RuntimeDefinition(rule,type);
         Rules.Require(!rule.Enabled || runtime.Supported,"RULE_RUNTIME_UNSUPPORTED",runtime.Reason??"Measurement runtime is unsupported.");
     }
     // Agreed measurement/unit pairs. Checkout remains pending counter/composite design.
-    public static MeasurementDefinition? Definition(IncidentType type) => (type.Code, type.MeasurementType) switch
+    public static MeasurementDefinition? Definition(OperationalEventType type) => (type.Code, type.MeasurementType) switch
     {
         ("LONG_QUEUE", "QUEUE_LENGTH") => new("PEOPLE", 3, 5),
-        ("EXCESSIVE_WAITING_TIME", "WAITING_TIME") => new("MINUTES", 4, 8),
-        ("OVERCROWDING_CONGESTION", "CROWD_DENSITY") => new("PEOPLE_PER_M2", 2, 3),
+        ("EXCESSIVE_WAIT", "WAITING_TIME") => new("MINUTES", 4, 8),
+        ("CONGESTION", "CROWD_DENSITY") => new("PEOPLE_PER_M2", 2, 3),
         _ => null
     };
     public static void Confidence(decimal value)
@@ -87,10 +87,11 @@ public static class MonitoringPolicy
         Rules.Confidence(value);
         Rules.Require(decimal.Round(value, 4) == value, "INVALID_CONFIDENCE", "Confidence must use at most four decimal places.");
     }
-    public static void Validate(MonitoringRule rule, IncidentType type)
+    public static void Validate(MonitoringRule rule, OperationalEventType type)
     {
-        Rules.Require(type.SourceType == "AI_DETECTED", "INCIDENT_TYPE_NOT_AI", "Monitoring rules require an AI-detected incident type.");
-        Rules.Require(!rule.Enabled || type.Status == "ACTIVE", "INCIDENT_TYPE_INACTIVE", "Enabled rules require an active incident type.");
+        Rules.Require(rule.OutcomeType == "OPERATIONAL_EVENT" && rule.EventTypeId is not null && rule.IncidentTypeId is null,
+            "INVALID_RULE_TARGET", "Operational-event rules require only an operational event type.");
+        Rules.Require(!rule.Enabled || type.Status == "ACTIVE", "OPERATIONAL_EVENT_TYPE_INACTIVE", "Enabled rules require an active operational event type.");
         Rules.Require(rule.WarningThreshold >= 0 && rule.CriticalThreshold > rule.WarningThreshold
             && rule.CriticalThreshold <= 99999999999999.9999m && decimal.Round(rule.WarningThreshold, 4) == rule.WarningThreshold
             && decimal.Round(rule.CriticalThreshold, 4) == rule.CriticalThreshold,

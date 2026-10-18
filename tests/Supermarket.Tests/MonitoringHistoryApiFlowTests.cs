@@ -20,9 +20,9 @@ public sealed partial class ApiFlowTests
         using(var scope=fixture.Factory.Services.CreateScope()) {
             var store=scope.ServiceProvider.GetRequiredService<ISetupStore>();
             var persistedRule=(await store.Find<MonitoringRule>(removed.RuleId))!;
-            var eventType=(await store.Find<OperationalEventType>(persistedRule.EventTypeId))!; var now=DateTime.UtcNow;
+            var eventType=(await store.Find<OperationalEventType>(persistedRule.EventTypeId!.Value))!; var now=DateTime.UtcNow;
             evidence=new OperationalEvent { EventId=Guid.NewGuid(),CameraId=camera.CameraId,ZoneId=zone.ZoneId,RuleId=removed.RuleId,
-                EventTypeId=eventType.EventTypeId,EventType=eventType.Code,MetricValue=2,Priority="WARNING",DetectedAt=now,LastObservedAt=now,
+                EventTypeId=eventType.EventTypeId,MetricValue=2,Priority="WARNING",DetectedAt=now,LastObservedAt=now,
                 ClearedAt=now,UpdatedAt=now,CreatedAt=now,Status="CLEARED",MetadataJson="{\"warningThreshold\":1,\"configurationVersion\":\"old\"}" };
             await store.Transaction(async()=> { await store.Add(evidence); return true; });
         }
@@ -36,9 +36,9 @@ public sealed partial class ApiFlowTests
         using (var scope = fixture.Factory.Services.CreateScope()) {
             var store = scope.ServiceProvider.GetRequiredService<ISetupStore>();
             var persistedRule=(await store.Find<MonitoringRule>(changed.Rules[0].RuleId))!;
-            var eventType=(await store.Find<OperationalEventType>(persistedRule.EventTypeId))!; var now=DateTime.UtcNow;
+            var eventType=(await store.Find<OperationalEventType>(persistedRule.EventTypeId!.Value))!; var now=DateTime.UtcNow;
             retainedRuleEvidence = new OperationalEvent { EventId = Guid.NewGuid(), CameraId = camera.CameraId,
-                ZoneId = zone.ZoneId, RuleId = changed.Rules[0].RuleId, EventTypeId=eventType.EventTypeId,EventType=eventType.Code,
+                ZoneId = zone.ZoneId, RuleId = changed.Rules[0].RuleId, EventTypeId=eventType.EventTypeId,
                 MetricValue = 2,Priority="WARNING",DetectedAt=now,LastObservedAt=now,ClearedAt=now,UpdatedAt=now,CreatedAt=now,Status="CLEARED",
                 MetadataJson = "{\"configurationVersion\":\"before-delete\"}" };
             await store.Transaction(async () => { await store.Add(retainedRuleEvidence); return true; });

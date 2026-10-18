@@ -5,7 +5,7 @@ public sealed class Incident : TrackedEntity
     public Guid IncidentId { get; set; }
     public Guid IncidentTypeId { get; set; }
     public Guid ZoneId { get; set; }
-    public Guid? TriggerCameraId { get; set; }
+    public Guid? MonitoringRuleId { get; set; }
     public Guid? ReportedByUserId { get; set; }
     public string SourceType { get; set; } = "AI_DETECTED";
     public string Severity { get; set; } = "WARNING";
@@ -22,9 +22,7 @@ public sealed class OperationalEvent : Entity
     public Guid CameraId { get; set; }
     public Guid ZoneId { get; set; }
     public Guid? RuleId { get; set; }
-    public Guid? IncidentId { get; set; }
     public Guid EventTypeId { get; set; }
-    public string EventType { get; set; } = "";
     public decimal MetricValue { get; set; }
     public string Priority { get; set; } = "INFO";
     public DateTime DetectedAt { get; set; }

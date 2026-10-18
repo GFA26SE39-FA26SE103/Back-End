@@ -13,10 +13,6 @@ public partial class IncidentType
 
     public string? Description { get; set; }
 
-    public string SourceType { get; set; } = null!;
-
-    public string? MeasurementType { get; set; }
-
     public bool RequiresBeforePhoto { get; set; }
 
     public string DefaultSeverity { get; set; } = null!;

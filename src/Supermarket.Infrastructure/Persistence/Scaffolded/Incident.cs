@@ -11,8 +11,6 @@ public partial class Incident
 
     public Guid ZoneId { get; set; }
 
-    public Guid? TriggerCameraId { get; set; }
-
     public Guid? ReportedByUserId { get; set; }
 
     public string SourceType { get; set; } = null!;
@@ -33,13 +31,23 @@ public partial class Incident
 
     public DateTime UpdatedAt { get; set; }
 
+    public Guid? StaffReportId { get; set; }
+
+    public Guid? MonitoringRuleId { get; set; }
+
+    public virtual ICollection<IncidentMedium> IncidentMedia { get; set; } = new List<IncidentMedium>();
+
     public virtual IncidentType IncidentType { get; set; } = null!;
 
-    public virtual ICollection<OperationalEvent> OperationalEvents { get; set; } = new List<OperationalEvent>();
+    public virtual MonitoringRule? MonitoringRule { get; set; }
+
+    public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 
     public virtual UserAccount? ReportedByUser { get; set; }
 
-    public virtual Camera? TriggerCamera { get; set; }
+    public virtual StaffReport? StaffReport { get; set; }
+
+    public virtual ICollection<Task> Tasks { get; set; } = new List<Task>();
 
     public virtual Zone Zone { get; set; } = null!;
 }

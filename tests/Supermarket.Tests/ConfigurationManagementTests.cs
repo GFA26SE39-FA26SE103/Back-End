@@ -54,7 +54,7 @@ public sealed class ConfigurationManagementTests
         var (h, _, _) = World();
         var rule = h.Store.Values.OfType<MonitoringRule>().Single();
         var evidence = new OperationalEvent { EventId = Guid.NewGuid(), CameraId = h.Camera.CameraId,
-            ZoneId = h.Zone.ZoneId, RuleId = rule.RuleId, EventType = "QUEUE_LENGTH", MetricValue = 5,
+            ZoneId = h.Zone.ZoneId, RuleId = rule.RuleId, MetricValue = 5,
             MetadataJson = "{\"warningThreshold\":3,\"configurationVersion\":\"old\"}" };
         h.Store.Values.Add(evidence);
         await h.Setup.Delete(h.Zone.ZoneId, new(h.Configuration.ConfigId, h.Configuration.UpdatedAt), default);

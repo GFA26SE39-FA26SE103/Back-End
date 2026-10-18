@@ -88,6 +88,21 @@ public sealed class MonitoringSetupTests
         Assert.Equal("INACTIVE", unchanged.Status);
     }
 
+    [Fact]
+    public async Task DraftSaveStoresOnlyTheOperationalEventTargetForV6()
+    {
+        var h = new Harness();
+        var legacyCatalogType = h.AddRule();
+        var input = new MonitoringRuleRequest(legacyCatalogType.IncidentTypeId, 3, 5, "PEOPLE");
+
+        await h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("V6", Rules: [input], ExpectedUpdatedAt: h.Configuration.UpdatedAt), default);
+
+        var stored = Assert.Single(h.Store.Values.OfType<MonitoringRule>());
+        Assert.Equal("OPERATIONAL_EVENT", stored.OutcomeType);
+        Assert.NotEqual(Guid.Empty, stored.EventTypeId);
+        Assert.Null((Guid?)stored.IncidentTypeId);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -164,10 +179,10 @@ public sealed class MonitoringSetupTests
         }
         public IncidentType AddRule(string code = "LONG_QUEUE", string measurement = "QUEUE_LENGTH", string unit = "PEOPLE")
         {
-            var type = new IncidentType { IncidentTypeId = Guid.NewGuid(), Code = code, Name = code, SourceType = "AI_DETECTED", MeasurementType = measurement };
+            var type = new IncidentType { IncidentTypeId = Guid.NewGuid(), Code = code, Name = code };
             var eventType = new OperationalEventType { EventTypeId=Guid.NewGuid(),Code=MonitoringPolicy.OperationalEventCode(type)!,Name=code,MeasurementType=measurement };
             Store.Values.AddRange([type,eventType]);
-            Store.Values.Add(new MonitoringRule { RuleId = Guid.NewGuid(), ConfigId = Configuration.ConfigId, IncidentTypeId = type.IncidentTypeId,
+            Store.Values.Add(new MonitoringRule { RuleId = Guid.NewGuid(), ConfigId = Configuration.ConfigId, IncidentTypeId = null,
                 EventTypeId=eventType.EventTypeId, WarningThreshold = 3, CriticalThreshold = 5, ThresholdUnit = unit });
             return type;
         }

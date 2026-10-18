@@ -175,3 +175,29 @@ Separated transport status, visual-health events and processing availability. Ad
 - Frontend: **152 tests passed across 19 files**; lint and production build **PASS**. Existing Vite bundle-size advisory remains.
 - AI service CPU/API/session/recorded/redaction selection: **32 passed**. Focused frame-health tests: **4 passed**. A Starlette/httpx deprecation warning is dependency-owned and does not affect the result.
 - SQL integration was not rerun because this change does not alter schema or EF mappings.
+
+## ERD V6 additive migration and outcome routing validation 2026-10-18
+
+Prepared the ERD V6 migration in two stages. `FA26SE103_Database_V5.sql` is the non-destructive compatibility expansion; `FA26SE103_Database_V6_Cleanup.sql` is the guarded destructive cutover script. V5 and V6 Cleanup have now both been applied to the connected shared Development database after backup and explicit cutover approval.
+
+- Before Cleanup, Development contained `OperationalEvent=852`, `Incident=1`, and `MonitoringRule=1`. The Incident was confirmed test data with invalid V6 provenance: it was `AI_DETECTED` and linked to an `OPERATIONAL_EVENT` rule. With explicit approval, 851 legacy Event links were cleared and that one test Incident was deleted rather than fabricating an INCIDENT rule.
+- Post-Cleanup verification: 37 dbo tables; `OperationalEvent=852`, `Incident=0`, `MonitoringRule=1`. The remaining rule is `OPERATIONAL_EVENT` with only `event_type_id` populated.
+- Legacy columns/tables are absent: `OperationalEvent.incident_id`, `OperationalEvent.event_type`, `Incident.trigger_camera_id`, `IncidentType.source_type`, `IncidentType.measurement_type`, `NotificationConfig`, and `ZoneShiftRequirement` all resolve absent.
+- `CK_MonitoringRule_ExactlyOneOutcome` and `CK_Incident_Source` enforce the V6 target/source discriminators. `DBCC CHECKCONSTRAINTS WITH ALL_CONSTRAINTS` completed without reporting a violation.
+- Backend EF scaffold expanded to the 37-table V6 compatibility schema. Runtime writing now routes `OPERATIONAL_EVENT` rules to OperationalEvent episodes and `INCIDENT` rules directly to Incident, without creating the other outcome branch.
+- Backend non-SQL suite (`Category!=SqlIntegration`): **282 passed, 0 failed, 0 skipped**.
+- Backend Release publish: **PASS**.
+- Both SQL migration files passed SQL Server parse-only validation. Repository `git diff --check` is recorded separately after the final documentation edit.
+
+Not performed: shared-database test-data insertion, SQL integration-suite execution, commit, push, merge, or backend deployment. Older V5-compatible writers must not be restarted against this post-cleanup database.
+
+### Exact V6 cutover preparation continuation
+
+- Compared all live dbo table/column names against the supplied ERD V6 draw.io: all 37 target tables/columns exist after V5; the remaining differences were two legacy tables and legacy columns on Incident, IncidentType, OperationalEvent, Recommendation, ResponsePolicy and ResponsePolicyAction. Cleanup now removes the complete verified delta, including `OperationalEvent.event_type` and `IncidentType.measurement_type`.
+- Replayed the historical backup plus Database V2 → V3 → V4 → V5 → V6 Cleanup on a locally owned disposable SQL Server database: **PASS**. The cleanup handled the historical unique constraint/index variants, completed transactionally, and the disposable database was removed.
+- Regenerated the 37-entity EF scaffold from that exact post-cleanup schema. `MonitoringRule.event_type_id` / `incident_type_id` are nullable outcome targets; legacy Event→Incident, trigger-camera, string event-type, IncidentType source/measurement, Recommendation-Incident and response-policy Incident qualification mappings are absent.
+- Monitoring setup continues to accept the current frontend catalog contract, but measurement metadata is sourced from `OperationalEventType` and saved operational rules persist only `event_type_id`. Direct Incident runtime activation fails closed until a validated measurement/model contract exists.
+- Backend non-SQL suite (`Category!=SqlIntegration`): **283 passed, 0 failed, 0 skipped**. Focused V6 monitoring/model selection: **50 passed**. Backend Release publish: **PASS**.
+- Shared Development cleanup preflight data gates: **PASS** after removal of the explicitly approved legacy test Incident. `NotificationConfig`, `ZoneShiftRequirement`, and legacy Recommendation/ResponsePolicy/Action data were all empty.
+
+The shared Development database is now on the exact V6 post-cleanup schema. The database cutover is complete; coordinated deployment of the V6-aware backend remains required. No commit, push, or merge was performed.

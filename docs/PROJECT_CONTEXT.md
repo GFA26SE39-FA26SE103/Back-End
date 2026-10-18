@@ -34,7 +34,7 @@ OperationalEvent NEVER creates, converts into, references or escalates into Inci
 - `OperationalEvent` = tracked operational condition/episode, with priority and resolution when the **condition clears**.
 - `Incident` = independently qualified safety/material-disruption issue, with severity, corrective handling and verified closure.
 - A CRITICAL Event is **not** automatically an Incident. Model confidence filters detections; it is not an Incident-routing approval gate.
-- Current backend code may still perform prohibited Event → Incident writes as **legacy compatibility**, not approved behavior. See §§36, 39–40.
+- The V6 migration branch separates Event and Incident writes by `MonitoringRule.outcome_type`, uses the exact post-cleanup 37-table scaffold, and never creates an Incident from an OperationalEvent. The shared Development database still requires the guarded coordinated cleanup. See §§36, 39–40.
 - An ERD shows structure. Do **not** load it with SQL constraints/business-logic descriptions merely to represent workflow rules.
 
 ---
@@ -69,7 +69,7 @@ If target requirements disagree with code or an old document, **record the misma
 
 **Do not merge old and new Incident models.** Do not infer current DB tables from V6 alone. Distinguish approved target, coded subset, and actual deployed DB. Report discrepancies as an explicit implementation backlog. Record approval before destructive schema changes, workflow changes, or altering documents owned by teammates.
 
-**Known document drift to resolve separately:** Report 3's early entity overview may still mention `ZoneShiftRequirement` / `NotificationConfig` although V6 removes them. The Use Case inventory is being updated by a teammate. Older root `AGENTS.md` and `README.md` also contain obsolete Operator-approved shift-swap and Event-to-Incident descriptions; they should be synchronized in the same reviewed documentation PR as this file.
+**Known document drift to resolve separately:** Report 3's early entity overview may still mention `ZoneShiftRequirement` / `NotificationConfig` although V6 removes them. The Use Case inventory is being updated by a teammate. Root `AGENTS.md`, `README.md`, and `docs/API.md` are synchronized with this migration branch; preserve that alignment when the remaining external documents are updated.
 
 ---
 
@@ -229,7 +229,7 @@ The schema supports many camera-zone mappings. **Current ROI runtime does not ye
 
 # 9. Physical ERD V6 target vs implemented database
 
-**Approved design:** [V6](https://drive.google.com/file/d/17HEN6bpP-hxOfckGZWo2bKzPw4CHsP7S/view), **37 native draw.io tables and 72 Crow's Foot relationship edges**. V6 is a **design baseline**, not a claim that SQL Server already has those tables/columns. The current backend still has an older SQL-first scaffold and legacy incident connection.
+**Approved design:** [V6](https://drive.google.com/file/d/17HEN6bpP-hxOfckGZWo2bKzPw4CHsP7S/view), **37 native draw.io tables and 72 Crow's Foot relationship edges**. The connected Development database and this migration branch's 37-entity SQL-first scaffold now match the final post-cleanup V6 target. The database cutover is complete; deployment of the V6-aware backend remains a separate coordination step.
 
 ## 9.1 Complete V6 table inventory (37)
 
@@ -277,7 +277,7 @@ The schema supports many camera-zone mappings. **Current ROI runtime does not ye
 
 ## 9.4 DB implementation status — do not overstate
 
-At inspected `dev` commit, `src/Supermarket.Infrastructure/Persistence/Scaffolded/MonitoringRule.cs` still has **non-null** `IncidentTypeId` and `EventTypeId` and lacks the V6 `outcome_type` discriminator. `OperationalEvent.cs` still exposes `IncidentId`. `MonitoringIncidentWriter` still creates/links a `DETECTED` Incident from an Event for legacy compatibility. **Those are known divergences, not approved new requirements.**
+At the inspected `dev` baseline, the scaffold and writer still had the legacy Event → Incident connection. The current V6 migration branch has the exact post-cleanup 37-table scaffold and separate persistence branches: OperationalEvent outcomes create/update episodes only; Incident outcomes create/update Incidents only. `MonitoringRule` uses nullable event/incident targets with exactly one selected by `outcome_type`; measurement metadata comes from `OperationalEventType`. The shared database's legacy physical columns remain until the guarded cleanup migration is coordinated and applied; they are compatibility residue, not approved behavior.
 
 The scaffold covers a **subset** of V6 entities. Do not infer that ShiftSwapRequest, SystemSetting, ServiceHealthEvent or other target workflows are implemented until verified in code, SQL metadata and tests. The canonical Database repo and applied SQL Server version must be checked before writing migrations.
 
@@ -326,7 +326,7 @@ Account/RBAC; floor-plan/zone geometry; camera metadata, stream credentials and 
 
 Current `dev` contains controllers for accounts, store/floor setup, cameras, monitoring config/review/activation, monitoring live/health, recorded-video upload and AI preview, plus an IncidentType controller. For precise route/response status, inspect [`docs/API.md`](API.md), [`docs/openapi.json`](openapi.json) and actual controller source.
 
-**Do not assume** there are current endpoints for final Task acceptance/verification, fully independent rule-target Incident handling, StaffReport confirmation, SWAP/COVER approval, SystemSetting or ServiceHealthEvent. They remain target requirements until implemented and tested.
+**Do not assume** there are current endpoints for final Task acceptance/verification, StaffReport confirmation, SWAP/COVER approval, SystemSetting or ServiceHealthEvent. Independent rule-target Incident persistence is implemented on the V6 migration branch through the monitoring worker; it is not a new standalone Incident-generation endpoint.
 
 ---
 
@@ -561,7 +561,7 @@ One default Supermarket
   → MonitoringWorker: background measurements/events
 ```
 
-Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a shopper Incident. Do not derive physical density from pixel area. Do not confuse deployed V2 SQL with approved V6 design.
+Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a shopper Incident. Do not derive physical density from pixel area. Do not confuse the deployed additive V5 compatibility schema with the exact final V6 target.
 
 ---
 
@@ -575,8 +575,8 @@ Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a 
 | Core setup/auth/camera/monitoring APIs | Current Controllers and README/API | **Present in repo**; do not infer live feature acceptance. |
 | Preview/recorded-video/monitoring worker | AI clients, `MonitoringWorker`, camera workers | **Present in repo**, specialized count/queue subset. |
 | OperationalEvent episodes | `MonitoringIncidentWriter`, scaffolded `OperationalEvent`, targeted tests | **Implemented subset**; Episode behavior detailed §40. |
-| V6 rule `outcome_type` | Scaffolded `MonitoringRule.cs` | **Not aligned**; has non-null `EventTypeId` and `IncidentTypeId` without outcome discriminator. |
-| Independent Incident path | `MonitoringIncidentWriter.cs`, `OperationalEvent.cs` | **Not aligned**; legacy Event → Incident link remains. |
+| V6 rule `outcome_type` | Scaffolded `MonitoringRule.cs`, `MonitoringIncidentWriter.cs` | **Implemented on the V6 migration branch** with nullable exact-one targets and outcome-specific writes. Shared-DB enforcement remains gated by the cutover migration. |
+| Independent Incident path | `MonitoringIncidentWriter.cs`, `OperationalEvent.cs` | **Implemented on the V6 migration branch**; Event outcomes do not create/link Incidents. |
 | Task acceptance, verification, StaffReport, SWAP/COVER, FCM delivery, complete analytics | Not established by inspected target controllers/scaffold | **Do not claim implemented**. |
 | `SystemSetting`, `ServiceHealthEvent`, V6 zone staffing fields | V6 only | **Design approved, DB implementation unverified**. |
 | Deployment health / CI results | Historical README, workflow and VALIDATION docs | **Dated evidence only**, no live deployment check performed for this synchronization. |
@@ -622,7 +622,7 @@ The inspected implementation uses camera-local tracked observations, ROI footpoi
 
 A backend-owned worker consumes batches independently of a viewer. It must recheck current configuration/source mapping before persistence. Gaps/reconnect/config changes can reset sustain continuity; unavailable data must not be interpreted as a valid zero. Recorded video can complete at EOF and is not an automatically looping production stream. Preview is read-only relative to monitoring-owned runtime and does not itself generate production measurements.
 
-**Legacy compatibility warning:** `MonitoringIncidentWriter` may still create a `DETECTED` Incident linked from an OperationalEvent. This is a **code/SQL migration gap** relative to approved V6; it is not evidence that the old model should survive. Do not extend that pathway. Coordinate the direct `INCIDENT` rule route and legacy migration as a separate change.
+**V6 cutover status:** the connected Development database is on the exact post-cleanup V6 schema, and this migration branch no longer creates an Incident from an OperationalEvent. Older V5-compatible writers must not be restarted against it. Deploy the V6-aware backend in coordination with the database cutover, and do not restore or extend the Event → Incident pathway.
 
 ---
 
@@ -645,7 +645,7 @@ new breach after clear       → start a new episode
 missing/unavailable readings → do NOT synthesize zero or clear automatically
 ```
 
-Recovery/hysteresis, source capture timestamps, selected camera and stale-config protection require the exact implementation/tests to be checked for every change. This implementation checkpoint **does not** authorize Event-origin Incident generation. Task, ResponsePolicy execution, confirmed StaffReports, SWAP/COVER, notification, historical KPI completeness and V6 migrations remain separate implementation tasks until independently verified.
+Recovery/hysteresis, source capture timestamps, selected camera and stale-config protection require the exact implementation/tests to be checked for every change. This implementation checkpoint **does not** authorize Event-origin Incident generation. Task, ResponsePolicy execution, confirmed StaffReports, SWAP/COVER, notification, historical KPI completeness and the guarded V6 destructive cleanup remain separate implementation tasks until independently verified.
 
 ---
 

@@ -39,6 +39,10 @@ public partial class Camera
 
     public DateTime UpdatedAt { get; set; }
 
+    public DateTime? LastMaintenanceAt { get; set; }
+
+    public string? LastMaintenanceNote { get; set; }
+
     public virtual CameraConnection? CameraConnection { get; set; }
 
     public virtual ICollection<CameraHealthEvent> CameraHealthEvents { get; set; } = new List<CameraHealthEvent>();
@@ -47,7 +51,9 @@ public partial class Camera
 
     public virtual Floor Floor { get; set; } = null!;
 
-    public virtual ICollection<Incident> Incidents { get; set; } = new List<Incident>();
+    public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 
     public virtual ICollection<OperationalEvent> OperationalEvents { get; set; } = new List<OperationalEvent>();
+
+    public virtual ICollection<ZoneMetric> ZoneMetrics { get; set; } = new List<ZoneMetric>();
 }

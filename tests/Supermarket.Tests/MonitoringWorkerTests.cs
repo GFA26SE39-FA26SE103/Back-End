@@ -25,7 +25,7 @@ public sealed class MonitoringWorkerTests
         // Low observation between highs must not be skipped by a latest-only poll.
         ai.Batches.Add(Batch(4,3000,3));
         await coordinator.Tick(default);
-        Assert.Single(h.Store.Values.OfType<Incident>());
+        Assert.Empty(h.Store.Values.OfType<Incident>()); Assert.Single(h.Store.Values.OfType<OperationalEvent>());
         Assert.Equal("RUNNING",coordinator.Get(h.Camera.CameraId)!.State);
         h.Configuration.Status="INACTIVE";
         await coordinator.Tick(default); Assert.Equal(1,ai.Stops); Assert.False(coordinator.IsMonitoringOwned(h.Camera.CameraId));
@@ -66,7 +66,7 @@ public sealed class MonitoringWorkerTests
     }
     private sealed class Clock:IClock { public DateTime UtcNow {get;set;}=new(2026,10,3,0,0,0,DateTimeKind.Utc); }
     [Fact]
-    public async Task HighFrameRateMaintainsEpisodeTransitionsAndRetainsOpenIncident()
+    public async Task HighFrameRateMaintainsOperationalEventEpisodeTransitions()
     {
         var h=new MonitoringSetupTests.Harness(); h.AddRule("OVERCROWDING_CONGESTION","CROWD_DENSITY","PEOPLE");
         var r=h.Store.Values.OfType<MonitoringRule>().Single(); r.ParametersJson="{\"measurementMode\":\"PEOPLE_COUNT\"}"; r.SustainSec=0; r.WarningThreshold=1; r.CriticalThreshold=4; h.Configuration.Status="ACTIVE";
@@ -76,13 +76,13 @@ public sealed class MonitoringWorkerTests
         var snap=Assert.Single(await provider.GetRequiredService<IMonitoringSnapshotReader>().ReadAll(default)); var z=snap.Zones[0];
         AiMeasurementBatch Batch(long seq,long ms,int people)=>new(1,ai.Session,ai.Epoch,seq,clock.UtcNow,ms,snap.Fingerprint,[new(z.ZoneId,z.ConfigId,z.ConfigVersion,people,0)]);
         ai.Batches=[Batch(1,0,3),Batch(2,16,3),Batch(3,33,3)]; await coordinator.Tick(default);
-        Assert.Equal(1,counted.Transactions); var incident=Assert.Single(h.Store.Values.OfType<Incident>());
+        Assert.Equal(1,counted.Transactions); Assert.Empty(h.Store.Values.OfType<Incident>());
         ai.Batches.Add(Batch(4,50,0)); await coordinator.Tick(default);
-        Assert.Equal(incident.IncidentId,coordinator.Get(h.Camera.CameraId)!.Zones[0].Rules[0].IncidentId);
+        Assert.Null(coordinator.Get(h.Camera.CameraId)!.Zones[0].Rules[0].IncidentId);
         Assert.Equal(2,counted.Transactions); Assert.NotNull(Assert.Single(h.Store.Values.OfType<OperationalEvent>()).ClearedAt);
         ai.Batches.Add(Batch(5,66,5)); await coordinator.Tick(default);
         Assert.Equal(3,counted.Transactions); Assert.Equal(2,h.Store.Values.OfType<OperationalEvent>().Count());
-        Assert.Equal("CRITICAL",incident.Severity); await coordinator.Shutdown(default);
+        Assert.Empty(h.Store.Values.OfType<Incident>()); await coordinator.Shutdown(default);
     }
     private sealed class CountingStore(ISetupStore inner):ISetupStore {
         public int Transactions;
@@ -93,15 +93,31 @@ public sealed class MonitoringWorkerTests
         public Task Remove<T>(T e,CancellationToken ct=default) where T:Entity,new()=>inner.Remove(e,ct);
         public Task<T> Transaction<T>(Func<Task<T>> work,CancellationToken ct=default) { Transactions++; return inner.Transaction(work,ct); }
     }
+    private sealed class FailingEventStore(ISetupStore inner,Guid eventTypeId):ISetupStore {
+        private bool fail=true;
+        public Task<T?> Find<T>(Guid id,CancellationToken ct=default) where T:Entity,new()=>inner.Find<T>(id,ct);
+        public Task<List<T>> List<T>(System.Linq.Expressions.Expression<Func<T,bool>>? filter=null,CancellationToken ct=default) where T:Entity,new()=>inner.List(filter,ct);
+        public Task Add<T>(T e,CancellationToken ct=default) where T:Entity,new() {
+            if(fail && e is OperationalEvent operationalEvent && operationalEvent.EventTypeId==eventTypeId) {
+                fail=false; throw new Supermarket.Application.ApplicationException("CONCURRENT_UPDATE","Controlled retry",409);
+            }
+            return inner.Add(e,ct);
+        }
+        public Task Update<T>(T e,CancellationToken ct=default) where T:Entity,new()=>inner.Update(e,ct);
+        public Task Remove<T>(T e,CancellationToken ct=default) where T:Entity,new()=>inner.Remove(e,ct);
+        public Task<T> Transaction<T>(Func<Task<T>> work,CancellationToken ct=default)=>inner.Transaction(work,ct);
+    }
     [Fact]
     public async Task PartialFrameRetryKeepsSuccessfulRuleAndDoesNotDuplicateEvidence()
     {
         var h=new MonitoringSetupTests.Harness(); h.AddRule(); h.AddRule("OVERCROWDING_CONGESTION","CROWD_DENSITY","PEOPLE");
         var rules=h.Store.Values.OfType<MonitoringRule>().ToArray();
+        rules[0].RuleId=Guid.Parse("00000000-0000-0000-0000-000000000001");
+        rules[1].RuleId=Guid.Parse("00000000-0000-0000-0000-000000000002");
         foreach(var rule in rules) { rule.SustainSec=1; rule.WarningThreshold=1; rule.CriticalThreshold=4; }
         rules[1].ParametersJson="{\"measurementMode\":\"PEOPLE_COUNT\"}"; h.Configuration.Status="ACTIVE";
-        var clock=new Clock(); var ai=new AiFake(); var queries=new Queries { FailSecondOnce=true };
-        using var provider=Services(h.Store,clock,ai,queries).BuildServiceProvider();
+        var clock=new Clock(); var ai=new AiFake(); var failing=new FailingEventStore(h.Store,rules[1].EventTypeId!.Value);
+        using var provider=Services(failing,clock,ai,new Queries()).BuildServiceProvider();
         var coordinator=new MonitoringCameraCoordinator(provider.GetRequiredService<IServiceScopeFactory>(),Options.Create(new MonitoringWorkerOptions()),clock);
         var snapshot=Assert.Single(await provider.GetRequiredService<IMonitoringSnapshotReader>().ReadAll(default)); var z=snapshot.Zones[0];
         AiMeasurementBatch Batch(long seq,long ms)=>new(1,ai.Session,ai.Epoch,seq,clock.UtcNow,ms,snapshot.Fingerprint,[new(z.ZoneId,z.ConfigId,z.ConfigVersion,3,3)]);
@@ -109,11 +125,11 @@ public sealed class MonitoringWorkerTests
         Assert.Empty(h.Store.Values.OfType<OperationalEvent>()); Assert.Equal("RUNNING",coordinator.Get(h.Camera.CameraId)!.State);
         clock.UtcNow=clock.UtcNow.AddSeconds(2); ai.Batches.Add(Batch(2,1000));
         await coordinator.Tick(default);
-        Assert.Single(h.Store.Values.OfType<Incident>()); Assert.Single(h.Store.Values.OfType<OperationalEvent>()); Assert.Equal("ERROR",coordinator.Get(h.Camera.CameraId)!.State);
+        Assert.Empty(h.Store.Values.OfType<Incident>()); Assert.Single(h.Store.Values.OfType<OperationalEvent>()); Assert.Equal("ERROR",coordinator.Get(h.Camera.CameraId)!.State);
         clock.UtcNow=clock.UtcNow.AddSeconds(1);
         await coordinator.Tick(default);
-        Assert.Equal(2,h.Store.Values.OfType<Incident>().Count()); Assert.Equal(2,h.Store.Values.OfType<OperationalEvent>().Count());
-        await coordinator.Tick(default); Assert.Equal(2,h.Store.Values.OfType<OperationalEvent>().Count()); await coordinator.Shutdown(default);
+        Assert.Empty(h.Store.Values.OfType<Incident>()); Assert.Equal(2,h.Store.Values.OfType<OperationalEvent>().Count());
+        await coordinator.Tick(default); Assert.Empty(h.Store.Values.OfType<Incident>()); Assert.Equal(2,h.Store.Values.OfType<OperationalEvent>().Count()); await coordinator.Shutdown(default);
     }
     private sealed class AiFake:IAiMonitoringClient
     {
@@ -129,10 +145,10 @@ public sealed class MonitoringWorkerTests
         public Task Stop(Guid camera,Guid owner,CancellationToken ct) { Stops++; priorUri=null; return Task.CompletedTask; }
     }
     private sealed class Queries:IMonitoringIncidentQueries {
-        public bool FailSecondOnce; private int calls;
+        public bool FailOnce; private int calls;
         public Task EnsureSchema(CancellationToken ct)=>Task.CompletedTask;
         public Task<DateTime?> LatestEndedAt(Guid z,Guid t,CancellationToken ct) {
-            if(FailSecondOnce && ++calls==2) throw new Supermarket.Application.ApplicationException("CONCURRENT_UPDATE","Controlled retry",409);
+            if(FailOnce && ++calls==1) { FailOnce=false; throw new Supermarket.Application.ApplicationException("CONCURRENT_UPDATE","Controlled retry",409); }
             return Task.FromResult<DateTime?>(null);
         }
         public Task<IncidentFeedView> PageForCamera(Guid c,IncidentFeedQuery q,CancellationToken ct)=>throw new NotSupportedException();

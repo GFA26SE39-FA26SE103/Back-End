@@ -6,14 +6,17 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
     public async Task<IncidentTypeView[]> IncidentTypes(CancellationToken ct)
     {
         UseCase.Admin(current);
-        return (await store.List<IncidentType>(t => t.SourceType == "AI_DETECTED", ct)).OrderBy(t => t.Code).Select(t =>
+        var eventTypes = await store.List<OperationalEventType>(ct: ct);
+        return (await store.List<IncidentType>(ct: ct)).OrderBy(t => t.Code).Select(t => (Type: t,
+            EventType: eventTypes.SingleOrDefault(e => e.Code == MonitoringPolicy.OperationalEventCode(t.Code))))
+            .Where(x => x.EventType is not null).Select(x =>
         {
-            var d = MonitoringPolicy.Definition(t);
-            var supported=t.Code=="LONG_QUEUE" && t.MeasurementType=="QUEUE_LENGTH";
-            var options=t.Code=="OVERCROWDING_CONGESTION" && t.MeasurementType=="CROWD_DENSITY"
+            var t=x.Type; var eventType=x.EventType!; var d = MonitoringPolicy.Definition(eventType);
+            var supported=eventType.Code=="LONG_QUEUE" && eventType.MeasurementType=="QUEUE_LENGTH";
+            var options=eventType.Code=="CONGESTION" && eventType.MeasurementType=="CROWD_DENSITY"
                 ? new[] { new MonitoringMeasurementOptionView("PEOPLE_COUNT","PEOPLE",true,"Temporary count mode; enter whole-person thresholds."),new MonitoringMeasurementOptionView("CROWD_DENSITY","PEOPLE_PER_M2",false,"Physical density runtime is deferred.",d?.Warning,d?.Critical) }
-                : new[] { new MonitoringMeasurementOptionView(t.MeasurementType??"UNSUPPORTED",d?.Unit??"PENDING",supported,supported?null:"Measurement runtime is not yet implemented.",d?.Warning,d?.Critical) };
-            return new IncidentTypeView(t.IncidentTypeId,t.Code,t.Name,t.Description,t.SourceType,t.MeasurementType,t.Status,
+                : new[] { new MonitoringMeasurementOptionView(eventType.MeasurementType,d?.Unit??"PENDING",supported,supported?null:"Measurement runtime is not yet implemented.",d?.Warning,d?.Critical) };
+            return new IncidentTypeView(t.IncidentTypeId,t.Code,t.Name,t.Description,"AI_DETECTED",eventType.MeasurementType,eventType.Status,
                 supported,d?.Unit,d?.Warning,d?.Critical,supported?null:"Select a supported measurement mode or keep this rule disabled in Draft.",options);
         }).ToArray();
     }
@@ -28,6 +31,7 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
         UseCase.Admin(current);
         return store.Transaction(async () =>
         {
+            if(runtimeQueries is not null) await runtimeQueries.EnsureSchema(ct);
             UseCase.Found(await store.Find<Zone>(zoneId, ct));
             var existing = (await store.List<MonitoringConfiguration>(m => m.ZoneId == zoneId, ct)).SingleOrDefault();
             if (existing?.Status == "ACTIVE") throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before changing its configuration.");
@@ -42,9 +46,7 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             Rules.Require(input.Select(r => r.IncidentTypeId).Distinct().Count() == input.Length, "DUPLICATE_RULE", "Only one rule per incident type is allowed.");
             var configuration = existing ?? new MonitoringConfiguration { ConfigId = Guid.NewGuid(), ZoneId = zoneId, CreatedByUserId = current.UserId };
             var oldRules = existing is null ? new List<MonitoringRule>() : await store.List<MonitoringRule>(r => r.ConfigId == configuration.ConfigId, ct);
-            if(runtimeQueries is not null && oldRules.Any(r=>!input.Any(x=>x.IncidentTypeId==r.IncidentTypeId)))
-                await runtimeQueries.EnsureSchema(ct); // Refuse deletion before evidence can be safely detached.
-            var prepared = new List<(MonitoringRule Rule, bool IsNew)>();
+            var prepared = new List<(MonitoringRule Rule, bool IsNew, Guid LegacyTypeId)>();
             foreach (var r in input)
             {
                 var type = UseCase.Found(await store.Find<IncidentType>(r.IncidentTypeId, ct));
@@ -52,21 +54,25 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
                     ?? throw new ApplicationException("OPERATIONAL_EVENT_TYPE_UNSUPPORTED","This incident type has no operational event mapping.",400);
                 var eventType=(await store.List<OperationalEventType>(t=>t.Code==eventCode && t.Status=="ACTIVE",ct)).SingleOrDefault()
                     ?? throw new ApplicationException("OPERATIONAL_EVENT_TYPE_UNAVAILABLE","The operational event catalog is not ready.",503);
-                var old = oldRules.SingleOrDefault(x => x.IncidentTypeId == r.IncidentTypeId);
+                var old = oldRules.SingleOrDefault(x => x.OutcomeType=="OPERATIONAL_EVENT" && x.EventTypeId == eventType.EventTypeId);
                 var rule = new MonitoringRule { RuleId = old?.RuleId ?? Guid.NewGuid(), ConfigId = configuration.ConfigId,
-                    IncidentTypeId = r.IncidentTypeId, EventTypeId=eventType.EventTypeId, WarningThreshold = r.WarningThreshold, CriticalThreshold = r.CriticalThreshold,
+                    IncidentTypeId = null, EventTypeId=eventType.EventTypeId, OutcomeType="OPERATIONAL_EVENT",
+                    WarningThreshold = r.WarningThreshold, CriticalThreshold = r.CriticalThreshold,
                     ThresholdUnit = r.ThresholdUnit, SustainSec = r.SustainSec, CooldownSec = r.CooldownSec,
                     Enabled = r.Enabled, ParametersJson = r.ParametersJson, CreatedAt = old?.CreatedAt ?? default, UpdatedAt = old?.UpdatedAt ?? default };
-                MonitoringPolicy.Validate(rule, type);
-                prepared.Add((rule, old is null));
+                MonitoringPolicy.Validate(rule, eventType);
+                prepared.Add((rule, old is null, r.IncidentTypeId));
             }
+            var retainedRuleIds=prepared.Select(x=>x.Rule.RuleId).ToHashSet();
+            if(runtimeQueries is not null && oldRules.Any(r=>!retainedRuleIds.Contains(r.RuleId)))
+                await runtimeQueries.EnsureSchema(ct); // Refuse deletion before evidence can be safely detached.
             configuration.Name = name;
             configuration.ConfidenceThreshold = request.ConfidenceThreshold;
             configuration.Status = "DRAFT";
             if (existing is null) await store.Add(configuration, ct); else await store.Update(configuration, ct);
-            foreach (var old in oldRules.Where(r => !input.Any(x => x.IncidentTypeId == r.IncidentTypeId)))
+            foreach (var old in oldRules.Where(r => !retainedRuleIds.Contains(r.RuleId)))
                 await RemoveRulePreservingHistory(old, ct);
-            foreach (var (rule, isNew) in prepared)
+            foreach (var (rule, isNew, _) in prepared)
                 if (isNew) await store.Add(rule, ct); else await store.Update(rule, ct);
             return await View(configuration, ct, prepared.Select(r => r.Rule).ToArray());
         }, ct);
@@ -131,19 +137,32 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             evidence.RuleId = null;
             await store.Update(evidence, ct);
         }
+        foreach (var incident in await store.List<Incident>(i => i.MonitoringRuleId == rule.RuleId, ct))
+        {
+            incident.MonitoringRuleId = null;
+            await store.Update(incident, ct);
+        }
         await store.Remove(rule, ct);
     }
     private async Task<MonitoringConfigurationView> View(MonitoringConfiguration configuration, CancellationToken ct, MonitoringRule[]? rows = null)
     {
         rows ??= (await store.List<MonitoringRule>(r => r.ConfigId == configuration.ConfigId, ct)).ToArray();
         var types = (await store.List<IncidentType>(ct: ct)).ToDictionary(t => t.IncidentTypeId);
-        return ConfigurationView(configuration, rows, types);
+        var eventTypes = (await store.List<OperationalEventType>(ct: ct)).ToDictionary(t => t.EventTypeId);
+        return ConfigurationView(configuration, rows, types, eventTypes);
     }
-    internal static MonitoringConfigurationView ConfigurationView(MonitoringConfiguration configuration, MonitoringRule[] rows, IReadOnlyDictionary<Guid, IncidentType> types)
+    internal static MonitoringConfigurationView ConfigurationView(MonitoringConfiguration configuration, MonitoringRule[] rows,
+        IReadOnlyDictionary<Guid, IncidentType> types, IReadOnlyDictionary<Guid, OperationalEventType> eventTypes)
     {
-        var views = rows.Select(r => new MonitoringRuleView(r.RuleId,r.IncidentTypeId,
-            types.GetValueOrDefault(r.IncidentTypeId)?.Code ?? "UNKNOWN",types.GetValueOrDefault(r.IncidentTypeId)?.Name ?? "Unknown type",
-            r.WarningThreshold,r.CriticalThreshold,r.ThresholdUnit,r.SustainSec,r.CooldownSec,r.Enabled,r.ParametersJson)).OrderBy(r => r.IncidentCode).ToArray();
+        var views = rows.Select(r =>
+        {
+            var eventType=r.EventTypeId is { } eventTypeId ? eventTypes.GetValueOrDefault(eventTypeId) : null;
+            var incidentType=r.IncidentTypeId is { } incidentTypeId ? types.GetValueOrDefault(incidentTypeId)
+                : eventType is null ? null : types.Values.SingleOrDefault(t=>MonitoringPolicy.OperationalEventCode(t.Code)==eventType.Code);
+            return new MonitoringRuleView(r.RuleId,incidentType?.IncidentTypeId??Guid.Empty,
+                eventType?.Code??incidentType?.Code??"UNKNOWN",eventType?.Name??incidentType?.Name??"Unknown type",
+                r.WarningThreshold,r.CriticalThreshold,r.ThresholdUnit,r.SustainSec,r.CooldownSec,r.Enabled,r.ParametersJson);
+        }).OrderBy(r => r.IncidentCode).ToArray();
         return new(configuration.ConfigId,configuration.ZoneId,configuration.Name,configuration.ConfidenceThreshold,configuration.Status,
             configuration.CreatedByUserId,configuration.CreatedAt,configuration.UpdatedAt,views);
     }

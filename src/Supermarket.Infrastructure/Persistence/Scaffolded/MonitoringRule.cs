@@ -9,9 +9,7 @@ public partial class MonitoringRule
 
     public Guid ConfigId { get; set; }
 
-    public Guid IncidentTypeId { get; set; }
-
-    public Guid EventTypeId { get; set; }
+    public Guid? IncidentTypeId { get; set; }
 
     public decimal WarningThreshold { get; set; }
 
@@ -31,11 +29,19 @@ public partial class MonitoringRule
 
     public DateTime UpdatedAt { get; set; }
 
+    public Guid? EventTypeId { get; set; }
+
+    public string OutcomeType { get; set; } = null!;
+
     public virtual MonitoringConfiguration Config { get; set; } = null!;
 
-    public virtual IncidentType IncidentType { get; set; } = null!;
+    public virtual OperationalEventType? EventType { get; set; }
 
-    public virtual OperationalEventType EventType { get; set; } = null!;
+    public virtual IncidentType? IncidentType { get; set; }
+
+    public virtual ICollection<Incident> Incidents { get; set; } = new List<Incident>();
 
     public virtual ICollection<OperationalEvent> OperationalEvents { get; set; } = new List<OperationalEvent>();
+
+    public virtual ICollection<ResponsePolicy> ResponsePolicies { get; set; } = new List<ResponsePolicy>();
 }

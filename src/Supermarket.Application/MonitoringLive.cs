@@ -18,9 +18,19 @@ public sealed class MonitoringLive(ISetupStore store,ICurrentUser current,IMonit
             if(config is not null)
                 foreach(var rule in await store.List<MonitoringRule>(r=>r.ConfigId==config.ConfigId && r.Enabled,ct))
                 {
-                    var type=UseCase.Found(await store.Find<IncidentType>(rule.IncidentTypeId,ct)); var definition=MonitoringPolicy.RuntimeDefinition(rule,type);
-                    ruleViews.Add(new(rule.RuleId,type.Code,type.Name,definition.Mode,definition.Unit,rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec,null,0,0,0,
-                        config.Status!="ACTIVE"?"NO_ACTIVE_CONFIGURATION":!definition.Supported?"RULE_RUNTIME_UNSUPPORTED":"STARTING"));
+                    if(rule.OutcomeType=="OPERATIONAL_EVENT")
+                    {
+                        var type=rule.EventTypeId is { } eventTypeId ? await store.Find<OperationalEventType>(eventTypeId,ct) : null;
+                        var definition=type is null ? new RuntimeMeasurementDefinition("UNSUPPORTED",rule.ThresholdUnit,false,"Operational event type unavailable.") : MonitoringPolicy.RuntimeDefinition(rule,type);
+                        ruleViews.Add(new(rule.RuleId,type?.Code??"UNKNOWN",type?.Name??"Unknown event type",definition.Mode,definition.Unit,rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec,null,0,0,0,
+                            config.Status!="ACTIVE"?"NO_ACTIVE_CONFIGURATION":!definition.Supported?"RULE_RUNTIME_UNSUPPORTED":"STARTING"));
+                    }
+                    else
+                    {
+                        var type=rule.IncidentTypeId is { } incidentTypeId ? await store.Find<IncidentType>(incidentTypeId,ct) : null;
+                        ruleViews.Add(new(rule.RuleId,type?.Code??"UNKNOWN",type?.Name??"Unknown incident type","UNSUPPORTED",rule.ThresholdUnit,rule.WarningThreshold,rule.CriticalThreshold,
+                            rule.SustainSec,rule.CooldownSec,null,0,0,0,"INCIDENT_RULE_RUNTIME_UNSUPPORTED"));
+                    }
                 }
             zones.Add(new(zone.ZoneId,zone.Name,config?.ConfigId,config?.UpdatedAt,config?.Status??"NOT_CONFIGURED",config?.ConfidenceThreshold??0,null,null,ruleViews.ToArray()));
         }

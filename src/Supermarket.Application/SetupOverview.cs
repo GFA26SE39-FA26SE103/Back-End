@@ -38,6 +38,7 @@ public sealed class SetupOverview(ISetupStore store, ICurrentUser current, ICloc
             var configIds = configurations.Values.Select(c => c.ConfigId).ToArray();
             var rules = (await store.List<MonitoringRule>(r => configIds.Contains(r.ConfigId), ct)).ToLookup(r => r.ConfigId);
             var types = (await store.List<IncidentType>(ct: ct)).ToDictionary(t => t.IncidentTypeId);
+            var eventTypes = (await store.List<OperationalEventType>(ct: ct)).ToDictionary(t => t.EventTypeId);
             var events = await store.List<CameraHealthEvent>(e => cameraIds.Contains(e.CameraId) && e.Status != "RESOLVED", ct);
             var floorViews = floors.OrderBy(f => f.FloorNumber).Select(f => new SetupFloor(f.FloorId, f.FloorNumber, f.Name,
                 !string.IsNullOrWhiteSpace(f.MapAssetUrl), zones.Where(z => z.FloorId == f.FloorId).OrderBy(z => z.Code).Select(z =>
@@ -47,7 +48,7 @@ public sealed class SetupOverview(ISetupStore store, ICurrentUser current, ICloc
                             MonitoringSetup.MappedCameras(z, mappings, cameras, connections),
                             [new("CONFIGURATION_MISSING", "Create an AI configuration and add incident rules.")], []);
                     var rows = rules[configuration.ConfigId].ToArray();
-                    var review = MonitoringSetup.EvaluateReview(z, MonitoringSetup.ConfigurationView(configuration, rows, types), rows, types, mappings, cameras, connections);
+                    var review = MonitoringSetup.EvaluateReview(z, MonitoringSetup.ConfigurationView(configuration, rows, types, eventTypes), rows, eventTypes, mappings, cameras, connections);
                     return new SetupZone(z.ZoneId, z.Code, z.Name, z.Status,
                         new(configuration.ConfigId, configuration.Name, configuration.Status, rows.Length, rows.Count(r => r.Enabled)),
                         review.CanActivate, configuration.Status != "ACTIVE" && review.CanActivate, review.Cameras, review.Issues, review.Warnings);

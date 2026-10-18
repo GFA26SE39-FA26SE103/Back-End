@@ -13,5 +13,7 @@ public partial class Role
 
     public DateTime CreatedAt { get; set; }
 
+    public virtual ICollection<ResponsePolicyAction> ResponsePolicyActions { get; set; } = new List<ResponsePolicyAction>();
+
     public virtual ICollection<UserAccount> UserAccounts { get; set; } = new List<UserAccount>();
 }

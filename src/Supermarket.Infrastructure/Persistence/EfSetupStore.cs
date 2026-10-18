@@ -7,6 +7,7 @@ using Supermarket.Domain;
 using Supermarket.Infrastructure.Persistence.Scaffolded;
 using Entity = Supermarket.Domain.Entity;
 using AppError = Supermarket.Application.ApplicationException;
+using Task = System.Threading.Tasks.Task;
 namespace Supermarket.Infrastructure.Persistence;
 
 public sealed class EfSetupStore(AppDbContext db, IClock clock) : ISetupStore
