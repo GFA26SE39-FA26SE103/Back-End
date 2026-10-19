@@ -25,6 +25,10 @@ public partial class ShiftAssignment
 
     public virtual Shift Shift { get; set; } = null!;
 
+    public virtual ICollection<ShiftSwapRequest> ShiftSwapRequestRequesterShiftAssignments { get; set; } = new List<ShiftSwapRequest>();
+
+    public virtual ICollection<ShiftSwapRequest> ShiftSwapRequestTargetShiftAssignments { get; set; } = new List<ShiftSwapRequest>();
+
     public virtual ICollection<StaffZoneAssignment> StaffZoneAssignments { get; set; } = new List<StaffZoneAssignment>();
 
     public virtual UserAccount User { get; set; } = null!;

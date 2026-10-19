@@ -21,6 +21,12 @@ public partial class NotificationRecipient
 
     public DateTime? ReadAt { get; set; }
 
+    public int AttemptCount { get; set; }
+
+    public DateTime? LastAttemptAt { get; set; }
+
+    public string? ProviderStatus { get; set; }
+
     public virtual Notification Notification { get; set; } = null!;
 
     public virtual UserAccount User { get; set; } = null!;

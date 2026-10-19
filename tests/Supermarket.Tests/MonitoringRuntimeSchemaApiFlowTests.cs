@@ -17,9 +17,9 @@ public sealed class MonitoringRuntimeSchemaApiFlowTests(SqlApiFixture fixture)
         var camera = new Camera { CameraId=Guid.NewGuid(), Code="RT-"+Guid.NewGuid().ToString("N")[..8], Name="Runtime test" };
         var type = (await store.List<IncidentType>(t=>t.Code=="LONG_QUEUE")).Single();
         var eventType = (await store.List<OperationalEventType>(t=>t.Code=="LONG_QUEUE")).Single();
-        var incident = new Incident { IncidentId=Guid.NewGuid(), ZoneId=zone.ZoneId, IncidentTypeId=type.IncidentTypeId, TriggerCameraId=camera.CameraId, Title="Runtime queue" };
-        var observed = new OperationalEvent { EventId=Guid.NewGuid(), CameraId=camera.CameraId, ZoneId=zone.ZoneId, IncidentId=incident.IncidentId,
-            EventTypeId=eventType.EventTypeId, EventType=eventType.Code, MetricValue=2, Priority="WARNING",
+        var incident = new Incident { IncidentId=Guid.NewGuid(), ZoneId=zone.ZoneId, IncidentTypeId=type.IncidentTypeId, Title="Runtime queue" };
+        var observed = new OperationalEvent { EventId=Guid.NewGuid(), CameraId=camera.CameraId, ZoneId=zone.ZoneId,
+            EventTypeId=eventType.EventTypeId, MetricValue=2, Priority="WARNING",
             DetectedAt=DateTime.UtcNow, LastObservedAt=DateTime.UtcNow, UpdatedAt=DateTime.UtcNow, CreatedAt=DateTime.UtcNow,
             MetadataJson="{\"measurementMode\":\"PEOPLE_COUNT\"}", Status="ACTIVE" };
         await store.Transaction(async()=> {

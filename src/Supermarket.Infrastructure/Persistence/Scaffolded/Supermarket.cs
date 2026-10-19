@@ -21,5 +21,7 @@ public partial class Supermarket
 
     public virtual ICollection<Floor> Floors { get; set; } = new List<Floor>();
 
+    public virtual ICollection<Recommendation> Recommendations { get; set; } = new List<Recommendation>();
+
     public virtual ICollection<Shift> Shifts { get; set; } = new List<Shift>();
 }

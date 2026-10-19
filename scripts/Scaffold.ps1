@@ -5,7 +5,17 @@ Push-Location (Split-Path $PSScriptRoot -Parent)
 try {
     & dotnet tool restore --configfile NuGet.Config
     if ($LASTEXITCODE -ne 0) { throw 'EF tool restore failed.' }
-    $tableArguments = @('Role','UserAccount','Supermarket','Floor','Zone','Camera','CameraConnection','CameraZoneMapping','MonitoringConfiguration','MonitoringRule','IncidentType','CameraHealthEvent','Incident','OperationalEvent','OperationalEventType','Shift','ShiftAssignment','StaffZoneAssignment','ResponsePolicy','ResponsePolicyAction','Task','TaskAssignmentHistory','Notification','NotificationRecipient','NotificationConfig') | ForEach-Object { '--table'; $_ }
+    $tables = @(
+        'Role','UserAccount','Supermarket','Floor','Zone',
+        'Camera','CameraConnection','CameraZoneMapping','CameraHealthEvent',
+        'MonitoringConfiguration','MonitoringRule','OperationalEventType','OperationalEvent','ZoneMetric',
+        'IncidentType','Incident','IncidentMedia','StaffReport','StaffReportMedia',
+        'Task','TaskAssignmentHistory','TaskEvidence',
+        'Shift','ShiftAssignment','StaffZoneAssignment','StaffUnavailability','ShiftSwapRequest','ZoneAdjacency',
+        'Notification','NotificationRecipient','UserDevice','ResponsePolicy','ResponsePolicyAction',
+        'Recommendation','AuditLog','ServiceHealthEvent','SystemSetting'
+    )
+    $tableArguments = $tables | ForEach-Object { '--table'; $_ }
     & dotnet ef dbcontext scaffold $Connection Microsoft.EntityFrameworkCore.SqlServer --project src/Supermarket.Infrastructure --configuration $Configuration --output-dir Persistence/Scaffolded --context AppDbContext --no-onconfiguring --force @tableArguments
     if ($LASTEXITCODE -ne 0) { throw 'Scaffolding failed.' }
 } finally { Pop-Location }

@@ -86,7 +86,7 @@ public sealed class TaskNotifier(ISetupStore store, IClock clock)
     private static string Cut(string value, int max) => value.Length <= max ? value : value[..max];
 }
 
-/// <summary>Database V2 Task/Shift/Notification tables plus the V3 Task.planned_start_at column.</summary>
+/// <summary>Required post-cleanup ERD V6 tables and Task.planned_start_at column.</summary>
 public interface ITaskSchema
 {
     Task<bool> Ready(CancellationToken ct);
@@ -96,7 +96,7 @@ public static class TaskSchemaCheck
     public static async Task Require(this ITaskSchema schema, CancellationToken ct)
     {
         if (!await schema.Ready(ct))
-            throw new ApplicationException("TASK_SCHEMA_NOT_READY", "Apply FA26SE103 Database V2 and V3 before using staff tasks.", 503);
+            throw new ApplicationException("TASK_SCHEMA_NOT_READY", "Apply the approved FA26SE103 ERD V6 database migration before using staff tasks.", 503);
     }
 }
 
@@ -140,7 +140,7 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
         var parameters = Parameters(action.ActionParametersJson);
         var zone = await store.Find<Zone>(ev.ZoneId, ct);
         var type = await store.Find<OperationalEventType>(ev.EventTypeId, ct);
-        var title = parameters?.Title is { Length: > 0 } custom ? custom : $"{type?.Name ?? ev.EventType} — {zone?.Name ?? "Zone"}";
+        var title = parameters?.Title is { Length: > 0 } custom ? custom : $"{type?.Name ?? "Operational event"} — {zone?.Name ?? "Zone"}";
         var task = new WorkTask { TaskId = Guid.NewGuid(), ZoneId = ev.ZoneId, Title = title.Length <= 200 ? title : title[..200], Description = parameters?.Instructions,
             Priority = ev.Priority, Status = WorkTaskStatus.Offered, OriginType = TaskOrigin.OperationalEvent, EventId = ev.EventId };
         await store.Add(task, ct);
@@ -197,10 +197,26 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
 
     public async Task<(int IntervalSec, int MaxAttempts)> Retry(CancellationToken ct)
     {
-        var config = (await store.List<NotificationConfig>(ct: ct)).OrderByDescending(c => c.UpdatedAt).FirstOrDefault();
+        var keys = new[] { TaskRules.RetryIntervalSetting, TaskRules.MaxRetryCountSetting };
+        var settings = await store.List<SystemSetting>(s => keys.Contains(s.SettingKey), ct);
+        var interval = PositiveInt(settings, TaskRules.RetryIntervalSetting, TaskRules.DefaultRetryIntervalSec);
+        var retries = NonNegativeInt(settings, TaskRules.MaxRetryCountSetting, TaskRules.DefaultMaxAttempts - 1);
         // max_retry_count counts re-notifications after the first offer.
-        return config is null ? (TaskRules.DefaultRetryIntervalSec, TaskRules.DefaultMaxAttempts) : (Math.Max(1, config.RetryIntervalSec), 1 + Math.Max(0, config.MaxRetryCount));
+        return (interval, 1 + retries);
     }
+
+    private static int PositiveInt(IEnumerable<SystemSetting> settings, string key, int fallback)
+    {
+        var value = LatestInt(settings, key);
+        return value is > 0 ? value.Value : fallback;
+    }
+    private static int NonNegativeInt(IEnumerable<SystemSetting> settings, string key, int fallback)
+    {
+        var value = LatestInt(settings, key);
+        return value is >= 0 ? value.Value : fallback;
+    }
+    private static int? LatestInt(IEnumerable<SystemSetting> settings, string key)
+        => int.TryParse(settings.Where(s => s.SettingKey == key).OrderByDescending(s => s.UpdatedAt).FirstOrDefault()?.SettingValue, out var value) ? value : null;
 
     /// <summary>Offers the task to newly eligible Staff, then notifies everyone with an open offer. Staff who declined are not asked again.</summary>
     private async Task OfferRound(WorkTask task, Guid? cameraId, CancellationToken ct)

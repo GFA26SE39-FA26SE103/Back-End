@@ -11,6 +11,8 @@ public partial class AppDbContext : DbContext
     {
     }
 
+    public virtual DbSet<AuditLog> AuditLogs { get; set; }
+
     public virtual DbSet<Camera> Cameras { get; set; }
 
     public virtual DbSet<CameraConnection> CameraConnections { get; set; }
@@ -23,6 +25,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<Incident> Incidents { get; set; }
 
+    public virtual DbSet<IncidentMedium> IncidentMedia { get; set; }
+
     public virtual DbSet<IncidentType> IncidentTypes { get; set; }
 
     public virtual DbSet<MonitoringConfiguration> MonitoringConfigurations { get; set; }
@@ -31,13 +35,13 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<Notification> Notifications { get; set; }
 
-    public virtual DbSet<NotificationConfig> NotificationConfigs { get; set; }
-
     public virtual DbSet<NotificationRecipient> NotificationRecipients { get; set; }
 
     public virtual DbSet<OperationalEvent> OperationalEvents { get; set; }
 
     public virtual DbSet<OperationalEventType> OperationalEventTypes { get; set; }
+
+    public virtual DbSet<Recommendation> Recommendations { get; set; }
 
     public virtual DbSet<ResponsePolicy> ResponsePolicies { get; set; }
 
@@ -45,24 +49,82 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<Role> Roles { get; set; }
 
+    public virtual DbSet<ServiceHealthEvent> ServiceHealthEvents { get; set; }
+
     public virtual DbSet<Shift> Shifts { get; set; }
 
     public virtual DbSet<ShiftAssignment> ShiftAssignments { get; set; }
+
+    public virtual DbSet<ShiftSwapRequest> ShiftSwapRequests { get; set; }
+
+    public virtual DbSet<StaffReport> StaffReports { get; set; }
+
+    public virtual DbSet<StaffReportMedium> StaffReportMedia { get; set; }
+
+    public virtual DbSet<StaffUnavailability> StaffUnavailabilities { get; set; }
 
     public virtual DbSet<StaffZoneAssignment> StaffZoneAssignments { get; set; }
 
     public virtual DbSet<Supermarket> Supermarkets { get; set; }
 
+    public virtual DbSet<SystemSetting> SystemSettings { get; set; }
+
     public virtual DbSet<Task> Tasks { get; set; }
 
     public virtual DbSet<TaskAssignmentHistory> TaskAssignmentHistories { get; set; }
 
+    public virtual DbSet<TaskEvidence> TaskEvidences { get; set; }
+
     public virtual DbSet<UserAccount> UserAccounts { get; set; }
+
+    public virtual DbSet<UserDevice> UserDevices { get; set; }
 
     public virtual DbSet<Zone> Zones { get; set; }
 
+    public virtual DbSet<ZoneAdjacency> ZoneAdjacencies { get; set; }
+
+    public virtual DbSet<ZoneMetric> ZoneMetrics { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<AuditLog>(entity =>
+        {
+            entity.ToTable("AuditLog");
+
+            entity.HasIndex(e => new { e.EntityType, e.EntityId, e.CreatedAt }, "IX_AuditLog_Entity").IsDescending(false, false, true);
+
+            entity.Property(e => e.AuditLogId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_AuditLog_Id")
+                .HasColumnName("audit_log_id");
+            entity.Property(e => e.Action)
+                .HasMaxLength(100)
+                .HasColumnName("action");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_AuditLog_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.EntityId).HasColumnName("entity_id");
+            entity.Property(e => e.EntityType)
+                .HasMaxLength(100)
+                .HasColumnName("entity_type");
+            entity.Property(e => e.IpAddress)
+                .HasMaxLength(45)
+                .HasColumnName("ip_address");
+            entity.Property(e => e.NewValuesJson).HasColumnName("new_values_json");
+            entity.Property(e => e.OldValuesJson).HasColumnName("old_values_json");
+            entity.Property(e => e.Reason)
+                .HasMaxLength(2000)
+                .HasColumnName("reason");
+            entity.Property(e => e.ResultStatus)
+                .HasMaxLength(40)
+                .HasColumnName("result_status");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+
+            entity.HasOne(d => d.User).WithMany(p => p.AuditLogs)
+                .HasForeignKey(d => d.UserId)
+                .HasConstraintName("FK_AuditLog_User");
+        });
+
         modelBuilder.Entity<Camera>(entity =>
         {
             entity.ToTable("Camera");
@@ -322,6 +384,8 @@ public partial class AppDbContext : DbContext
         {
             entity.ToTable("Incident");
 
+            entity.HasIndex(e => e.MonitoringRuleId, "IX_Incident_MonitoringRuleId").HasFilter("([monitoring_rule_id] IS NOT NULL)");
+
             entity.HasIndex(e => new { e.ZoneId, e.IncidentTypeId, e.ClosedAt }, "IX_Incident_Zone_Type_Closed");
 
             entity.HasIndex(e => new { e.ZoneId, e.IncidentTypeId }, "UX_Incident_Open_Zone_Type")
@@ -346,6 +410,7 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(2000)
                 .HasColumnName("description");
             entity.Property(e => e.IncidentTypeId).HasColumnName("incident_type_id");
+            entity.Property(e => e.MonitoringRuleId).HasColumnName("monitoring_rule_id");
             entity.Property(e => e.ReportedByUserId).HasColumnName("reported_by_user_id");
             entity.Property(e => e.Severity)
                 .HasMaxLength(20)
@@ -363,7 +428,6 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Title)
                 .HasMaxLength(200)
                 .HasColumnName("title");
-            entity.Property(e => e.TriggerCameraId).HasColumnName("trigger_camera_id");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())", "DF_Incident_UpdatedAt")
@@ -375,18 +439,47 @@ public partial class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_Incident_Type");
 
+            entity.HasOne(d => d.MonitoringRule).WithMany(p => p.Incidents)
+                .HasForeignKey(d => d.MonitoringRuleId)
+                .HasConstraintName("FK_Incident_MonitoringRule");
+
             entity.HasOne(d => d.ReportedByUser).WithMany(p => p.Incidents)
                 .HasForeignKey(d => d.ReportedByUserId)
                 .HasConstraintName("FK_Incident_Reporter");
 
-            entity.HasOne(d => d.TriggerCamera).WithMany(p => p.Incidents)
-                .HasForeignKey(d => d.TriggerCameraId)
-                .HasConstraintName("FK_Incident_Camera");
+            entity.HasOne(d => d.StaffReport).WithOne(p => p.Incident)
+                .HasForeignKey<Incident>(d => d.StaffReportId)
+                .HasConstraintName("FK_Incident_StaffReport");
 
             entity.HasOne(d => d.Zone).WithMany(p => p.Incidents)
                 .HasForeignKey(d => d.ZoneId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_Incident_Zone");
+        });
+
+        modelBuilder.Entity<IncidentMedium>(entity =>
+        {
+            entity.HasKey(e => e.IncidentMediaId);
+
+            entity.Property(e => e.IncidentMediaId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_IncidentMedia_Id")
+                .HasColumnName("incident_media_id");
+            entity.Property(e => e.FileUrl)
+                .HasMaxLength(2000)
+                .HasColumnName("file_url");
+            entity.Property(e => e.IncidentId).HasColumnName("incident_id");
+            entity.Property(e => e.MediaType)
+                .HasMaxLength(50)
+                .HasColumnName("media_type");
+            entity.Property(e => e.UploadedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_IncidentMedia_UploadedAt")
+                .HasColumnName("uploaded_at");
+
+            entity.HasOne(d => d.Incident).WithMany(p => p.IncidentMedia)
+                .HasForeignKey(d => d.IncidentId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_IncidentMedia_Incident");
         });
 
         modelBuilder.Entity<IncidentType>(entity =>
@@ -412,16 +505,10 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Description)
                 .HasMaxLength(500)
                 .HasColumnName("description");
-            entity.Property(e => e.MeasurementType)
-                .HasMaxLength(50)
-                .HasColumnName("measurement_type");
             entity.Property(e => e.Name)
                 .HasMaxLength(100)
                 .HasColumnName("name");
             entity.Property(e => e.RequiresBeforePhoto).HasColumnName("requires_before_photo");
-            entity.Property(e => e.SourceType)
-                .HasMaxLength(20)
-                .HasColumnName("source_type");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValue("ACTIVE", "DF_IncidentType_Status")
@@ -488,9 +575,13 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.IncidentTypeId, "IX_MonitoringRule_IncidentTypeId");
 
-            entity.HasIndex(e => new { e.ConfigId, e.EventTypeId }, "UQ_MonitoringRule_Config_EventType").IsUnique();
+            entity.HasIndex(e => new { e.ConfigId, e.EventTypeId }, "UX_MonitoringRule_Config_EventType")
+                .IsUnique()
+                .HasFilter("([outcome_type]=N'OPERATIONAL_EVENT' AND [event_type_id] IS NOT NULL)");
 
-            entity.HasIndex(e => new { e.ConfigId, e.IncidentTypeId }, "UQ_MonitoringRule_Config_IncidentType").IsUnique();
+            entity.HasIndex(e => new { e.ConfigId, e.IncidentTypeId }, "UX_MonitoringRule_Config_IncidentType")
+                .IsUnique()
+                .HasFilter("([outcome_type]=N'INCIDENT' AND [incident_type_id] IS NOT NULL)");
 
             entity.Property(e => e.RuleId)
                 .HasDefaultValueSql("(newsequentialid())", "DF_MonitoringRule_Id")
@@ -511,6 +602,10 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("enabled");
             entity.Property(e => e.EventTypeId).HasColumnName("event_type_id");
             entity.Property(e => e.IncidentTypeId).HasColumnName("incident_type_id");
+            entity.Property(e => e.OutcomeType)
+                .HasMaxLength(40)
+                .HasDefaultValue("OPERATIONAL_EVENT", "DF_MonitoringRule_OutcomeType")
+                .HasColumnName("outcome_type");
             entity.Property(e => e.ParametersJson).HasColumnName("parameters_json");
             entity.Property(e => e.SustainSec)
                 .HasDefaultValue(30, "DF_MonitoringRule_Sustain")
@@ -533,12 +628,10 @@ public partial class AppDbContext : DbContext
 
             entity.HasOne(d => d.EventType).WithMany(p => p.MonitoringRules)
                 .HasForeignKey(d => d.EventTypeId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_MonitoringRule_OperationalEventType");
 
             entity.HasOne(d => d.IncidentType).WithMany(p => p.MonitoringRules)
                 .HasForeignKey(d => d.IncidentTypeId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_MonitoringRule_IncidentType");
         });
 
@@ -587,21 +680,6 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("FK_Notification_Task");
         });
 
-        modelBuilder.Entity<NotificationConfig>(entity =>
-        {
-            entity.ToTable("NotificationConfig");
-
-            entity.Property(e => e.NotificationConfigId)
-                .HasDefaultValueSql("(newsequentialid())", "DF_NotificationConfig_Id")
-                .HasColumnName("notification_config_id");
-            entity.Property(e => e.MaxRetryCount).HasColumnName("max_retry_count");
-            entity.Property(e => e.RetryIntervalSec).HasColumnName("retry_interval_sec");
-            entity.Property(e => e.UpdatedAt)
-                .HasPrecision(3)
-                .HasDefaultValueSql("(sysutcdatetime())", "DF_NotificationConfig_UpdatedAt")
-                .HasColumnName("updated_at");
-        });
-
         modelBuilder.Entity<NotificationRecipient>(entity =>
         {
             entity.ToTable("NotificationRecipient");
@@ -611,6 +689,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.NotificationRecipientId)
                 .HasDefaultValueSql("(newsequentialid())", "DF_NotificationRecipient_Id")
                 .HasColumnName("notification_recipient_id");
+            entity.Property(e => e.AttemptCount).HasColumnName("attempt_count");
             entity.Property(e => e.DeliveredAt)
                 .HasPrecision(3)
                 .HasColumnName("delivered_at");
@@ -620,7 +699,13 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.DeliveryStatus)
                 .HasMaxLength(40)
                 .HasColumnName("delivery_status");
+            entity.Property(e => e.LastAttemptAt)
+                .HasPrecision(3)
+                .HasColumnName("last_attempt_at");
             entity.Property(e => e.NotificationId).HasColumnName("notification_id");
+            entity.Property(e => e.ProviderStatus)
+                .HasMaxLength(200)
+                .HasColumnName("provider_status");
             entity.Property(e => e.ReadAt)
                 .HasPrecision(3)
                 .HasColumnName("read_at");
@@ -648,8 +733,6 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => new { e.EventTypeId, e.DetectedAt }, "IX_OperationalEvent_EventType_Time").IsDescending(false, true);
 
-            entity.HasIndex(e => new { e.IncidentId, e.DetectedAt }, "IX_OperationalEvent_Incident_Time").IsDescending(false, true);
-
             entity.HasIndex(e => new { e.ZoneId, e.DetectedAt }, "IX_OperationalEvent_Zone_Time").IsDescending(false, true);
 
             entity.HasIndex(e => new { e.CameraId, e.ZoneId, e.EventTypeId }, "UX_OperationalEvent_Active_Camera_Zone_EventType")
@@ -670,11 +753,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.DetectedAt)
                 .HasPrecision(3)
                 .HasColumnName("detected_at");
-            entity.Property(e => e.EventType)
-                .HasMaxLength(50)
-                .HasColumnName("event_type");
             entity.Property(e => e.EventTypeId).HasColumnName("event_type_id");
-            entity.Property(e => e.IncidentId).HasColumnName("incident_id");
             entity.Property(e => e.LastObservedAt)
                 .HasPrecision(3)
                 .HasColumnName("last_observed_at");
@@ -699,14 +778,10 @@ public partial class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_OperationalEvent_Camera");
 
-            entity.HasOne(d => d.EventTypeNavigation).WithMany(p => p.OperationalEvents)
+            entity.HasOne(d => d.EventType).WithMany(p => p.OperationalEvents)
                 .HasForeignKey(d => d.EventTypeId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_OperationalEvent_OperationalEventType");
-
-            entity.HasOne(d => d.Incident).WithMany(p => p.OperationalEvents)
-                .HasForeignKey(d => d.IncidentId)
-                .HasConstraintName("FK_OperationalEvent_Incident");
 
             entity.HasOne(d => d.Rule).WithMany(p => p.OperationalEvents)
                 .HasForeignKey(d => d.RuleId)
@@ -752,6 +827,59 @@ public partial class AppDbContext : DbContext
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())", "DF_OperationalEventType_UpdatedAt")
                 .HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<Recommendation>(entity =>
+        {
+            entity.ToTable("Recommendation");
+
+            entity.Property(e => e.RecommendationId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_Recommendation_Id")
+                .HasColumnName("recommendation_id");
+            entity.Property(e => e.Description)
+                .HasMaxLength(4000)
+                .HasColumnName("description");
+            entity.Property(e => e.EventId).HasColumnName("event_id");
+            entity.Property(e => e.ExpiresAt)
+                .HasPrecision(3)
+                .HasColumnName("expires_at");
+            entity.Property(e => e.GeneratedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_Recommendation_GeneratedAt")
+                .HasColumnName("generated_at");
+            entity.Property(e => e.RecommendationType)
+                .HasMaxLength(100)
+                .HasColumnName("recommendation_type");
+            entity.Property(e => e.ReviewedAt)
+                .HasPrecision(3)
+                .HasColumnName("reviewed_at");
+            entity.Property(e => e.ReviewedByUserId).HasColumnName("reviewed_by_user_id");
+            entity.Property(e => e.Status)
+                .HasMaxLength(40)
+                .HasColumnName("status");
+            entity.Property(e => e.SupermarketId).HasColumnName("supermarket_id");
+            entity.Property(e => e.SupportingDataJson).HasColumnName("supporting_data_json");
+            entity.Property(e => e.Title)
+                .HasMaxLength(200)
+                .HasColumnName("title");
+            entity.Property(e => e.ZoneId).HasColumnName("zone_id");
+
+            entity.HasOne(d => d.Event).WithMany(p => p.Recommendations)
+                .HasForeignKey(d => d.EventId)
+                .HasConstraintName("FK_Recommendation_Event");
+
+            entity.HasOne(d => d.ReviewedByUser).WithMany(p => p.Recommendations)
+                .HasForeignKey(d => d.ReviewedByUserId)
+                .HasConstraintName("FK_Recommendation_Reviewer");
+
+            entity.HasOne(d => d.Supermarket).WithMany(p => p.Recommendations)
+                .HasForeignKey(d => d.SupermarketId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_Recommendation_Supermarket");
+
+            entity.HasOne(d => d.Zone).WithMany(p => p.Recommendations)
+                .HasForeignKey(d => d.ZoneId)
+                .HasConstraintName("FK_Recommendation_Zone");
         });
 
         modelBuilder.Entity<ResponsePolicy>(entity =>
@@ -815,10 +943,6 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValue(true, "DF_ResponsePolicyAction_Enabled")
                 .HasColumnName("is_enabled");
             entity.Property(e => e.PolicyId).HasColumnName("policy_id");
-            entity.Property(e => e.ProposedIncidentSeverity)
-                .HasMaxLength(40)
-                .HasColumnName("proposed_incident_severity");
-            entity.Property(e => e.TargetIncidentTypeId).HasColumnName("target_incident_type_id");
             entity.Property(e => e.TargetRoleId).HasColumnName("target_role_id");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(3)
@@ -829,10 +953,6 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.PolicyId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_ResponsePolicyAction_Policy");
-
-            entity.HasOne(d => d.TargetIncidentType).WithMany(p => p.ResponsePolicyActions)
-                .HasForeignKey(d => d.TargetIncidentTypeId)
-                .HasConstraintName("FK_ResponsePolicyAction_TargetIncidentType");
 
             entity.HasOne(d => d.TargetRole).WithMany(p => p.ResponsePolicyActions)
                 .HasForeignKey(d => d.TargetRoleId)
@@ -858,6 +978,39 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Name)
                 .HasMaxLength(50)
                 .HasColumnName("name");
+        });
+
+        modelBuilder.Entity<ServiceHealthEvent>(entity =>
+        {
+            entity.HasKey(e => e.HealthEventId);
+
+            entity.ToTable("ServiceHealthEvent");
+
+            entity.HasIndex(e => new { e.ServiceName, e.DetectedAt }, "IX_ServiceHealthEvent_Service_DetectedAt").IsDescending(false, true);
+
+            entity.HasIndex(e => new { e.ServiceName, e.Status, e.DetectedAt }, "IX_ServiceHealthEvent_Unresolved")
+                .IsDescending(false, false, true)
+                .HasFilter("([resolved_at] IS NULL)");
+
+            entity.Property(e => e.HealthEventId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_ServiceHealthEvent_Id")
+                .HasColumnName("health_event_id");
+            entity.Property(e => e.DetectedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_ServiceHealthEvent_DetectedAt")
+                .HasColumnName("detected_at");
+            entity.Property(e => e.ErrorSummary)
+                .HasMaxLength(2000)
+                .HasColumnName("error_summary");
+            entity.Property(e => e.ResolvedAt)
+                .HasPrecision(3)
+                .HasColumnName("resolved_at");
+            entity.Property(e => e.ServiceName)
+                .HasMaxLength(200)
+                .HasColumnName("service_name");
+            entity.Property(e => e.Status)
+                .HasMaxLength(40)
+                .HasColumnName("status");
         });
 
         modelBuilder.Entity<Shift>(entity =>
@@ -936,6 +1089,216 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("FK_ShiftAssignment_User");
         });
 
+        modelBuilder.Entity<ShiftSwapRequest>(entity =>
+        {
+            entity.HasKey(e => e.SwapRequestId);
+
+            entity.ToTable("ShiftSwapRequest");
+
+            entity.HasIndex(e => e.ExpiresAt, "IX_ShiftSwapRequest_ExpiresAt").HasFilter("([expires_at] IS NOT NULL)");
+
+            entity.HasIndex(e => new { e.RequestedByUserId, e.CreatedAt }, "IX_ShiftSwapRequest_Requester_CreatedAt").IsDescending(false, true);
+
+            entity.HasIndex(e => new { e.Status, e.CreatedAt }, "IX_ShiftSwapRequest_Status_CreatedAt").IsDescending(false, true);
+
+            entity.HasIndex(e => new { e.TargetUserId, e.Status }, "IX_ShiftSwapRequest_Target_Status").HasFilter("([target_user_id] IS NOT NULL)");
+
+            entity.Property(e => e.SwapRequestId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_ShiftSwapRequest_Id")
+                .HasColumnName("swap_request_id");
+            entity.Property(e => e.CancellationReason)
+                .HasMaxLength(1000)
+                .HasColumnName("cancellation_reason");
+            entity.Property(e => e.CancelledAt)
+                .HasPrecision(3)
+                .HasColumnName("cancelled_at");
+            entity.Property(e => e.CancelledByUserId).HasColumnName("cancelled_by_user_id");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_ShiftSwapRequest_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.DecidedAt)
+                .HasPrecision(3)
+                .HasColumnName("decided_at");
+            entity.Property(e => e.DecidedByUserId).HasColumnName("decided_by_user_id");
+            entity.Property(e => e.DecisionNote)
+                .HasMaxLength(1000)
+                .HasColumnName("decision_note");
+            entity.Property(e => e.ExpiresAt)
+                .HasPrecision(3)
+                .HasColumnName("expires_at");
+            entity.Property(e => e.Note)
+                .HasMaxLength(1000)
+                .HasColumnName("note");
+            entity.Property(e => e.ReasonCode)
+                .HasMaxLength(100)
+                .HasColumnName("reason_code");
+            entity.Property(e => e.RequestType)
+                .HasMaxLength(40)
+                .HasColumnName("request_type");
+            entity.Property(e => e.RequestedByUserId).HasColumnName("requested_by_user_id");
+            entity.Property(e => e.RequesterShiftAssignmentId).HasColumnName("requester_shift_assignment_id");
+            entity.Property(e => e.Status)
+                .HasMaxLength(40)
+                .HasColumnName("status");
+            entity.Property(e => e.TargetRespondedAt)
+                .HasPrecision(3)
+                .HasColumnName("target_responded_at");
+            entity.Property(e => e.TargetShiftAssignmentId).HasColumnName("target_shift_assignment_id");
+            entity.Property(e => e.TargetUserId).HasColumnName("target_user_id");
+            entity.Property(e => e.UpdatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_ShiftSwapRequest_UpdatedAt")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.CancelledByUser).WithMany(p => p.ShiftSwapRequestCancelledByUsers)
+                .HasForeignKey(d => d.CancelledByUserId)
+                .HasConstraintName("FK_ShiftSwapRequest_CancelledBy");
+
+            entity.HasOne(d => d.DecidedByUser).WithMany(p => p.ShiftSwapRequestDecidedByUsers)
+                .HasForeignKey(d => d.DecidedByUserId)
+                .HasConstraintName("FK_ShiftSwapRequest_Decider");
+
+            entity.HasOne(d => d.RequestedByUser).WithMany(p => p.ShiftSwapRequestRequestedByUsers)
+                .HasForeignKey(d => d.RequestedByUserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ShiftSwapRequest_Requester");
+
+            entity.HasOne(d => d.RequesterShiftAssignment).WithMany(p => p.ShiftSwapRequestRequesterShiftAssignments)
+                .HasForeignKey(d => d.RequesterShiftAssignmentId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ShiftSwapRequest_RequesterAssignment");
+
+            entity.HasOne(d => d.TargetShiftAssignment).WithMany(p => p.ShiftSwapRequestTargetShiftAssignments)
+                .HasForeignKey(d => d.TargetShiftAssignmentId)
+                .HasConstraintName("FK_ShiftSwapRequest_TargetAssignment");
+
+            entity.HasOne(d => d.TargetUser).WithMany(p => p.ShiftSwapRequestTargetUsers)
+                .HasForeignKey(d => d.TargetUserId)
+                .HasConstraintName("FK_ShiftSwapRequest_TargetUser");
+        });
+
+        modelBuilder.Entity<StaffReport>(entity =>
+        {
+            entity.HasKey(e => e.ReportId);
+
+            entity.ToTable("StaffReport");
+
+            entity.Property(e => e.ReportId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_StaffReport_Id")
+                .HasColumnName("report_id");
+            entity.Property(e => e.AiExtractedJson).HasColumnName("ai_extracted_json");
+            entity.Property(e => e.Classification)
+                .HasMaxLength(100)
+                .HasColumnName("classification");
+            entity.Property(e => e.ClassifiedAt)
+                .HasPrecision(3)
+                .HasColumnName("classified_at");
+            entity.Property(e => e.ConfirmedAt)
+                .HasPrecision(3)
+                .HasColumnName("confirmed_at");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_StaffReport_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.Description)
+                .HasMaxLength(4000)
+                .HasColumnName("description");
+            entity.Property(e => e.OriginalInputJson).HasColumnName("original_input_json");
+            entity.Property(e => e.ReportCategory)
+                .HasMaxLength(100)
+                .HasColumnName("report_category");
+            entity.Property(e => e.ReportedByUserId).HasColumnName("reported_by_user_id");
+            entity.Property(e => e.Status)
+                .HasMaxLength(40)
+                .HasColumnName("status");
+            entity.Property(e => e.Title)
+                .HasMaxLength(200)
+                .HasColumnName("title");
+            entity.Property(e => e.UpdatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_StaffReport_UpdatedAt")
+                .HasColumnName("updated_at");
+            entity.Property(e => e.ZoneId).HasColumnName("zone_id");
+
+            entity.HasOne(d => d.ReportedByUser).WithMany(p => p.StaffReports)
+                .HasForeignKey(d => d.ReportedByUserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_StaffReport_Reporter");
+
+            entity.HasOne(d => d.Zone).WithMany(p => p.StaffReports)
+                .HasForeignKey(d => d.ZoneId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_StaffReport_Zone");
+        });
+
+        modelBuilder.Entity<StaffReportMedium>(entity =>
+        {
+            entity.HasKey(e => e.MediaId);
+
+            entity.HasIndex(e => new { e.ReportId, e.UploadedAt }, "IX_StaffReportMedia_Report_UploadedAt").IsDescending(false, true);
+
+            entity.Property(e => e.MediaId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_StaffReportMedia_Id")
+                .HasColumnName("media_id");
+            entity.Property(e => e.ContentType)
+                .HasMaxLength(200)
+                .HasColumnName("content_type");
+            entity.Property(e => e.MediaType)
+                .HasMaxLength(50)
+                .HasColumnName("media_type");
+            entity.Property(e => e.ReportId).HasColumnName("report_id");
+            entity.Property(e => e.SizeBytes).HasColumnName("size_bytes");
+            entity.Property(e => e.StorageKey)
+                .HasMaxLength(1000)
+                .HasColumnName("storage_key");
+            entity.Property(e => e.UploadedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_StaffReportMedia_UploadedAt")
+                .HasColumnName("uploaded_at");
+            entity.Property(e => e.UploadedByUserId).HasColumnName("uploaded_by_user_id");
+
+            entity.HasOne(d => d.Report).WithMany(p => p.StaffReportMedia)
+                .HasForeignKey(d => d.ReportId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_StaffReportMedia_Report");
+
+            entity.HasOne(d => d.UploadedByUser).WithMany(p => p.StaffReportMedia)
+                .HasForeignKey(d => d.UploadedByUserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_StaffReportMedia_Uploader");
+        });
+
+        modelBuilder.Entity<StaffUnavailability>(entity =>
+        {
+            entity.HasKey(e => e.UnavailabilityId);
+
+            entity.ToTable("StaffUnavailability");
+
+            entity.Property(e => e.UnavailabilityId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_StaffUnavailability_Id")
+                .HasColumnName("unavailability_id");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_StaffUnavailability_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.EndAt)
+                .HasPrecision(3)
+                .HasColumnName("end_at");
+            entity.Property(e => e.Note)
+                .HasMaxLength(1000)
+                .HasColumnName("note");
+            entity.Property(e => e.StartAt)
+                .HasPrecision(3)
+                .HasColumnName("start_at");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+
+            entity.HasOne(d => d.User).WithMany(p => p.StaffUnavailabilities)
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_StaffUnavailability_User");
+        });
+
         modelBuilder.Entity<StaffZoneAssignment>(entity =>
         {
             entity.ToTable("StaffZoneAssignment");
@@ -1003,6 +1366,35 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("updated_at");
         });
 
+        modelBuilder.Entity<SystemSetting>(entity =>
+        {
+            entity.HasKey(e => e.SettingId);
+
+            entity.ToTable("SystemSetting");
+
+            entity.HasIndex(e => e.SettingKey, "UQ_SystemSetting_Key").IsUnique();
+
+            entity.Property(e => e.SettingId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_SystemSetting_Id")
+                .HasColumnName("setting_id");
+            entity.Property(e => e.SettingKey)
+                .HasMaxLength(200)
+                .HasColumnName("setting_key");
+            entity.Property(e => e.SettingValue).HasColumnName("setting_value");
+            entity.Property(e => e.UpdatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_SystemSetting_UpdatedAt")
+                .HasColumnName("updated_at");
+            entity.Property(e => e.UpdatedByUserId).HasColumnName("updated_by_user_id");
+            entity.Property(e => e.ValueType)
+                .HasMaxLength(40)
+                .HasColumnName("value_type");
+
+            entity.HasOne(d => d.UpdatedByUser).WithMany(p => p.SystemSettings)
+                .HasForeignKey(d => d.UpdatedByUserId)
+                .HasConstraintName("FK_SystemSetting_UpdatedBy");
+        });
+
         modelBuilder.Entity<Task>(entity =>
         {
             entity.ToTable("Task");
@@ -1042,6 +1434,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Priority)
                 .HasMaxLength(40)
                 .HasColumnName("priority");
+            entity.Property(e => e.RejectionCount).HasColumnName("rejection_count");
             entity.Property(e => e.StaffReportId).HasColumnName("staff_report_id");
             entity.Property(e => e.StartedAt)
                 .HasPrecision(3)
@@ -1080,6 +1473,10 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.Incident).WithMany(p => p.Tasks)
                 .HasForeignKey(d => d.IncidentId)
                 .HasConstraintName("FK_Task_Incident");
+
+            entity.HasOne(d => d.StaffReport).WithMany(p => p.Tasks)
+                .HasForeignKey(d => d.StaffReportId)
+                .HasConstraintName("FK_Task_StaffReport");
 
             entity.HasOne(d => d.VerifiedByUser).WithMany(p => p.TaskVerifiedByUsers)
                 .HasForeignKey(d => d.VerifiedByUserId)
@@ -1138,6 +1535,48 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("FK_TaskAssignmentHistory_Task");
         });
 
+        modelBuilder.Entity<TaskEvidence>(entity =>
+        {
+            entity.HasKey(e => e.EvidenceId);
+
+            entity.ToTable("TaskEvidence");
+
+            entity.Property(e => e.EvidenceId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_TaskEvidence_Id")
+                .HasColumnName("evidence_id");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_TaskEvidence_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.EvidenceImage)
+                .HasMaxLength(2000)
+                .HasColumnName("evidence_image");
+            entity.Property(e => e.EvidenceType)
+                .HasMaxLength(50)
+                .HasColumnName("evidence_type");
+            entity.Property(e => e.Note)
+                .HasMaxLength(2000)
+                .HasColumnName("note");
+            entity.Property(e => e.RejectReason)
+                .HasMaxLength(2000)
+                .HasColumnName("reject_reason");
+            entity.Property(e => e.ReviewStatus)
+                .HasMaxLength(40)
+                .HasColumnName("review_status");
+            entity.Property(e => e.SubmittedByUserId).HasColumnName("submitted_by_user_id");
+            entity.Property(e => e.TaskId).HasColumnName("task_id");
+
+            entity.HasOne(d => d.SubmittedByUser).WithMany(p => p.TaskEvidences)
+                .HasForeignKey(d => d.SubmittedByUserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_TaskEvidence_Submitter");
+
+            entity.HasOne(d => d.Task).WithMany(p => p.TaskEvidences)
+                .HasForeignKey(d => d.TaskId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_TaskEvidence_Task");
+        });
+
         modelBuilder.Entity<UserAccount>(entity =>
         {
             entity.HasKey(e => e.UserId);
@@ -1188,6 +1627,46 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("FK_UserAccount_Role");
         });
 
+        modelBuilder.Entity<UserDevice>(entity =>
+        {
+            entity.HasKey(e => e.DeviceId);
+
+            entity.ToTable("UserDevice");
+
+            entity.HasIndex(e => new { e.UserId, e.RevokedAt }, "IX_UserDevice_User_RevokedAt");
+
+            entity.HasIndex(e => e.FcmToken, "UQ_UserDevice_FcmToken").IsUnique();
+
+            entity.Property(e => e.DeviceId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_UserDevice_Id")
+                .HasColumnName("device_id");
+            entity.Property(e => e.AppVersion)
+                .HasMaxLength(100)
+                .HasColumnName("app_version");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_UserDevice_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.FcmToken)
+                .HasMaxLength(512)
+                .HasColumnName("fcm_token");
+            entity.Property(e => e.LastSeenAt)
+                .HasPrecision(3)
+                .HasColumnName("last_seen_at");
+            entity.Property(e => e.Platform)
+                .HasMaxLength(40)
+                .HasColumnName("platform");
+            entity.Property(e => e.RevokedAt)
+                .HasPrecision(3)
+                .HasColumnName("revoked_at");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+
+            entity.HasOne(d => d.User).WithMany(p => p.UserDevices)
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_UserDevice_User");
+        });
+
         modelBuilder.Entity<Zone>(entity =>
         {
             entity.ToTable("Zone");
@@ -1214,6 +1693,7 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("created_at");
             entity.Property(e => e.FloorId).HasColumnName("floor_id");
             entity.Property(e => e.MapPolygon).HasColumnName("map_polygon");
+            entity.Property(e => e.MinStaff).HasColumnName("min_staff");
             entity.Property(e => e.Name)
                 .HasMaxLength(100)
                 .HasColumnName("name");
@@ -1233,6 +1713,78 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.FloorId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_Zone_Floor");
+        });
+
+        modelBuilder.Entity<ZoneAdjacency>(entity =>
+        {
+            entity.ToTable("ZoneAdjacency");
+
+            entity.HasIndex(e => new { e.ZoneId, e.AdjacentZoneId }, "UQ_ZoneAdjacency_Pair").IsUnique();
+
+            entity.Property(e => e.ZoneAdjacencyId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_ZoneAdjacency_Id")
+                .HasColumnName("zone_adjacency_id");
+            entity.Property(e => e.AdjacentZoneId).HasColumnName("adjacent_zone_id");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_ZoneAdjacency_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.ZoneId).HasColumnName("zone_id");
+
+            entity.HasOne(d => d.AdjacentZone).WithMany(p => p.ZoneAdjacencyAdjacentZones)
+                .HasForeignKey(d => d.AdjacentZoneId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ZoneAdjacency_AdjacentZone");
+
+            entity.HasOne(d => d.Zone).WithMany(p => p.ZoneAdjacencyZones)
+                .HasForeignKey(d => d.ZoneId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ZoneAdjacency_Zone");
+        });
+
+        modelBuilder.Entity<ZoneMetric>(entity =>
+        {
+            entity.HasKey(e => e.MetricId);
+
+            entity.ToTable("ZoneMetric");
+
+            entity.HasIndex(e => new { e.ZoneId, e.MetricType, e.PeriodStart }, "IX_ZoneMetric_Zone_Type_Period").IsDescending(false, false, true);
+
+            entity.Property(e => e.MetricId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_ZoneMetric_Id")
+                .HasColumnName("metric_id");
+            entity.Property(e => e.CameraId).HasColumnName("camera_id");
+            entity.Property(e => e.ConfigVersion).HasColumnName("config_version");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_ZoneMetric_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.MetadataJson).HasColumnName("metadata_json");
+            entity.Property(e => e.MetricType)
+                .HasMaxLength(100)
+                .HasColumnName("metric_type");
+            entity.Property(e => e.MetricValue)
+                .HasColumnType("decimal(18, 4)")
+                .HasColumnName("metric_value");
+            entity.Property(e => e.PeriodEnd)
+                .HasPrecision(3)
+                .HasColumnName("period_end");
+            entity.Property(e => e.PeriodStart)
+                .HasPrecision(3)
+                .HasColumnName("period_start");
+            entity.Property(e => e.Unit)
+                .HasMaxLength(60)
+                .HasColumnName("unit");
+            entity.Property(e => e.ZoneId).HasColumnName("zone_id");
+
+            entity.HasOne(d => d.Camera).WithMany(p => p.ZoneMetrics)
+                .HasForeignKey(d => d.CameraId)
+                .HasConstraintName("FK_ZoneMetric_Camera");
+
+            entity.HasOne(d => d.Zone).WithMany(p => p.ZoneMetrics)
+                .HasForeignKey(d => d.ZoneId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_ZoneMetric_Zone");
         });
 
         OnModelCreatingPartial(modelBuilder);

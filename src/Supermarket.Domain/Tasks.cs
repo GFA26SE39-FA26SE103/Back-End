@@ -109,11 +109,13 @@ public sealed class NotificationRecipient : Entity
     public DateTime? DeliveredAt { get; set; }
     public DateTime? ReadAt { get; set; }
 }
-public sealed class NotificationConfig : Entity
+public sealed class SystemSetting : Entity
 {
-    public Guid NotificationConfigId { get; set; }
-    public int RetryIntervalSec { get; set; }
-    public int MaxRetryCount { get; set; }
+    public Guid SettingId { get; set; }
+    public string SettingKey { get; set; } = "";
+    public string SettingValue { get; set; } = "";
+    public string ValueType { get; set; } = "STRING";
+    public Guid? UpdatedByUserId { get; set; }
     public DateTime UpdatedAt { get; set; }
 }
 
@@ -147,7 +149,9 @@ public static class TaskRules
     public const int MaxActiveTasks = 2;
     /// <summary>Check-in opens this long before the shift starts.</summary>
     public static readonly TimeSpan CheckInOpensBefore = TimeSpan.FromMinutes(15);
-    /// <summary>BR-22 baseline when NotificationConfig has no row: re-notify every 60 s, 3 attempts in total.</summary>
+    public const string RetryIntervalSetting = "task_offer.retry_interval_sec";
+    public const string MaxRetryCountSetting = "task_offer.max_retry_count";
+    /// <summary>BR-22 baseline when SystemSetting has no valid override: re-notify every 60 s, 3 attempts in total.</summary>
     public const int DefaultRetryIntervalSec = 60, DefaultMaxAttempts = 3;
 
     public static int Rank(string priority) => priority switch { "CRITICAL" => 2, "WARNING" => 1, _ => 0 };

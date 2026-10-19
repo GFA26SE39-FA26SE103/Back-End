@@ -11,11 +11,11 @@ namespace Supermarket.Infrastructure.Tasks;
 public sealed class TaskOfferWorkerOptions
 {
     public bool Enabled { get; set; } = true;
-    /// <summary>How often pending offers are checked; the retry interval itself comes from NotificationConfig (default 60 s).</summary>
+    /// <summary>How often pending offers are checked; retry overrides come from ERD V6 SystemSetting.</summary>
     public int PollSeconds { get; set; } = 10;
 }
 
-/// <summary>Detects Database V2 task tables plus the V3 Task.planned_start_at column. A positive result is cached for the process.</summary>
+/// <summary>Detects the post-cleanup ERD V6 tables required by the scoped Staff-task workflow. A positive result is cached for the process.</summary>
 public sealed class EfTaskSchema(AppDbContext db) : ITaskSchema
 {
     private static volatile bool ready;
@@ -29,6 +29,7 @@ public sealed class EfTaskSchema(AppDbContext db) : ITaskSchema
                 AND OBJECT_ID(N'dbo.StaffZoneAssignment',N'U') IS NOT NULL
                 AND OBJECT_ID(N'dbo.NotificationRecipient',N'U') IS NOT NULL
                 AND OBJECT_ID(N'dbo.ResponsePolicyAction',N'U') IS NOT NULL
+                AND OBJECT_ID(N'dbo.SystemSetting',N'U') IS NOT NULL
                 AND COL_LENGTH(N'dbo.Task',N'planned_start_at') IS NOT NULL
                 THEN 1 ELSE 0 END AS Value
             """).SingleAsync(ct);

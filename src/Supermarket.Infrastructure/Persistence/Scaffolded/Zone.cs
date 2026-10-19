@@ -27,6 +27,8 @@ public partial class Zone
 
     public decimal? AreaM2 { get; set; }
 
+    public int MinStaff { get; set; }
+
     public virtual ICollection<CameraZoneMapping> CameraZoneMappings { get; set; } = new List<CameraZoneMapping>();
 
     public virtual Floor Floor { get; set; } = null!;
@@ -37,7 +39,17 @@ public partial class Zone
 
     public virtual ICollection<OperationalEvent> OperationalEvents { get; set; } = new List<OperationalEvent>();
 
+    public virtual ICollection<Recommendation> Recommendations { get; set; } = new List<Recommendation>();
+
+    public virtual ICollection<StaffReport> StaffReports { get; set; } = new List<StaffReport>();
+
     public virtual ICollection<StaffZoneAssignment> StaffZoneAssignments { get; set; } = new List<StaffZoneAssignment>();
 
     public virtual ICollection<Task> Tasks { get; set; } = new List<Task>();
+
+    public virtual ICollection<ZoneAdjacency> ZoneAdjacencyAdjacentZones { get; set; } = new List<ZoneAdjacency>();
+
+    public virtual ICollection<ZoneAdjacency> ZoneAdjacencyZones { get; set; } = new List<ZoneAdjacency>();
+
+    public virtual ICollection<ZoneMetric> ZoneMetrics { get; set; } = new List<ZoneMetric>();
 }

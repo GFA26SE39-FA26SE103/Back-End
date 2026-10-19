@@ -51,9 +51,9 @@ public partial class Camera
 
     public virtual Floor Floor { get; set; } = null!;
 
-    public virtual ICollection<Incident> Incidents { get; set; } = new List<Incident>();
-
     public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 
     public virtual ICollection<OperationalEvent> OperationalEvents { get; set; } = new List<OperationalEvent>();
+
+    public virtual ICollection<ZoneMetric> ZoneMetrics { get; set; } = new List<ZoneMetric>();
 }

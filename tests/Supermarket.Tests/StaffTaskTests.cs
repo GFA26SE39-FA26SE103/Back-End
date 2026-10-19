@@ -150,10 +150,11 @@ public sealed class StaffTaskTests
     }
 
     [Fact]
-    public async Task RetryUsesNotificationConfigWhenPresent()
+    public async Task RetryUsesSystemSettingsWhenPresent()
     {
         var w = new World(); w.Staff("An", checkedIn: true); w.Policy("WARNING");
-        w.Store.Values.Add(new NotificationConfig { NotificationConfigId = Guid.NewGuid(), RetryIntervalSec = 30, MaxRetryCount = 1, UpdatedAt = Now });
+        w.Store.Values.Add(new SystemSetting { SettingId = Guid.NewGuid(), SettingKey = TaskRules.RetryIntervalSetting, SettingValue = "30", ValueType = "INTEGER", UpdatedAt = Now });
+        w.Store.Values.Add(new SystemSetting { SettingId = Guid.NewGuid(), SettingKey = TaskRules.MaxRetryCountSetting, SettingValue = "1", ValueType = "INTEGER", UpdatedAt = Now });
         await w.Raise("WARNING");
         var task = Assert.Single(w.Tasks);
         w.Clock.UtcNow = Now.AddSeconds(30); await w.Dispatch.Tick(default);
@@ -345,7 +346,7 @@ public sealed class StaffTaskTests
         public async Task<OperationalEvent> Raise(string priority, Camera? camera = null)
         {
             var ev = new OperationalEvent { EventId = Guid.NewGuid(), CameraId = (camera ?? Camera).CameraId, ZoneId = Zone.ZoneId, RuleId = ruleId, EventTypeId = eventTypeId,
-                EventType = "LONG_QUEUE", Priority = priority, MetricValue = 7, DetectedAt = Clock.UtcNow, LastObservedAt = Clock.UtcNow, Status = "ACTIVE",
+                Priority = priority, MetricValue = 7, DetectedAt = Clock.UtcNow, LastObservedAt = Clock.UtcNow, Status = "ACTIVE",
                 MetadataJson = """{"measurementMode":"QUEUE_LENGTH","thresholdUnit":"PEOPLE"}""" };
             Store.Values.Add(ev);
             await Dispatch.Raised(ev, null, default);

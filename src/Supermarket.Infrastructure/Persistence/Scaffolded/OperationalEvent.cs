@@ -13,10 +13,6 @@ public partial class OperationalEvent
 
     public Guid? RuleId { get; set; }
 
-    public Guid? IncidentId { get; set; }
-
-    public string EventType { get; set; } = null!;
-
     public decimal MetricValue { get; set; }
 
     public DateTime DetectedAt { get; set; }
@@ -39,11 +35,11 @@ public partial class OperationalEvent
 
     public virtual Camera Camera { get; set; } = null!;
 
-    public virtual OperationalEventType EventTypeNavigation { get; set; } = null!;
-
-    public virtual Incident? Incident { get; set; }
+    public virtual OperationalEventType EventType { get; set; } = null!;
 
     public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
+
+    public virtual ICollection<Recommendation> Recommendations { get; set; } = new List<Recommendation>();
 
     public virtual MonitoringRule? Rule { get; set; }
 

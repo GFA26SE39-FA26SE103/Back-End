@@ -176,16 +176,39 @@ Separated transport status, visual-health events and processing availability. Ad
 - AI service CPU/API/session/recorded/redaction selection: **32 passed**. Focused frame-health tests: **4 passed**. A Starlette/httpx deprecation warning is dependency-owned and does not affect the result.
 - SQL integration was not rerun because this change does not alter schema or EF mappings.
 
-## MF-02 staff tasks validation 2026-10-11 (branch `feature/mf02-staff-tasks`)
+## ERD V6 additive migration and outcome routing validation 2026-10-18
 
-Scope: ResponsePolicy-driven operational Task offers, Staff responses (Handle now / Handle later / Cannot handle), shift check-in, offer retry and Operator manual assignment. Schema: Database V2 plus the proposed V3 `Task.planned_start_at` (Database repo branch `feature/mf02-task-planned-start`, not yet approved or applied to any shared database).
+Prepared the ERD V6 migration in two stages. `FA26SE103_Database_V5.sql` is the non-destructive compatibility expansion; `FA26SE103_Database_V6_Cleanup.sql` is the guarded destructive cutover script. V5 and V6 Cleanup have now both been applied to the connected shared Development database after backup and explicit cutover approval.
 
-- Isolated database: a private LocalDB `FA26SE103_LocalMF02` restored from `Backup10102026.sql`, then `FA26SE103_Database_V2.sql` and `FA26SE103_Database_V3.sql`; V3 rerun guard verified. No shared Dev/production database was read or written.
-- Re-scaffold from that database with `scripts/Scaffold.ps1` (25 tables). The generated `Task` entity collides with `System.Threading.Tasks.Task`; files importing the scaffolded namespace use a `Task` alias and the domain type is `WorkTask`.
-- Non-SQL suite, Release, before the account fix: **297 passed, 0 failed** (15 new `StaffTaskTests`). Release publish **PASS**. `git diff --check` **PASS**.
-- Full suite without the SQL bootstrap prerequisites: the same 20 `SqlApiFixture` tests fail with the missing-schema message as before this change; SQL integration not run.
-- Real HTTP against the isolated database (API on 127.0.0.1:5099, monitoring and camera-health workers disabled, test accounts seeded only in that database): shifts/check-in/eligibility; event → policy → task offered to two checked-in zone Staff; two simultaneous HANDLE_NOW requests → one 200 and one 409 `TASK_ALREADY_TAKEN`; HANDLE_LATER without/with planned start; WARNING→CRITICAL raises the same task (`raisedFrom=WARNING`); start; both Staff CANNOT_HANDLE → `needsAssignment`; Operator assignable-staff and manual assign (`assignmentType=MANUAL`, 409 `WORKLOAD_LIMIT` for a full Staff member); EVENT_CLEARED keeps accepted tasks and cancels an unaccepted one; read-all; STAFF/OPERATOR role isolation (403).
-- Retry worker on SQL Server (5 s poll, default 60 s × 3): `TASK_OFFER` at +0 s, +63 s, +128 s and one `TASK_NEEDS_ASSIGNMENT`; no further notifications after exhaustion. No worker warnings logged.
-- `docs/openapi.json`: 14 paths, 10 schemas and 3 tags inserted from the running Swagger contract; existing entries unchanged.
+- Before Cleanup, Development contained `OperationalEvent=852`, `Incident=1`, and `MonitoringRule=1`. The Incident was confirmed test data with invalid V6 provenance: it was `AI_DETECTED` and linked to an `OPERATIONAL_EVENT` rule. With explicit approval, 851 legacy Event links were cleared and that one test Incident was deleted rather than fabricating an INCIDENT rule.
+- Post-Cleanup verification: 37 dbo tables; `OperationalEvent=852`, `Incident=0`, `MonitoringRule=1`. The remaining rule is `OPERATIONAL_EVENT` with only `event_type_id` populated.
+- Legacy columns/tables are absent: `OperationalEvent.incident_id`, `OperationalEvent.event_type`, `Incident.trigger_camera_id`, `IncidentType.source_type`, `IncidentType.measurement_type`, `NotificationConfig`, and `ZoneShiftRequirement` all resolve absent.
+- `CK_MonitoringRule_ExactlyOneOutcome` and `CK_Incident_Source` enforce the V6 target/source discriminators. `DBCC CHECKCONSTRAINTS WITH ALL_CONSTRAINTS` completed without reporting a violation.
+- Backend EF scaffold expanded to the 37-table V6 compatibility schema. Runtime writing now routes `OPERATIONAL_EVENT` rules to OperationalEvent episodes and `INCIDENT` rules directly to Incident, without creating the other outcome branch.
+- Backend non-SQL suite (`Category!=SqlIntegration`): **282 passed, 0 failed, 0 skipped**.
+- Backend Release publish: **PASS**.
+- Both SQL migration files passed SQL Server parse-only validation. Repository `git diff --check` is recorded separately after the final documentation edit.
 
-Account creation fix on the same branch: on a Database V2 schema `POST /api/users` (and bootstrap) returned 500 (`DbUpdateException`) because V2 made `UserAccount.code` NOT NULL and unique without a default and the backend never wrote it. New accounts now get `USR-` + the first 16 hex digits of the user id, the same form V2 backfilled (checked against two backfilled rows). Non-SQL Release suite after the fix: **300 passed, 0 failed**. On the isolated database: two accounts created (200), renamed via PATCH with the code preserved, and the new account logged in.
+Not performed: shared-database test-data insertion, SQL integration-suite execution, commit, push, merge, or backend deployment. Older V5-compatible writers must not be restarted against this post-cleanup database.
+
+### Exact V6 cutover preparation continuation
+
+- Compared all live dbo table/column names against the supplied ERD V6 draw.io: all 37 target tables/columns exist after V5; the remaining differences were two legacy tables and legacy columns on Incident, IncidentType, OperationalEvent, Recommendation, ResponsePolicy and ResponsePolicyAction. Cleanup now removes the complete verified delta, including `OperationalEvent.event_type` and `IncidentType.measurement_type`.
+- Replayed the historical backup plus Database V2 → V3 → V4 → V5 → V6 Cleanup on a locally owned disposable SQL Server database: **PASS**. The cleanup handled the historical unique constraint/index variants, completed transactionally, and the disposable database was removed.
+- Regenerated the 37-entity EF scaffold from that exact post-cleanup schema. `MonitoringRule.event_type_id` / `incident_type_id` are nullable outcome targets; legacy Event→Incident, trigger-camera, string event-type, IncidentType source/measurement, Recommendation-Incident and response-policy Incident qualification mappings are absent.
+- Monitoring setup continues to accept the current frontend catalog contract, but measurement metadata is sourced from `OperationalEventType` and saved operational rules persist only `event_type_id`. Direct Incident runtime activation fails closed until a validated measurement/model contract exists.
+- Backend non-SQL suite (`Category!=SqlIntegration`): **283 passed, 0 failed, 0 skipped**. Focused V6 monitoring/model selection: **50 passed**. Backend Release publish: **PASS**.
+- Shared Development cleanup preflight data gates: **PASS** after removal of the explicitly approved legacy test Incident. `NotificationConfig`, `ZoneShiftRequirement`, and legacy Recommendation/ResponsePolicy/Action data were all empty.
+
+The shared Development database is now on the exact V6 post-cleanup schema. The database cutover is complete; coordinated deployment of the V6-aware backend remains required. No commit, push, or merge was performed.
+
+## MF-02 Staff-task integration into ERD V6 — 2026-10-19
+
+Merged the current `origin/dev` (including MF-02) into `feature/erd-v6-migration` locally and resolved the overlap against the exact post-cleanup V6 scaffold. Generated files under `Persistence/Scaffolded` remain byte-for-byte from the ERD V6 branch; the retired `NotificationConfig` entity was not restored. The MF-02 retry configuration now reads the non-secret `SystemSetting` keys `task_offer.retry_interval_sec` and `task_offer.max_retry_count`.
+
+- `MonitoringIncidentWriter` invokes Task dispatch only for the `OPERATIONAL_EVENT` outcome. The independent `INCIDENT` outcome remains direct and does not create an OperationalEvent or event-origin Task.
+- Release build: **PASS**, 0 warnings and 0 errors.
+- Backend non-SQL suite (`Category!=SqlIntegration`): **301 passed, 0 failed, 0 skipped** after the final V6 settings adaptation.
+- Backend Release publish: **PASS**; build completed with 0 warnings and 0 errors.
+- Shared SQL integration and database mutation were not performed during this merge resolution.
+- The resolved merge remains local for review; no push or deployment was performed.

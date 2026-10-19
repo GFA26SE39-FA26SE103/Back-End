@@ -47,6 +47,8 @@ public partial class Task
 
     public DateTime? PlannedStartAt { get; set; }
 
+    public int RejectionCount { get; set; }
+
     public virtual UserAccount? AssignedByUser { get; set; }
 
     public virtual UserAccount? CurrentAssigneeUser { get; set; }
@@ -57,7 +59,11 @@ public partial class Task
 
     public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 
+    public virtual StaffReport? StaffReport { get; set; }
+
     public virtual ICollection<TaskAssignmentHistory> TaskAssignmentHistories { get; set; } = new List<TaskAssignmentHistory>();
+
+    public virtual ICollection<TaskEvidence> TaskEvidences { get; set; } = new List<TaskEvidence>();
 
     public virtual UserAccount? VerifiedByUser { get; set; }
 

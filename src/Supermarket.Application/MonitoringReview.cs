@@ -10,6 +10,7 @@ public sealed partial class MonitoringSetup
         var configuration = await Configuration(zoneId, ct);
         var rules = (await store.List<MonitoringRule>(r => r.ConfigId == configuration.ConfigId, ct)).ToArray();
         var types = (await store.List<IncidentType>(ct: ct)).ToDictionary(t => t.IncidentTypeId);
+        var eventTypes = (await store.List<OperationalEventType>(ct: ct)).ToDictionary(t => t.EventTypeId);
         var mappings = await store.List<CameraZoneMapping>(m => m.ZoneId == zoneId && m.Status == "ACTIVE", ct);
         var cameras = new Dictionary<Guid, Camera>();
         var connections = new Dictionary<Guid, CameraConnection>();
@@ -19,12 +20,12 @@ public sealed partial class MonitoringSetup
             var connection = (await store.List<CameraConnection>(c => c.CameraId == mapping.CameraId, ct)).SingleOrDefault();
             if (connection is not null) connections[mapping.CameraId] = connection;
         }
-        return EvaluateReview(zone, ConfigurationView(configuration, rules, types), rules, types, mappings, cameras, connections);
+        return EvaluateReview(zone, ConfigurationView(configuration, rules, types, eventTypes), rules, eventTypes, mappings, cameras, connections);
     }
 
     // Dashboard and activation share saved-data readiness. Operational health is reported separately.
     internal static MonitoringReviewView EvaluateReview(Zone zone, MonitoringConfigurationView configuration,
-        MonitoringRule[] rules, IReadOnlyDictionary<Guid, IncidentType> types, IEnumerable<CameraZoneMapping> mappings,
+        MonitoringRule[] rules, IReadOnlyDictionary<Guid, OperationalEventType> eventTypes, IEnumerable<CameraZoneMapping> mappings,
         IReadOnlyDictionary<Guid, Camera> cameraRecords, IReadOnlyDictionary<Guid, CameraConnection> connections)
     {
         var issues = new List<MonitoringIssue>();
@@ -35,8 +36,9 @@ public sealed partial class MonitoringSetup
         if (enabled.Length == 0) issues.Add(new("NO_ENABLED_RULES", "Enable at least one supported AI rule."));
         foreach (var rule in enabled)
         {
-            var type = types.GetValueOrDefault(rule.IncidentTypeId);
-            if (type is null) { issues.Add(new("INCIDENT_TYPE_MISSING", "A rule's incident type no longer exists.")); continue; }
+            if(rule.OutcomeType!="OPERATIONAL_EVENT") { issues.Add(new("INCIDENT_RULE_RUNTIME_UNSUPPORTED", "Direct Incident monitoring is not enabled until a validated measurement contract exists.")); continue; }
+            var type = rule.EventTypeId is { } eventTypeId ? eventTypes.GetValueOrDefault(eventTypeId) : null;
+            if (type is null) { issues.Add(new("OPERATIONAL_EVENT_TYPE_MISSING", "A rule's operational event type no longer exists.")); continue; }
             try { MonitoringPolicy.ValidateForActivation(rule, type); }
             catch (DomainException e) { issues.Add(new(e.Code, $"{type.Name}: {e.Message}")); }
             if (MonitoringPolicy.RuntimeDefinition(rule,type).Mode == "CROWD_DENSITY" && zone.AreaM2 is not > 0)

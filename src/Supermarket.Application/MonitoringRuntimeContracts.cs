@@ -2,8 +2,9 @@ using Supermarket.Domain;
 namespace Supermarket.Application;
 
 // Private worker snapshots: never returned by a controller or logged.
-public sealed record MonitoringRuleSnapshot(Guid RuleId,Guid IncidentTypeId,string Code,string Name,string Mode,string Unit,
-    decimal WarningThreshold,decimal CriticalThreshold,int SustainSec,int CooldownSec,Guid EventTypeId=default,string EventTypeCode="",int? RecoverySec=null);
+public sealed record MonitoringRuleSnapshot(Guid RuleId,Guid? IncidentTypeId,string Code,string Name,string Mode,string Unit,
+    decimal WarningThreshold,decimal CriticalThreshold,int SustainSec,int CooldownSec,Guid? EventTypeId=null,string EventTypeCode="",int? RecoverySec=null,
+    string OutcomeType="OPERATIONAL_EVENT");
 public sealed record MonitoringZoneSnapshot(Guid ZoneId,string ZoneName,Guid ConfigId,DateTime ConfigVersion,Point[] Roi,
     decimal Confidence,MonitoringRuleSnapshot[] Rules,string? IssueCode=null);
 public sealed record MonitoringCameraSnapshot(Guid CameraId,CameraConnection Connection,string Fingerprint,MonitoringZoneSnapshot[] Zones,string? IssueCode=null);

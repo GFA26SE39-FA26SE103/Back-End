@@ -7,7 +7,7 @@
 > **Synchronization baseline:** **18/10/2026** — synchronized Reports 1–3, current Business Rules, approved Physical ERD **V6**, and inspected backend `dev` at commit `c4c79b0f5e08d913dbbe4381be2e6eebe129ebad`.
 > **Purpose:** repository-owned guide for developers and coding agents. It defines **approved target behavior** separately from **verified source-code implementation**. It is not a substitute for the official reports or the canonical SQL schema.
 > **Important:** This replacement removes superseded ERD v3/v4 assumptions, historical approval paths, and old OperationalEvent-to-Incident design. Links to external documents are references, **not automatic synchronization**.
-> **Integration note:** `feature/mf02-staff-tasks` adds a reviewed implementation subset for operational Task offers and Staff responses on the older Database V2/V3 scaffold. That code is implementation evidence, not approval to restore entities removed by ERD V6; see §41.
+> **Integration note:** the MF-02 Staff-task subset has been ported onto the exact post-cleanup ERD V6 scaffold. It uses V6 `SystemSetting` for retry parameters and does not restore retired entities; see §41.
 
 ---
 
@@ -280,7 +280,7 @@ The schema supports many camera-zone mappings. **Current ROI runtime does not ye
 
 At inspected `dev` commit, `src/Supermarket.Infrastructure/Persistence/Scaffolded/MonitoringRule.cs` still has **non-null** `IncidentTypeId` and `EventTypeId` and lacks the V6 `outcome_type` discriminator. `OperationalEvent.cs` still exposes `IncidentId`. `MonitoringIncidentWriter` still creates/links a `DETECTED` Incident from an Event for legacy compatibility. **Those are known divergences, not approved new requirements.**
 
-The scaffold covers a **subset** of V6 entities. Do not infer that ShiftSwapRequest, SystemSetting, ServiceHealthEvent or other target workflows are implemented until verified in code, SQL metadata and tests. The canonical Database repo and applied SQL Server version must be checked before writing migrations.
+The scaffold covers V6 persistence, but a generated entity is not proof that its workflow is implemented. `SystemSetting` is currently consumed only for the two MF-02 retry keys documented in §41; do not infer Admin settings management, ShiftSwapRequest, ServiceHealthEvent or other target workflows until verified in code, SQL metadata and tests. The canonical Database repo and applied SQL Server version must be checked before writing migrations.
 
 ---
 
@@ -327,7 +327,7 @@ Account/RBAC; floor-plan/zone geometry; camera metadata, stream credentials and 
 
 The `dev` baseline contains controllers for accounts, store/floor setup, cameras, monitoring config/review/activation, monitoring live/health, recorded-video upload and AI preview, plus an IncidentType controller. This integration branch additionally contains the scoped MF-02 Staff-work endpoints described in §41. For precise route/response status, inspect [`docs/API.md`](API.md), [`docs/openapi.json`](openapi.json) and actual controller source.
 
-**Do not assume** the scoped MF-02 offer/response implementation also provides final evidence verification, fully independent rule-target Incident handling, StaffReport confirmation, SWAP/COVER approval, SystemSetting, ServiceHealthEvent, FCM delivery or complete analytics. Those remain target requirements until implemented and tested.
+**Do not assume** the scoped MF-02 offer/response implementation also provides final evidence verification, StaffReport confirmation, SWAP/COVER approval, SystemSetting administration, ServiceHealthEvent handling, FCM delivery or complete analytics. Direct rule-target Incident persistence is implemented independently of OperationalEvents, but its activation contract remains fail-closed where measurement/model semantics are unresolved.
 
 ---
 
@@ -580,7 +580,7 @@ Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a 
 | Independent Incident path | `MonitoringIncidentWriter.cs`, `OperationalEvent.cs` | **Not aligned**; legacy Event → Incident link remains. |
 | MF-02 operational Task offers and Staff responses | `StaffWorkController`, `StaffTasks`, `StaffWork`, `TaskOfferWorker`, `StaffTaskTests` | **Implemented subset on `feature/mf02-staff-tasks`**: shift check-in, eligible offers, Handle Now/Later, Cannot Handle, atomic first acceptance, retry/exhaustion and Operator manual assignment. See §41. |
 | Evidence verification, StaffReport, SWAP/COVER, FCM delivery, complete analytics | Not established by this integration | **Do not claim implemented**. |
-| `SystemSetting`, `ServiceHealthEvent`, V6 zone staffing fields | V6 only | **Design approved, DB implementation unverified**. |
+| `SystemSetting`, `ServiceHealthEvent`, V6 zone staffing fields | V6 only | **Present in the exact V6 scaffold**. Application support is partial: MF-02 reads two retry settings; broader workflows remain unimplemented unless separately verified. |
 | Deployment health / CI results | Historical README, workflow and VALIDATION docs | **Dated evidence only**, no live deployment check performed for this synchronization. |
 
 Do not present a passing test score, deploy availability, complete SQL V6 migration or shipped features without running/verifying them.
@@ -665,7 +665,7 @@ AUTOMATIC CREATE_OPERATIONAL_TASK policy
 
 The branch also contains Operator candidate lookup/manual assignment and preserves accepted Tasks when an Event clears while cancelling an unaccepted offer. Exact routes and dated validation evidence are in [`docs/API.md`](API.md) and [`docs/VALIDATION.md`](VALIDATION.md).
 
-This subset was built and re-scaffolded against Database V2 plus the proposed V3 `Task.planned_start_at` shape. It still carries V5-era persistence such as `NotificationConfig`, which ERD V6 removes in favor of `SystemSetting`. Therefore it must be reconciled with the approved V6 SQL and re-scaffolded model before claiming V6 compatibility. Do not resolve that future migration by hand-editing generated scaffold files or by reintroducing retired tables.
+This subset is now mapped to the exact 37-table post-cleanup V6 scaffold. Retry overrides use `SystemSetting` keys `task_offer.retry_interval_sec` and `task_offer.max_retry_count`; invalid or absent values fall back to 60 seconds and three total attempts. `NotificationConfig` remains retired, and no generated scaffold file was hand-edited to restore it.
 
 Not implemented by this subset: approval-required policy actions, SLA/deadline/overdue rules, FCM/SignalR delivery, task evidence and verification, confirmed StaffReports, shift SWAP/COVER, ZoneAdjacency dispatch, StaffUnavailability workflow or complete analytics.
 

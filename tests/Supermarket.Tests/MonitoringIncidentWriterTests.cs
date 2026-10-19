@@ -23,7 +23,7 @@ public sealed class MonitoringIncidentWriterTests
         var opened=await writer.Apply(first,default);
         var episode=Assert.Single(store.Values.OfType<OperationalEvent>());
         Assert.Equal(opened.OperationalEventId,episode.EventId); Assert.Equal("ACTIVE",episode.Status); Assert.Equal("WARNING",episode.Priority);
-        Assert.Equal(eventTypeId,episode.EventTypeId); Assert.Equal("CONGESTION",episode.EventType); Assert.Null(episode.ClearedAt);
+        Assert.Equal(eventTypeId,episode.EventTypeId); Assert.Null(episode.ClearedAt);
         Assert.True((await writer.Apply(first,default)).Idempotent); Assert.Single(store.Values.OfType<OperationalEvent>());
 
         await writer.Apply(Command(2,3,"CRITICAL"),default);
@@ -35,13 +35,13 @@ public sealed class MonitoringIncidentWriterTests
 
         await writer.Apply(Command(5,2,"WARNING"),default);
         Assert.Equal(2,store.Values.OfType<OperationalEvent>().Count()); Assert.Single(store.Values.OfType<OperationalEvent>(),e=>e.ClearedAt is null);
-        var incident=Assert.Single(store.Values.OfType<Incident>()); Assert.Equal("CRITICAL",incident.Severity); Assert.Null(incident.ClosedAt);
+        Assert.Empty(store.Values.OfType<Incident>());
         reader.Valid=false;
         Assert.True((await writer.Apply(Command(6,3,"CRITICAL"),default)).Stale); Assert.Equal(2,store.Values.OfType<OperationalEvent>().Count());
     }
 
     [Fact]
-    public async Task CooldownOpensEpisodeWithoutCreatingIncident()
+    public async Task OperationalEventOutcomeNeverCreatesIncident()
     {
         var store=new MonitoringSetupTests.MemoryStore(); var clock=new Clock(); var queries=new Queries { Ended=clock.UtcNow.AddSeconds(-5) };
         var writer=new MonitoringIncidentWriter(store,new Current(),queries,clock); var eventTypeId=Guid.NewGuid();
@@ -51,8 +51,28 @@ public sealed class MonitoringIncidentWriterTests
         var measurement=new AiZoneMeasurement(zone.ZoneId,zone.ConfigId,zone.ConfigVersion,3,2);
         var command=new IncidentObservationCommand(snapshot,zone,rule,new(1,Guid.NewGuid(),Guid.NewGuid(),1,clock.UtcNow,1000,"f",[measurement]),measurement,new(new(),"WARNING",1000,0,"THRESHOLD_SUSTAINED"),true);
         var result=await writer.Apply(command,default);
-        Assert.Equal("COOLDOWN",result.Reason); Assert.Equal(5,result.CooldownRemainingSec); Assert.Empty(store.Values.OfType<Incident>());
-        var episode=Assert.Single(store.Values.OfType<OperationalEvent>()); Assert.Equal("ACTIVE",episode.Status); Assert.Null(episode.IncidentId);
+        Assert.Equal("THRESHOLD_SUSTAINED",result.Reason); Assert.Equal(0,result.CooldownRemainingSec); Assert.Empty(store.Values.OfType<Incident>());
+        var episode=Assert.Single(store.Values.OfType<OperationalEvent>()); Assert.Equal("ACTIVE",episode.Status);
+    }
+
+    [Fact]
+    public async Task IncidentOutcomeCreatesIncidentWithoutOperationalEvent()
+    {
+        var store=new MonitoringSetupTests.MemoryStore(); var clock=new Clock(); var writer=new MonitoringIncidentWriter(store,new Current(),new Queries(),clock);
+        var ruleId=Guid.NewGuid(); var incidentTypeId=Guid.NewGuid();
+        var rule=new MonitoringRuleSnapshot(ruleId,incidentTypeId,"SAFETY_HAZARD","Safety hazard","HAZARD","BOOLEAN",0,1,0,10,
+            Guid.Empty,"",null,"INCIDENT");
+        var zone=new MonitoringZoneSnapshot(Guid.NewGuid(),"ROI",Guid.NewGuid(),clock.UtcNow,[],.5m,[rule]);
+        var snapshot=new MonitoringCameraSnapshot(Guid.NewGuid(),new(),"f",[zone]);
+        var measurement=new AiZoneMeasurement(zone.ZoneId,zone.ConfigId,zone.ConfigVersion,1,0);
+        var result=await writer.Apply(new(snapshot,zone,rule,new(1,Guid.NewGuid(),Guid.NewGuid(),1,clock.UtcNow,0,"f",[measurement]),measurement,
+            new(new(),"CRITICAL",0,0,"THRESHOLD_SUSTAINED"),true),default);
+
+        var incident=Assert.Single(store.Values.OfType<Incident>());
+        Assert.Equal(result.IncidentId,incident.IncidentId);
+        Assert.Equal(ruleId,incident.MonitoringRuleId);
+        Assert.Equal(incidentTypeId,incident.IncidentTypeId);
+        Assert.Empty(store.Values.OfType<OperationalEvent>());
     }
 
     [Fact]

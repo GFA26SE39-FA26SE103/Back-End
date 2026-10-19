@@ -19,10 +19,6 @@ public partial class ResponsePolicyAction
 
     public string? ActionParametersJson { get; set; }
 
-    public Guid? TargetIncidentTypeId { get; set; }
-
-    public string? ProposedIncidentSeverity { get; set; }
-
     public bool IsEnabled { get; set; }
 
     public DateTime CreatedAt { get; set; }
@@ -30,8 +26,6 @@ public partial class ResponsePolicyAction
     public DateTime UpdatedAt { get; set; }
 
     public virtual ResponsePolicy Policy { get; set; } = null!;
-
-    public virtual IncidentType? TargetIncidentType { get; set; }
 
     public virtual Role? TargetRole { get; set; }
 }
