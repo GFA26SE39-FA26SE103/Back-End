@@ -42,6 +42,13 @@ public sealed class UserAccount : TrackedEntity
     public string PasswordHash { get; set; } = "";
     public string FullName { get; set; } = "";
     public string Status { get; set; } = "ACTIVE";
+    public string? Phone
+    {
+        get; set;
+    }
+    /// <summary>Database V2 requires a unique code; new accounts use the same USR-&lt;16 hex&gt; form V2 backfilled.</summary>
+    public string Code { get; set; } = "";
+    public static string CodeFor(Guid userId) => "USR-" + userId.ToString("N")[..16].ToUpperInvariant();
 }
 public sealed class Supermarket : TrackedEntity
 {

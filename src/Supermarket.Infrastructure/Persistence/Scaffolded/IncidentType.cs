@@ -30,4 +30,6 @@ public partial class IncidentType
     public virtual ICollection<Incident> Incidents { get; set; } = new List<Incident>();
 
     public virtual ICollection<MonitoringRule> MonitoringRules { get; set; } = new List<MonitoringRule>();
+
+    public virtual ICollection<ResponsePolicyAction> ResponsePolicyActions { get; set; } = new List<ResponsePolicyAction>();
 }

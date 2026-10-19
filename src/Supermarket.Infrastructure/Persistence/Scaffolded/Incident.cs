@@ -33,11 +33,17 @@ public partial class Incident
 
     public DateTime UpdatedAt { get; set; }
 
+    public Guid? StaffReportId { get; set; }
+
     public virtual IncidentType IncidentType { get; set; } = null!;
+
+    public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 
     public virtual ICollection<OperationalEvent> OperationalEvents { get; set; } = new List<OperationalEvent>();
 
     public virtual UserAccount? ReportedByUser { get; set; }
+
+    public virtual ICollection<Task> Tasks { get; set; } = new List<Task>();
 
     public virtual Camera? TriggerCamera { get; set; }
 

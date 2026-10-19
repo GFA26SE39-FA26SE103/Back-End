@@ -7,6 +7,7 @@
 > **Synchronization baseline:** **18/10/2026** — synchronized Reports 1–3, current Business Rules, approved Physical ERD **V6**, and inspected backend `dev` at commit `c4c79b0f5e08d913dbbe4381be2e6eebe129ebad`.
 > **Purpose:** repository-owned guide for developers and coding agents. It defines **approved target behavior** separately from **verified source-code implementation**. It is not a substitute for the official reports or the canonical SQL schema.
 > **Important:** This replacement removes superseded ERD v3/v4 assumptions, historical approval paths, and old OperationalEvent-to-Incident design. Links to external documents are references, **not automatic synchronization**.
+> **Integration note:** `feature/mf02-staff-tasks` adds a reviewed implementation subset for operational Task offers and Staff responses on the older Database V2/V3 scaffold. That code is implementation evidence, not approval to restore entities removed by ERD V6; see §41.
 
 ---
 
@@ -324,9 +325,9 @@ Account/RBAC; floor-plan/zone geometry; camera metadata, stream credentials and 
 
 # 13. MF-01 API capability checklist
 
-Current `dev` contains controllers for accounts, store/floor setup, cameras, monitoring config/review/activation, monitoring live/health, recorded-video upload and AI preview, plus an IncidentType controller. For precise route/response status, inspect [`docs/API.md`](API.md), [`docs/openapi.json`](openapi.json) and actual controller source.
+The `dev` baseline contains controllers for accounts, store/floor setup, cameras, monitoring config/review/activation, monitoring live/health, recorded-video upload and AI preview, plus an IncidentType controller. This integration branch additionally contains the scoped MF-02 Staff-work endpoints described in §41. For precise route/response status, inspect [`docs/API.md`](API.md), [`docs/openapi.json`](openapi.json) and actual controller source.
 
-**Do not assume** there are current endpoints for final Task acceptance/verification, fully independent rule-target Incident handling, StaffReport confirmation, SWAP/COVER approval, SystemSetting or ServiceHealthEvent. They remain target requirements until implemented and tested.
+**Do not assume** the scoped MF-02 offer/response implementation also provides final evidence verification, fully independent rule-target Incident handling, StaffReport confirmation, SWAP/COVER approval, SystemSetting, ServiceHealthEvent, FCM delivery or complete analytics. Those remain target requirements until implemented and tested.
 
 ---
 
@@ -565,7 +566,7 @@ Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a 
 
 ---
 
-# 36. Current implementation checkpoint — inspected `dev` 18/10/2026
+# 36. Current implementation checkpoint — `dev` baseline plus MF-02 integration branch
 
 **Observed from source tree and specific inspected files, not fresh runtime execution:**
 
@@ -577,7 +578,8 @@ Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a 
 | OperationalEvent episodes | `MonitoringIncidentWriter`, scaffolded `OperationalEvent`, targeted tests | **Implemented subset**; Episode behavior detailed §40. |
 | V6 rule `outcome_type` | Scaffolded `MonitoringRule.cs` | **Not aligned**; has non-null `EventTypeId` and `IncidentTypeId` without outcome discriminator. |
 | Independent Incident path | `MonitoringIncidentWriter.cs`, `OperationalEvent.cs` | **Not aligned**; legacy Event → Incident link remains. |
-| Task acceptance, verification, StaffReport, SWAP/COVER, FCM delivery, complete analytics | Not established by inspected target controllers/scaffold | **Do not claim implemented**. |
+| MF-02 operational Task offers and Staff responses | `StaffWorkController`, `StaffTasks`, `StaffWork`, `TaskOfferWorker`, `StaffTaskTests` | **Implemented subset on `feature/mf02-staff-tasks`**: shift check-in, eligible offers, Handle Now/Later, Cannot Handle, atomic first acceptance, retry/exhaustion and Operator manual assignment. See §41. |
+| Evidence verification, StaffReport, SWAP/COVER, FCM delivery, complete analytics | Not established by this integration | **Do not claim implemented**. |
 | `SystemSetting`, `ServiceHealthEvent`, V6 zone staffing fields | V6 only | **Design approved, DB implementation unverified**. |
 | Deployment health / CI results | Historical README, workflow and VALIDATION docs | **Dated evidence only**, no live deployment check performed for this synchronization. |
 
@@ -645,7 +647,27 @@ new breach after clear       → start a new episode
 missing/unavailable readings → do NOT synthesize zero or clear automatically
 ```
 
-Recovery/hysteresis, source capture timestamps, selected camera and stale-config protection require the exact implementation/tests to be checked for every change. This implementation checkpoint **does not** authorize Event-origin Incident generation. Task, ResponsePolicy execution, confirmed StaffReports, SWAP/COVER, notification, historical KPI completeness and V6 migrations remain separate implementation tasks until independently verified.
+Recovery/hysteresis, source capture timestamps, selected camera and stale-config protection require the exact implementation/tests to be checked for every change. This implementation checkpoint **does not** authorize Event-origin Incident generation. The scoped Task-offer implementation in §41 does not imply complete ResponsePolicy execution, confirmed StaffReports, SWAP/COVER, external push delivery, historical KPI completeness or completed V6 migration.
+
+---
+
+# 41. MF-02 Staff-task implementation subset — integration evidence
+
+`feature/mf02-staff-tasks` implements the following bounded workflow:
+
+```text
+AUTOMATIC CREATE_OPERATIONAL_TASK policy
+→ Task OFFERED to eligible checked-in/on-shift Staff assigned to the Zone
+→ HANDLE_NOW / HANDLE_LATER / CANNOT_HANDLE
+→ first valid acceptance wins atomically
+→ retry unaccepted offers, then flag for Operator assignment
+```
+
+The branch also contains Operator candidate lookup/manual assignment and preserves accepted Tasks when an Event clears while cancelling an unaccepted offer. Exact routes and dated validation evidence are in [`docs/API.md`](API.md) and [`docs/VALIDATION.md`](VALIDATION.md).
+
+This subset was built and re-scaffolded against Database V2 plus the proposed V3 `Task.planned_start_at` shape. It still carries V5-era persistence such as `NotificationConfig`, which ERD V6 removes in favor of `SystemSetting`. Therefore it must be reconciled with the approved V6 SQL and re-scaffolded model before claiming V6 compatibility. Do not resolve that future migration by hand-editing generated scaffold files or by reintroducing retired tables.
+
+Not implemented by this subset: approval-required policy actions, SLA/deadline/overdue rules, FCM/SignalR delivery, task evidence and verification, confirmed StaffReports, shift SWAP/COVER, ZoneAdjacency dispatch, StaffUnavailability workflow or complete analytics.
 
 ---
 

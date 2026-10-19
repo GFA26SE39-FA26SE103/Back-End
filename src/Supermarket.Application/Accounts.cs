@@ -33,7 +33,8 @@ public sealed class Accounts(ISetupStore store, ICurrentUser current, IPasswordS
             Rules.Require(request.Password.Length is >= 12 and <= 128, "INVALID_PASSWORD", "Password must contain 12 to 128 characters.");
             UseCase.Unique((await store.List<UserAccount>(u => u.Email == email, ct)).Count > 0);
             UseCase.Found(await store.Find<Role>(request.RoleId, ct));
-            var user = new UserAccount { UserId = Guid.NewGuid(), Email = email, FullName = Rules.Text(request.FullName, 150, "FullName"), RoleId = request.RoleId, PasswordHash = passwords.Hash(request.Password), Status = "ACTIVE" };
+            var userId = Guid.NewGuid();
+            var user = new UserAccount { UserId = userId, Code = UserAccount.CodeFor(userId), Email = email, FullName = Rules.Text(request.FullName, 150, "FullName"), RoleId = request.RoleId, PasswordHash = passwords.Hash(request.Password), Status = "ACTIVE" };
             await store.Add(user, ct);
             return await View(user, ct);
         }, ct);

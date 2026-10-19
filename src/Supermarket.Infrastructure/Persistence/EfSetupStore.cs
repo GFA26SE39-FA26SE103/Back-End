@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Supermarket.Application;
 using Supermarket.Domain;
 using Supermarket.Infrastructure.Persistence.Scaffolded;
+using Task = System.Threading.Tasks.Task;
 using Entity = Supermarket.Domain.Entity;
 using AppError = Supermarket.Application.ApplicationException;
 namespace Supermarket.Infrastructure.Persistence;
@@ -13,10 +14,12 @@ public sealed class EfSetupStore(AppDbContext db, IClock clock) : ISetupStore
 {
     private ISet<T> Set<T>() where T : Entity, new()
     {
-        var persistenceType = typeof(AppDbContext).Assembly.GetType($"Supermarket.Infrastructure.Persistence.Scaffolded.{typeof(T).Name}")
+        var persistenceType = typeof(AppDbContext).Assembly.GetType($"Supermarket.Infrastructure.Persistence.Scaffolded.{PersistenceName(typeof(T))}")
             ?? throw new InvalidOperationException("Unsupported persistence entity.");
         return (ISet<T>)Activator.CreateInstance(typeof(EfSet<,>).MakeGenericType(typeof(T), persistenceType), db, clock)!;
     }
+    // dbo.Task is WorkTask in the domain so it cannot be confused with System.Threading.Tasks.Task.
+    private static string PersistenceName(Type type) => type == typeof(WorkTask) ? "Task" : type.Name;
     public Task<T?> Find<T>(Guid id, CancellationToken ct = default) where T : Entity, new() => Set<T>().Find(id, ct);
     public Task<List<T>> List<T>(Expression<Func<T, bool>>? filter = null, CancellationToken ct = default) where T : Entity, new() => Set<T>().List(filter, ct);
     public Task Add<T>(T entity, CancellationToken ct = default) where T : Entity, new() => Set<T>().Add(entity, ct);

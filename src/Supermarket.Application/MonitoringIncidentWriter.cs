@@ -2,7 +2,7 @@ using System.Text.Json;
 using Supermarket.Domain;
 namespace Supermarket.Application;
 
-public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapshotReader snapshots,IMonitoringIncidentQueries queries,IClock clock)
+public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapshotReader snapshots,IMonitoringIncidentQueries queries,IClock clock,IOperationalEventResponder? responder=null)
 {
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
@@ -34,6 +34,7 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
                 active.MetricValue=metric; active.LastObservedAt=batch.CapturedAt; active.ClearedAt=batch.CapturedAt;
                 active.UpdatedAt=clock.UtcNow; active.MetadataJson=metadata; active.Status="CLEARED";
                 await store.Update(active,ct);
+                if(responder is not null) await responder.Cleared(active,ct);
                 var linked=active.IncidentId is { } incidentId?await store.Find<Incident>(incidentId,ct):null;
                 return new(true,false,false,active.IncidentId,linked?.Severity,evaluation.Reason,0,active.EventId,active.Priority);
             }
@@ -73,13 +74,16 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
                     Priority=evaluation.EligibleSeverity,DetectedAt=batch.CapturedAt,LastObservedAt=batch.CapturedAt,UpdatedAt=clock.UtcNow,
                     CreatedAt=clock.UtcNow,MetadataJson=metadata,Status="ACTIVE" };
                 await store.Add(active,ct);
+                if(responder is not null) await responder.Raised(active,null,ct);
             }
             else
             {
                 active.IncidentId??=incident?.IncidentId; active.MetricValue=metric; active.LastObservedAt=batch.CapturedAt;
                 active.UpdatedAt=clock.UtcNow; active.MetadataJson=metadata; active.Status="ACTIVE";
+                var previous=active.Priority;
                 if(Rank(evaluation.EligibleSeverity)>Rank(active.Priority)) active.Priority=evaluation.EligibleSeverity;
                 await store.Update(active,ct);
+                if(responder is not null && active.Priority!=previous) await responder.Raised(active,previous,ct);
             }
             var reason=decision.Action=="SUPPRESSED"?"COOLDOWN":evaluation.Reason;
             return new(true,false,false,incident?.IncidentId,incident?.Severity,reason,decision.CooldownRemainingSec,active.EventId,active.Priority);

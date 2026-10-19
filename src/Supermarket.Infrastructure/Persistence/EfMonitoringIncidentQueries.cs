@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Supermarket.Application;
 using Supermarket.Infrastructure.Persistence.Scaffolded;
+using Task = System.Threading.Tasks.Task;
 namespace Supermarket.Infrastructure.Persistence;
 
 public sealed class EfMonitoringIncidentQueries(AppDbContext db):IMonitoringIncidentQueries
