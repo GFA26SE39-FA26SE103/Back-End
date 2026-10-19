@@ -2,7 +2,7 @@ using System.Text.Json;
 using Supermarket.Domain;
 namespace Supermarket.Application;
 
-public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapshotReader snapshots,IMonitoringIncidentQueries queries,IClock clock)
+public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapshotReader snapshots,IMonitoringIncidentQueries queries,IClock clock,IOperationalEventResponder? responder=null)
 {
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
@@ -69,6 +69,7 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
                 active.MetricValue=metric; active.LastObservedAt=batch.CapturedAt; active.ClearedAt=batch.CapturedAt;
                 active.UpdatedAt=clock.UtcNow; active.MetadataJson=metadata; active.Status="CLEARED";
                 await store.Update(active,ct);
+                if(responder is not null) await responder.Cleared(active,ct);
                 return new(true,false,false,null,null,evaluation.Reason,0,active.EventId,active.Priority);
             }
 
@@ -87,13 +88,16 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
                     Priority=evaluation.EligibleSeverity,DetectedAt=batch.CapturedAt,LastObservedAt=batch.CapturedAt,UpdatedAt=clock.UtcNow,
                     CreatedAt=clock.UtcNow,MetadataJson=metadata,Status="ACTIVE" };
                 await store.Add(active,ct);
+                if(responder is not null) await responder.Raised(active,null,ct);
             }
             else
             {
                 active.MetricValue=metric; active.LastObservedAt=batch.CapturedAt;
                 active.UpdatedAt=clock.UtcNow; active.MetadataJson=metadata; active.Status="ACTIVE";
+                var previousPriority=active.Priority;
                 if(Rank(evaluation.EligibleSeverity)>Rank(active.Priority)) active.Priority=evaluation.EligibleSeverity;
                 await store.Update(active,ct);
+                if(responder is not null && active.Priority!=previousPriority) await responder.Raised(active,previousPriority,ct);
             }
             return new(true,false,false,null,null,evaluation.Reason,0,active.EventId,active.Priority);
         },ct);

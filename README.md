@@ -1,6 +1,6 @@
 # FA26SE103 MF-01 backend
 
-Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.md](AGENTS.md) và [context đầy đủ của team](docs/PROJECT_CONTEXT.md), baseline **02/10/2026**. SQL Server là nguồn dữ liệu chính. Backend có API setup, floor-plan upload, upload MP4 và AI preview; mức độ nối frontend cần đối chiếu với checkout frontend hiện tại. Phạm vi làm việc trước mắt là **MF-01**.
+Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.md](AGENTS.md) và [context đầy đủ của team](docs/PROJECT_CONTEXT.md), đồng bộ ERD V6 ngày **18/10/2026** trên baseline Mainflow 02/10/2026. SQL Server là nguồn dữ liệu chính. Backend có API setup, floor-plan upload, upload MP4 và AI preview; mức độ nối frontend cần đối chiếu với checkout frontend hiện tại. Phạm vi chính là **MF-01**, kèm subset MF-02 được ghi rõ bên dưới.
 
 ## Dev deployment checkpoint — 04/10/2026
 
@@ -126,6 +126,7 @@ Domain không phụ thuộc ASP.NET/EF. Controller không truy cập DbContext. 
 - Camera N:M Zone qua mapping; cùng tầng; ROI normalized; PUT idempotent.
 - MonitoringConfiguration và MonitoringRule per-zone được lưu SQL: confidence `[0,1]`, incident type AI-detected, warning/critical/unit, sustain/cooldown/enabled, DRAFT/ACTIVE/INACTIVE. Review và activation kiểm tra lại zone, rule, diện tích density, camera/source/test/enable và ROI. Cấu hình ACTIVE phải deactivate trước khi sửa rule, confidence, source hoặc mapping/ROI.
 - Health worker chạy ngay lúc backend start rồi theo interval, có bounded concurrency; check thủ công vẫn có. Transport `UNKNOWN/ONLINE/OFFLINE` tách khỏi visual/processing usability và derived `READY/NOT_READY`. Visual blocked/blurred/invalid dùng event-type-specific hysteresis; AI-service outage chỉ làm processing unavailable, không giả thành camera failure. Monitoring configuration không tự deactivate. Khi recovery được xác nhận, worker chỉ resolve đúng event type và cập nhật last seen; Admin có thể thêm resolution note.
+- Subset MF-02 trên scaffold V6: `CREATE_OPERATIONAL_TASK` tự động tạo/offer Task cho Staff đang check-in, đúng Zone và còn capacity; hỗ trợ Handle Now/Later, Cannot Handle, first-valid-acceptance, retry qua `SystemSetting`, hết lượt báo Operator và Operator gán thủ công. Chưa gồm evidence/verification, StaffReport và SWAP/COVER.
 - Swagger/OpenAPI, ProblemDetails với `code` và `requestId`, rate limit login, CORS, liveness/readiness.
 
 Floor-map upload chọn storage bằng `FloorPlan:Provider`: `Local` (mặc định) hoặc `Cloudinary`. Local root mặc định là `src/Supermarket.Api/.local/floor-plans`, cấu hình bằng `FloorPlan:Root`; giới hạn mặc định `FloorPlan:MaxBytes=20971520` (có thể giảm, tối đa 20 MB theo endpoint hiện tại). Storage name do server sinh, không dùng original filename làm path, không serve static, và thư mục `.local` không được commit. SQL vẫn lưu tham chiếu map/kích thước; không có migration hoặc thay scaffold cho storage provider.

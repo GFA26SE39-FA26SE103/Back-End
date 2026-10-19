@@ -1,8 +1,8 @@
 # AGENTS.md — FA26SE103 Backend
 
 Project: AI-Powered Smart Supermarket Operations Monitoring System, GFA26SE39.
-Assigned increment 03/10/2026: MF-02 ROI count/queue → OperationalEvent + live feed; see PROJECT_CONTEXT sections 39–40. The implementation stores OperationalEvents as episodes keyed by Camera + Zone + OperationalEventType while unresolved: repeated observations update the episode, escalation preserves the row, sustained recovery clears it, and a later breach opens a new episode. `MonitoringRule.outcome_type` now keeps OperationalEvent and Incident persistence as separate branches; an OperationalEvent threshold breach does not create an Incident. ResponsePolicy, Task, StaffReport and qualification behavior remain target work unless verified in code.
-Business/Mainflow baseline: **10/10/2026 synchronization** over the 02/10/2026 Mainflow baseline. Current implementation focus: **MF-01 — Setup & System Configuration**.
+Assigned increment 03/10/2026: MF-02 ROI count/queue → OperationalEvent + live feed; see PROJECT_CONTEXT sections 39–41. The implementation stores OperationalEvents as episodes keyed by Camera + Zone + OperationalEventType while unresolved: repeated observations update the episode, escalation preserves the row, sustained recovery clears it, and a later breach opens a new episode. `MonitoringRule.outcome_type` keeps OperationalEvent and Incident persistence as separate branches; an OperationalEvent threshold breach does not create an Incident. A scoped MF-02 subset now implements automatic operational Task offers and Staff responses on the V6 scaffold; evidence verification, StaffReport and SWAP/COVER remain target work unless verified in code.
+Business/Mainflow baseline: **18/10/2026 synchronization** over the 02/10/2026 Mainflow baseline. Current implementation focus remains **MF-01 — Setup & System Configuration**, plus the explicitly documented MF-02 subset.
 Approved workflow delta (05/10/2026): Staff shift-swap requests and deferred task-response options are part of the project baseline/design, but are not assumed implemented unless verified in the repository.
 
 ## Required context
@@ -47,14 +47,14 @@ Account administration supports MF-01 but is not a required diagram step. Later 
 - New connections start disabled; enabling must enforce current connection validation. Configuration changes invalidate old test results.
 - Camera operational status, camera health status, connection enablement, and monitoring activation are separate concepts.
 - `CameraHealthEvent` is system health, not an operational `Incident`. `OperationalEvent` and `Incident` are also distinct.
-- The target operational chain is `OperationalEvent → ResponsePolicy → ResponsePolicyAction → notification/recommendation/task/qualified Incident`; a threshold breach or CRITICAL priority alone does not create an Incident.
+- OperationalEvent response is `OperationalEvent → ResponsePolicy → ResponsePolicyAction → notification/recommendation/operational Task`. Incident is an independent MonitoringRule outcome or confirmed-report path; a threshold breach or CRITICAL priority alone does not convert an Event into an Incident.
 - `StaffReport` is a separate confirmed staff-submission path; routine reports must not be fabricated into OperationalEvents.
 - `Task` has exactly one origin type: `OPERATIONAL_EVENT`, `INCIDENT`, `STAFF_REPORT`, or `MANUAL`, with exclusive nullable source FKs.
 - Task acceptance must be atomic first-valid-acceptance-wins; eligibility uses checked-in/on-shift state, assigned zone, role, and availability.
 - Model confidence filters detections; it does not decide incident routing. No cross-camera identity matching, face recognition, or customer identity storage.
 - Only Admin creates accounts; protect the last active Admin. User passwords are hashed; recoverable camera credentials are encrypted and never returned/logged as secrets.
 - For task offers, preserve the distinction between accepting responsibility, starting work, deferred start, active work, and overdue/escalated work. Staff responses are Handle Now, Accept and Handle Later, or Cannot Handle; `Cannot Handle` is not evidence rejection.
-- Shift swaps are Staff-requested and Operator-approved. The system proposes candidates only after checking availability, overlap, zone coverage, workload, and working-hour constraints. Do not implement direct Staff-to-Staff negotiation or speculative optimization.
+- Shift swaps follow Staff A request → eligible Staff B accept/decline → Manager approval. Candidate eligibility checks availability, overlap, zone coverage, workload, and working-hour constraints. Do not implement speculative optimization.
 
 ## Architecture and database changes
 

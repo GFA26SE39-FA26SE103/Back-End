@@ -201,3 +201,14 @@ Not performed: shared-database test-data insertion, SQL integration-suite execut
 - Shared Development cleanup preflight data gates: **PASS** after removal of the explicitly approved legacy test Incident. `NotificationConfig`, `ZoneShiftRequirement`, and legacy Recommendation/ResponsePolicy/Action data were all empty.
 
 The shared Development database is now on the exact V6 post-cleanup schema. The database cutover is complete; coordinated deployment of the V6-aware backend remains required. No commit, push, or merge was performed.
+
+## MF-02 Staff-task integration into ERD V6 — 2026-10-19
+
+Merged the current `origin/dev` (including MF-02) into `feature/erd-v6-migration` locally and resolved the overlap against the exact post-cleanup V6 scaffold. Generated files under `Persistence/Scaffolded` remain byte-for-byte from the ERD V6 branch; the retired `NotificationConfig` entity was not restored. The MF-02 retry configuration now reads the non-secret `SystemSetting` keys `task_offer.retry_interval_sec` and `task_offer.max_retry_count`.
+
+- `MonitoringIncidentWriter` invokes Task dispatch only for the `OPERATIONAL_EVENT` outcome. The independent `INCIDENT` outcome remains direct and does not create an OperationalEvent or event-origin Task.
+- Release build: **PASS**, 0 warnings and 0 errors.
+- Backend non-SQL suite (`Category!=SqlIntegration`): **301 passed, 0 failed, 0 skipped** after the final V6 settings adaptation.
+- Backend Release publish: **PASS**; build completed with 0 warnings and 0 errors.
+- Shared SQL integration and database mutation were not performed during this merge resolution.
+- The resolved merge remains local for review; no push or deployment was performed.

@@ -16,6 +16,7 @@ using Supermarket.Infrastructure.Persistence;
 using Supermarket.Infrastructure.Persistence.Scaffolded;
 using Supermarket.Infrastructure.Video;
 using Supermarket.Infrastructure.Monitoring;
+using Supermarket.Infrastructure.Tasks;
 using UserAccount = Supermarket.Domain.UserAccount;
 using Role = Supermarket.Domain.Role;
 
@@ -43,6 +44,9 @@ builder.Services.AddOptions<HealthWorkerOptions>().Bind(builder.Configuration.Ge
     .Validate(o => o.GoodObservationsToResolve is >= 1 and <= 100, "CameraHealth:GoodObservationsToResolve must be 1 to 100.")
     .ValidateOnStart();
 builder.Services.Configure<MonitoringWorkerOptions>(builder.Configuration.GetSection("Monitoring"));
+builder.Services.Configure<TaskOfferWorkerOptions>(builder.Configuration.GetSection("TaskOffers"));
+// Shift times are local store times; the default is the store's Vietnam time zone.
+builder.Services.AddSingleton(new StoreCalendar(StoreCalendar.Zone(builder.Configuration["Store:TimeZone"])));
 builder.Services.AddOptions<AiPreviewOptions>().Bind(builder.Configuration.GetSection("AiPreview"))
     .PostConfigure(o => o.Classes = o.Classes.Distinct().ToArray())
     .Validate(o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https", "AiPreview:BaseUrl must be an absolute HTTP(S) URI.")
@@ -79,6 +83,15 @@ builder.Services.AddScoped<CameraSetup>();
 builder.Services.AddScoped<MonitoringSetup>();
 builder.Services.AddScoped<IMonitoringSnapshotReader,MonitoringSnapshotReader>();
 builder.Services.AddScoped<IMonitoringIncidentQueries,EfMonitoringIncidentQueries>();
+builder.Services.AddScoped<ITaskSchema, EfTaskSchema>();
+builder.Services.AddScoped<StaffRoster>();
+builder.Services.AddScoped<TaskNotifier>();
+builder.Services.AddScoped<TaskDispatch>();
+builder.Services.AddScoped<IOperationalEventResponder>(s => s.GetRequiredService<TaskDispatch>());
+builder.Services.AddScoped<TaskViews>();
+builder.Services.AddScoped<StaffTasks>();
+builder.Services.AddScoped<OperatorTasks>();
+builder.Services.AddHostedService<TaskOfferWorker>();
 builder.Services.AddScoped<MonitoringIncidentWriter>();
 builder.Services.AddScoped<MonitoringLive>();
 builder.Services.AddSingleton<MonitoringCameraCoordinator>();
