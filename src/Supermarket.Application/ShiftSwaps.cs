@@ -76,8 +76,8 @@ public sealed class SwapPlanner(ISetupStore store, StoreCalendar calendar)
         Add("ACTIVE_STAFF", context.Staff.ContainsKey(plan.RequesterId) && context.Staff.ContainsKey(plan.TargetId) && plan.RequesterId != plan.TargetId,
             "Both people must be different, active Staff members.");
         var slots = new[] { plan.RequesterSlot, plan.TargetSlot }.OfType<SwapSlot>().ToArray();
-        Add("FUTURE_SHIFT", slots.All(s => s.StartsAt > now && s.Assignment.CheckInAt is null && s.Assignment.Status != "CANCELLED"),
-            "Every affected shift must still be in the future and not checked in.");
+        Add("FUTURE_SHIFT", slots.All(s => s.StartsAt > now && s.Assignment.CheckInAt is null && s.Assignment.Status == ShiftAssignmentStatus.Scheduled),
+            "Every affected shift must be published, still in the future and not checked in.");
         var deadline = Deadline(plan);
         Add("DECISION_DEADLINE", now < deadline, $"Requests must be settled 24 hours before the earliest affected shift ({deadline:O}).");
         if (plan.TargetSlot is { } same)
@@ -89,8 +89,8 @@ public sealed class SwapPlanner(ISetupStore store, StoreCalendar calendar)
             "Each shift can have only one pending swap or cover request.");
 
         // The target takes the requester's shift; for SWAP the requester also takes the target's shift.
-        Person(context, checks, target, plan.TargetId, plan.RequesterSlot, plan.TargetSlot);
-        if (plan.TargetSlot is { } targetSlot) Person(context, checks, requester, plan.RequesterId, targetSlot, plan.RequesterSlot);
+        checks.AddRange(PersonChecks(context, target, plan.TargetId, plan.RequesterSlot, plan.TargetSlot));
+        if (plan.TargetSlot is { } targetSlot) checks.AddRange(PersonChecks(context, requester, plan.RequesterId, targetSlot, plan.RequesterSlot));
 
         // Zone rows move with the assignment, so each Zone keeps the same number of Staff for the shift.
         foreach (var slot in slots)
@@ -115,8 +115,10 @@ public sealed class SwapPlanner(ISetupStore store, StoreCalendar calendar)
         return Math.Round(hours + gains.Hours, 2);
     }
 
-    private void Person(SwapContext context, List<SwapCheckView> checks, string name, Guid userId, SwapSlot gains, SwapSlot? loses)
+    /// <summary>BR-34/BR-35 for one person taking <paramref name="gains"/> (and giving up <paramref name="loses"/>): no overlap, not on leave, weekly limit.</summary>
+    public List<SwapCheckView> PersonChecks(SwapContext context, string name, Guid userId, SwapSlot gains, SwapSlot? loses)
     {
+        var checks = new List<SwapCheckView>();
         var overlapping = context.Assignments.Where(a => a.UserId == userId && a.ShiftAssignmentId != loses?.Assignment.ShiftAssignmentId
                 && a.ShiftAssignmentId != gains.Assignment.ShiftAssignmentId)
             .Select(a => Slot(context, a)).OfType<SwapSlot>().Any(s => s.StartsAt < gains.EndsAt && gains.StartsAt < s.EndsAt);
@@ -125,6 +127,7 @@ public sealed class SwapPlanner(ISetupStore store, StoreCalendar calendar)
         checks.Add(new("AVAILABLE", !unavailable, $"{name} is not marked unavailable during {gains.Shift.Name} {gains.Assignment.WorkDate:yyyy-MM-dd}."));
         var hours = WeeklyHours(context, userId, gains, loses);
         checks.Add(new("WEEKLY_HOURS", hours <= SwapRules.MaxWeeklyHours, $"{name} would work {hours:0.##}/{SwapRules.MaxWeeklyHours:0} hours that week."));
+        return checks;
     }
 
     public static List<Guid> ZoneIds(SwapContext context, Guid assignmentId)
@@ -158,7 +161,7 @@ public sealed class ShiftSwaps(ISetupStore store, ICurrentUser current, IClock c
         foreach (var colleague in context.Staff.Values.Where(u => u.UserId != current.UserId).OrderBy(u => u.FullName))
         {
             SwapSlot?[] options = kind == SwapType.Cover ? [null]
-                : context.Assignments.Where(a => a.UserId == colleague.UserId && a.CheckInAt == null && Math.Abs(a.WorkDate.DayNumber - mine.WorkDate.DayNumber) <= 7)
+                : context.Assignments.Where(a => a.UserId == colleague.UserId && a.Status == ShiftAssignmentStatus.Scheduled && a.CheckInAt == null && Math.Abs(a.WorkDate.DayNumber - mine.WorkDate.DayNumber) <= 7)
                     .Select(a => planner.Slot(context, a)).OfType<SwapSlot>().Where(s => s.StartsAt > now).OrderBy(s => s.StartsAt).ToArray<SwapSlot?>();
             var found = false;
             foreach (var option in options)

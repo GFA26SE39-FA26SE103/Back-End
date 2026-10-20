@@ -226,3 +226,21 @@ Branch `feature/mf04-shift-swap` from `origin/dev` at `f63b3cd` (ERD V6 scaffold
   - 403 for Staff approve and Operator queue, 404 for an uninvolved Staff member, Staff views without `checks[]` (colleagues' hours and availability stay with the Manager), in-app notifications, and Swagger routes.
 - `docs/openapi.json`: 8 paths, 10 schemas and 2 tags inserted from the running API without reformatting existing entries.
 - Not claimed: shared `FA26SE103_Dev` execution, concurrent double-approval under load, FCM delivery, Manager shift creation/publishing or `StaffUnavailability` management.
+
+## MF-04 Manager shift planning — 2026-10-20
+
+Same branch `feature/mf04-shift-swap`, on top of `078acf7`. No generated scaffold file and no database script were changed.
+
+- Release build: **PASS**, 0 warnings and 0 errors.
+- Backend non-SQL suite (`Category!=SqlIntegration`): **319 passed, 0 failed, 0 skipped**, including 7 new `ShiftPlanningTests`. Mutation check: removing the BR-02 publish gate or the BR-33 length rule makes the corresponding tests fail.
+- SQL-backed HTTP check on the isolated LocalDB `FA26SE103_LocalSwap`: **25/25 checks passed**. Covered:
+  - template length rule and the in-use time lock;
+  - DRAFT hidden from Staff, then the coverage gap blocking publish and a successful publish with `SHIFT_PUBLISHED`;
+  - staff options limited to active STAFF;
+  - leave clashing with a scheduled shift refused, leave blocking assignment, and leave deletion;
+  - reassigning a published shift (owner changed in SQL, both Staff notified);
+  - `SWAP_PENDING` on edit, and cancel cascading to the pending swap;
+  - 403 for Staff/Operator mutations, Operator read access, and Swagger routes.
+- Swap HTTP regression re-run on the same database: **28/28 checks passed**.
+- `docs/openapi.json`: 10 paths, 14 schemas and 3 tags inserted (1003 added lines, existing entries unchanged).
+- Not claimed: shared `FA26SE103_Dev` execution, concurrent planning by two Managers under load, or frontend/mobile integration.
