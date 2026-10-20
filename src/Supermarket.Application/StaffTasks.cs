@@ -13,7 +13,8 @@ public sealed class StaffTasks(ISetupStore store, ICurrentUser current, IClock c
         var start = from ?? today.AddDays(-1); var end = to ?? today.AddDays(7);
         Rules.Require(end >= start && end.DayNumber - start.DayNumber <= 62, "INVALID_RANGE", "The date range must be ordered and at most 62 days.");
         var me = current.UserId;
-        var assignments = await store.List<ShiftAssignment>(a => a.UserId == me && a.WorkDate >= start && a.WorkDate <= end, ct);
+        // Draft assignments stay with the Manager until the schedule is published.
+        var assignments = await store.List<ShiftAssignment>(a => a.UserId == me && a.WorkDate >= start && a.WorkDate <= end && a.Status != ShiftAssignmentStatus.Draft, ct);
         return (await ShiftViews(assignments, ct)).OrderBy(s => s.StartsAt).ToArray();
     }
 
@@ -24,7 +25,8 @@ public sealed class StaffTasks(ISetupStore store, ICurrentUser current, IClock c
         await store.Transaction(async () =>
         {
             var assignment = await store.Find<ShiftAssignment>(shiftAssignmentId, ct);
-            if (assignment is null || assignment.UserId != current.UserId) throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
+            if (assignment is null || assignment.UserId != current.UserId || assignment.Status == ShiftAssignmentStatus.Draft)
+                throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
             var shift = UseCase.Found(await store.Find<Shift>(assignment.ShiftId, ct));
             var (startsAt, endsAt) = calendar.Window(assignment.WorkDate, shift.StartTime, shift.EndTime);
             if (assignment.CheckInAt is null)

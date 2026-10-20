@@ -96,6 +96,7 @@ builder.Services.AddHostedService<TaskOfferWorker>();
 builder.Services.AddScoped<IShiftSwapSchema, EfShiftSwapSchema>();
 builder.Services.AddScoped<SwapPlanner>();
 builder.Services.AddScoped<ShiftSwaps>();
+builder.Services.AddScoped<ShiftPlanning>();
 builder.Services.AddHostedService<ShiftSwapWorker>();
 builder.Services.AddScoped<MonitoringIncidentWriter>();
 builder.Services.AddScoped<MonitoringLive>();

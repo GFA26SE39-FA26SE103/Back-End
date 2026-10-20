@@ -687,7 +687,15 @@ Staff A: SWAP (exchange with one of B's shifts) or COVER (B takes A's shift) on 
 - Rules are re-checked on request, peer acceptance and approval: active Staff, future and not checked-in shifts, decision deadline, different shifts for SWAP, one pending request per shift (application check, no DB unique index), no overlap, `StaffUnavailability`, 48 h per local Monday–Sunday week, and Zone coverage (informational, because zone rows move with the assignment).
 - Notifications are in-app only. `Notification` has no swap-request reference column, so clients open the caller's request list.
 
-Not implemented by this subset: shift creation/editing/publishing, StaffUnavailability management, a `SystemSetting` override for the weekly limit, and FCM delivery. Routes and validation evidence are in [`docs/API.md`](API.md) and [`docs/VALIDATION.md`](VALIDATION.md).
+Manager shift planning on the same branch:
+
+- `Shift` rows are templates of 4, 6 or 8 hours (BR-33); times are locked while live assignments use them.
+- `ShiftAssignment.status` is `DRAFT` while the Manager plans (hidden from Staff, no check-in, no swap), `SCHEDULED` once a date range is published, and `CANCELLED` when removed. Pre-existing rows already carry `SCHEDULED`.
+- Publishing is refused while any future shift leaves an ACTIVE Zone below `Zone.min_staff` (BR-02). Assigning, editing and leave use the same BR-34/35 checks as swaps; started or checked-in shifts are locked.
+- Only active `STAFF` accounts can be scheduled; dispatch eligibility remains Role + Zone, with no staff-skill table.
+- Cancelling an assignment also cancels pending swap requests on it. `StaffUnavailability` is Manager-maintained leave and is refused while the person still has an unfinished shift in that period.
+
+Not implemented: weekly copy/recurrence, Staff self-service leave requests, a `SystemSetting` override for the weekly limit, and FCM delivery. Routes and validation evidence are in [`docs/API.md`](API.md) and [`docs/VALIDATION.md`](VALIDATION.md).
 
 ---
 

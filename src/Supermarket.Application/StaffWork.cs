@@ -40,7 +40,7 @@ public sealed class StaffRoster(ISetupStore store, StoreCalendar calendar)
         if (assignments.Count == 0) return [];
         var shiftIds = assignments.Select(a => a.ShiftId).Distinct().ToList();
         var shifts = (await store.List<Shift>(s => shiftIds.Contains(s.ShiftId), ct)).ToDictionary(s => s.ShiftId);
-        var current = assignments.Where(a => a.Status != "CANCELLED" && shifts.TryGetValue(a.ShiftId, out var shift)
+        var current = assignments.Where(a => a.Status != ShiftAssignmentStatus.Cancelled && a.Status != ShiftAssignmentStatus.Draft && shifts.TryGetValue(a.ShiftId, out var shift)
             && Contains(calendar.Window(a.WorkDate, shift.StartTime, shift.EndTime), now)).ToList();
         var userIds = current.Select(a => a.UserId).Distinct().ToList();
         var users = (await store.List<UserAccount>(u => userIds.Contains(u.UserId) && u.RoleId == staffRole.RoleId && u.Status == "ACTIVE", ct)).ToDictionary(u => u.UserId);

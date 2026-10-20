@@ -215,4 +215,29 @@ Luật kiểm lại khi gửi, khi B đồng ý và khi Manager duyệt (view c�
 | MANAGER | `POST /swap-requests/{id}/approve` | Body `{note?}`. Kiểm lại toàn bộ luật rồi đổi ca nguyên tử; lưu `decided_by/at`, `decision_note`. |
 | MANAGER | `POST /swap-requests/{id}/reject` | Body `{note}` bắt buộc (422 `INVALID_FIELD` nếu trống). |
 
-Notification types (in-app, không gắn task): `SWAP_REQUEST_RECEIVED`, `SWAP_PEER_ACCEPTED`, `SWAP_PEER_DECLINED`, `SWAP_PENDING_APPROVAL`, `SWAP_CANCELLED`, `SWAP_APPROVED`, `SWAP_REJECTED`, `SWAP_EXPIRED`. Bảng `Notification` không có cột trỏ tới yêu cầu đổi ca, nên mobile mở danh sách `GET /me/swap-requests` khi nhận các loại này. Chưa làm: tạo/sửa/publish ca và quản lý `StaffUnavailability` (Manager), giới hạn giờ/tuần qua `SystemSetting` (đang dùng mặc định 48 giờ theo BR), push FCM.
+Notification types (in-app, không gắn task): `SWAP_REQUEST_RECEIVED`, `SWAP_PEER_ACCEPTED`, `SWAP_PEER_DECLINED`, `SWAP_PENDING_APPROVAL`, `SWAP_CANCELLED`, `SWAP_APPROVED`, `SWAP_REJECTED`, `SWAP_EXPIRED`. Bảng `Notification` không có cột trỏ tới yêu cầu đổi ca, nên mobile mở danh sách `GET /me/swap-requests` khi nhận các loại này. Chỉ ca `SCHEDULED` (đã publish) mới đổi được. Chưa làm: giới hạn giờ/tuần qua `SystemSetting` (đang dùng mặc định 48 giờ theo BR), push FCM.
+
+### MF-04 xếp ca cho Manager
+
+Cần cùng ERD V6 như đổi ca (503 `SWAP_SCHEMA_NOT_READY` nếu thiếu). Không có bảng "lịch" riêng: `Shift` là mẫu ca, `ShiftAssignment` là một Staff trong một mẫu ca vào một ngày, `StaffZoneAssignment` là Zone của dòng đó.
+
+Trạng thái `ShiftAssignment.status`: `DRAFT` (Manager đang xếp, Staff không thấy, không check-in, không đổi ca được) → publish → `SCHEDULED` (Staff thấy ở `GET /me/shifts`) → `CANCELLED`. Dòng có sẵn từ trước mang `SCHEDULED` nên vẫn hiện như cũ. Chỉ gán được tài khoản Role `STAFF` đang `ACTIVE`; không có staff skill, phân việc theo Zone.
+
+Luật: mẫu ca dài 4, 6 hoặc 8 giờ (BR-33; giờ kết thúc ≤ giờ bắt đầu nghĩa là qua đêm); không trùng ca, không trong thời gian nghỉ, tối đa 48 giờ/tuần Thứ Hai–Chủ Nhật (BR-34/35, cùng luật với đổi ca); ca đã bắt đầu hoặc đã check-in thì không gán/sửa/huỷ (BR-35, 409 `SHIFT_LOCKED`). Publish một khoảng ngày bị chặn nếu ca tương lai nào có Zone ACTIVE dưới `Zone.min_staff` (BR-02, 409 `COVERAGE_GAPS`, detail liệt kê tối đa 5 chỗ thiếu). Độ phủ tính cho mọi ngày × mẫu ca ACTIVE × Zone ACTIVE có `min_staff > 0` (hoặc đã có người), đếm cả `DRAFT` và `SCHEDULED`.
+
+| Quyền | Route | Ghi chú |
+|---|---|---|
+| ADMIN, OPERATOR, MANAGER | `GET /shifts` | Mẫu ca, `hours`, `inUse`. |
+| MANAGER | `POST /shifts` | Body `{name, startTime, endTime}` (`"HH:mm:ss"`). 422 `INVALID_SHIFT_LENGTH`, 409 `DUPLICATE`. |
+| MANAGER | `PATCH /shifts/{id}` | Body `{name?, startTime?, endTime?, status?}` (`ACTIVE`/`INACTIVE`). Đổi giờ khi đang có người dùng → 409 `SHIFT_IN_USE`. Mẫu INACTIVE không nhận người mới (409 `SHIFT_INACTIVE`). |
+| ADMIN, OPERATOR, MANAGER | `GET /schedule?from=&to=` | Mặc định tuần hiện tại; tối đa 31 ngày. Trả `assignments[]` (status, zones, `editable`, `pendingSwapRequestId`), `coverage[]` (`planned`, `published`, `minStaff`, `belowMinimum`), `draftCount`, `gapCount`. |
+| MANAGER | `GET /schedule/staff-options?shiftId=&workDate=&replacingAssignmentId=` | Mọi Staff ACTIVE kèm `eligible`, `weeklyHoursAfter`, `problems[]`. |
+| MANAGER | `POST /schedule/assignments` | Body `{userId, shiftId, workDate, zoneIds[]}` → `DRAFT`. Dòng `CANCELLED` cùng người/ca/ngày được dùng lại (DB unique). 409 `ALREADY_ASSIGNED`, `SCHEDULE_CONFLICT`, `SHIFT_LOCKED`; 422 `NOT_STAFF`, `ZONE_REQUIRED`, `ZONE_NOT_FOUND`. |
+| MANAGER | `PATCH /schedule/assignments/{id}` | Body `{userId?, zoneIds?}`; đổi người kiểm lại luật; Zone bỏ đi được đóng (`unassigned_at`). 409 `SWAP_PENDING` nếu ca đang có đơn đổi ca chờ. Ca đã publish: báo người cũ `SHIFT_CANCELLED`, người mới `SHIFT_CHANGED`. |
+| MANAGER | `POST /schedule/assignments/{id}/cancel` | Body `{reason?}` → `CANCELLED`, đóng Zone, huỷ luôn đơn đổi ca đang chờ của ca đó (báo hai bên), báo Staff nếu ca đã publish. |
+| MANAGER | `POST /schedule/publish` | Body `{from, to}` → mọi `DRAFT` tương lai trong khoảng thành `SCHEDULED`; mỗi Staff nhận một `SHIFT_PUBLISHED`. Trả `{published, notified}`. |
+| MANAGER | `GET /staff-unavailability?from=&to=&userId=` | Mặc định hôm nay → +30 ngày. |
+| MANAGER | `POST /staff-unavailability` | Body `{userId, startAt, endAt, note?}` (UTC). Trùng ca chưa kết thúc của người đó → 409 `LEAVE_CONFLICTS_SCHEDULE` (xếp lại ca trước). |
+| MANAGER | `DELETE /staff-unavailability/{id}` | 204. |
+
+Notification types: `SHIFT_PUBLISHED`, `SHIFT_CHANGED`, `SHIFT_CANCELLED` (in-app). Chưa làm: lặp lịch theo tuần/copy tuần, giới hạn giờ/tuần qua `SystemSetting`, Staff tự gửi đơn nghỉ.
