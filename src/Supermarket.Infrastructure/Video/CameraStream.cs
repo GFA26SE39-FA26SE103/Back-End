@@ -22,6 +22,10 @@ public sealed class CameraStream(ICredentialProtector secrets, IOptions<VideoOpt
             return new(true, "FRAME_RECEIVED", analysis.ProcessingAvailable, analysis.Issues);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (AppError e) when (CameraStreamFailureClassifier.IsDiagnosticCode(e.Code))
+        {
+            return new(false, e.Code, null, []);
+        }
         catch (Exception e) when (e is AppError or System.ComponentModel.Win32Exception or IOException or OperationCanceledException or System.Security.Cryptography.CryptographicException)
         {
             return new(false, "STREAM_UNAVAILABLE", null, []);
@@ -64,8 +68,9 @@ public sealed class CameraStream(ICredentialProtector secrets, IOptions<VideoOpt
         {
             if (!process.Start())
                 throw new AppError("STREAM_UNAVAILABLE", "Camera preview could not start.");
-            // Discard stderr; ffmpeg diagnostics can contain the authenticated URI.
-            var drain = Drain(process.StandardError.BaseStream, timeout.Token);
+            // Keep a small in-memory sample only for classification. It is never logged or returned
+            // because FFmpeg diagnostics can contain the authenticated URI.
+            var stderrTask = CaptureStandardError(process.StandardError, timeout.Token);
             using var frame = new MemoryStream();
             var buffer = new byte[8192];
             int read;
@@ -76,20 +81,67 @@ public sealed class CameraStream(ICredentialProtector secrets, IOptions<VideoOpt
                 frame.Write(buffer, 0, read);
             }
             await process.WaitForExitAsync(timeout.Token);
-            await drain;
+            var stderr = await stderrTask;
             if (process.ExitCode != 0 || frame.Length == 0)
-                throw new AppError("STREAM_UNAVAILABLE", "No camera frame was received.");
+                throw CameraStreamFailureClassifier.CreateError(stderr);
             return new(frame.ToArray(), "image/jpeg");
         }
         catch (System.ComponentModel.Win32Exception) { throw new AppError("VIDEO_ADAPTER_REQUIRED", "Configure an FFmpeg executable to use live or recorded video.", 422); }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { throw new AppError("STREAM_TIMEOUT", "Camera preview timed out.", 422); }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested) { throw new AppError("TIMEOUT", "Camera connection timed out.", 422); }
         finally { try { if (process.Id > 0 && !process.HasExited) process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } }
     }
-    private static async Task Drain(Stream stream, CancellationToken ct)
+
+    private static async Task<string> CaptureStandardError(StreamReader reader, CancellationToken ct)
     {
-        var buffer = new byte[8192];
-        while (await stream.ReadAsync(buffer, ct) > 0)
+        const int captureLimit = 8192;
+        var captured = new System.Text.StringBuilder(captureLimit);
+        var buffer = new char[1024];
+        int read;
+        while ((read = await reader.ReadAsync(buffer.AsMemory(), ct)) > 0)
         {
+            var remaining = captureLimit - captured.Length;
+            if (remaining > 0)
+                captured.Append(buffer, 0, Math.Min(read, remaining));
         }
+        return captured.ToString();
     }
+}
+
+internal static class CameraStreamFailureClassifier
+{
+    private static readonly HashSet<string> DiagnosticCodes =
+    [
+        "AUTHENTICATION_FAILED",
+        "TIMEOUT",
+        "CONNECTION_REFUSED",
+        "STREAM_UNAVAILABLE"
+    ];
+
+    public static bool IsDiagnosticCode(string code) => DiagnosticCodes.Contains(code);
+
+    public static AppError CreateError(string stderr)
+    {
+        var code = Classify(stderr);
+        return code switch
+        {
+            "AUTHENTICATION_FAILED" => new AppError(code, "Camera authentication failed.", 422),
+            "TIMEOUT" => new AppError(code, "Camera connection timed out.", 422),
+            "CONNECTION_REFUSED" => new AppError(code, "Camera refused the connection.", 422),
+            _ => new AppError("STREAM_UNAVAILABLE", "No camera frame was received.", 422)
+        };
+    }
+
+    public static string Classify(string stderr)
+    {
+        if (ContainsAny(stderr, "401 Unauthorized", "authorization failed", "authentication failed"))
+            return "AUTHENTICATION_FAILED";
+        if (ContainsAny(stderr, "Connection refused", "actively refused"))
+            return "CONNECTION_REFUSED";
+        if (ContainsAny(stderr, "Connection timed out", "Operation timed out", "I/O timeout"))
+            return "TIMEOUT";
+        return "STREAM_UNAVAILABLE";
+    }
+
+    private static bool ContainsAny(string value, params string[] candidates) =>
+        candidates.Any(candidate => value.Contains(candidate, StringComparison.OrdinalIgnoreCase));
 }

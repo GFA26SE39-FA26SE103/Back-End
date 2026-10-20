@@ -163,7 +163,9 @@ PATCH dùng full edit DTO; không gửi IDs/createdAt/updatedAt trong payload. P
 
 HTTP errors: 400 request shape, 401 token/login, 403 role, 404 missing resource, 409 duplicate/concurrency/workflow, 422 domain validation, 429 login rate limit, 500 sanitized unexpected error. Application/domain ProblemDetails có `code`, `requestId`, `title`, `detail`, `status`; request-shape validation dùng `errors` của ASP.NET Core. Client cần hỗ trợ cả hai dạng.
 
-Các code thường gặp: `CROSS_FLOOR_MAPPING`, `INVALID_POLYGON`, `CONNECTION_NOT_READY`, `CONNECTION_CHANGED`, `LAST_ACTIVE_ADMIN`, `MONITORING_NOT_READY`, `MONITORING_ACTIVE`, `CONCURRENT_UPDATE`, `FLOOR_MAP_SIZE_INVALID`, `FLOOR_MAP_FORMAT_INVALID`, `FLOOR_MAP_NOT_FOUND`, `VIDEO_ADAPTER_REQUIRED`, `STREAM_UNAVAILABLE`.
+Các code thường gặp: `CROSS_FLOOR_MAPPING`, `INVALID_POLYGON`, `CONNECTION_NOT_READY`, `CONNECTION_CHANGED`, `LAST_ACTIVE_ADMIN`, `MONITORING_NOT_READY`, `MONITORING_ACTIVE`, `CONCURRENT_UPDATE`, `FLOOR_MAP_SIZE_INVALID`, `FLOOR_MAP_FORMAT_INVALID`, `FLOOR_MAP_NOT_FOUND`, `VIDEO_ADAPTER_REQUIRED`, `AUTHENTICATION_FAILED`, `TIMEOUT`, `CONNECTION_REFUSED`, `STREAM_UNAVAILABLE`.
+
+Camera connection test giữ `lastTestResult` ở mức `SUCCESS`/`FAILED` và trả nguyên nhân đã chuẩn hóa trong `lastTestMessage`: RTSP 401/auth failure → `AUTHENTICATION_FAILED`, timeout → `TIMEOUT`, TCP refusal → `CONNECTION_REFUSED`, còn lại → `STREAM_UNAVAILABLE`. FFmpeg stderr chỉ được đọc có giới hạn để phân loại trong bộ nhớ; URI có credential và stderr thô không được trả về hoặc ghi log.
 
 ### MF-02 staff tasks (đã tích hợp vào scaffold ERD V6)
 
