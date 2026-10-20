@@ -16,6 +16,9 @@ public static class AccessRoles
     public const string Operator = "OPERATOR";
     /// <summary>A task can be read by its Staff participants (checked in the use case) and by operational roles.</summary>
     public const string TaskReader = "ADMIN,OPERATOR,MANAGER,STAFF";
+    public const string Manager = "MANAGER";
+    /// <summary>A swap request can be read by its two Staff participants (checked in the use case) and by Managers.</summary>
+    public const string SwapReader = "MANAGER,STAFF";
 }
 public sealed class JwtOptions
 {

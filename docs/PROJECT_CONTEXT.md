@@ -671,4 +671,24 @@ Not implemented by this subset: approval-required policy actions, SLA/deadline/o
 
 ---
 
+# 42. MF-04 SWAP/COVER implementation subset
+
+`feature/mf04-shift-swap` implements the current shift-swap approval flow on the post-cleanup V6 scaffold:
+
+```text
+Staff A: SWAP (exchange with one of B's shifts) or COVER (B takes A's shift) on a future ShiftAssignment
+→ PENDING_PEER → Staff B accepts (PENDING_MANAGER) or declines (DECLINED_BY_PEER)
+→ Manager APPROVED / REJECTED (rejection reason required)
+→ only approval updates ShiftAssignment.user_id, atomically for both rows
+```
+
+- A cancels while pending; B withdraws only while awaiting the Manager; actor, time and reason use the V5 cancellation columns.
+- `expires_at` is the earliest affected local shift start minus 24 hours, stored in UTC. A background worker sets EXPIRED; reads and actions already treat past-deadline requests as expired.
+- Rules are re-checked on request, peer acceptance and approval: active Staff, future and not checked-in shifts, decision deadline, different shifts for SWAP, one pending request per shift (application check, no DB unique index), no overlap, `StaffUnavailability`, 48 h per local Monday–Sunday week, and Zone coverage (informational, because zone rows move with the assignment).
+- Notifications are in-app only. `Notification` has no swap-request reference column, so clients open the caller's request list.
+
+Not implemented by this subset: shift creation/editing/publishing, StaffUnavailability management, a `SystemSetting` override for the weekly limit, and FCM delivery. Routes and validation evidence are in [`docs/API.md`](API.md) and [`docs/VALIDATION.md`](VALIDATION.md).
+
+---
+
 > **Maintenance note:** When this file is committed, update stale conflicting rules in root `AGENTS.md` and `README.md` in the **same reviewed PR**. Preserve the `AGENTS.md` instruction to read this guide in full. Update this synchronization date only after re-reading changed official documents and relevant code; do not append another superseding addendum to the top of the file.

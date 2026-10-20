@@ -45,6 +45,7 @@ builder.Services.AddOptions<HealthWorkerOptions>().Bind(builder.Configuration.Ge
     .ValidateOnStart();
 builder.Services.Configure<MonitoringWorkerOptions>(builder.Configuration.GetSection("Monitoring"));
 builder.Services.Configure<TaskOfferWorkerOptions>(builder.Configuration.GetSection("TaskOffers"));
+builder.Services.Configure<ShiftSwapWorkerOptions>(builder.Configuration.GetSection("ShiftSwaps"));
 // Shift times are local store times; the default is the store's Vietnam time zone.
 builder.Services.AddSingleton(new StoreCalendar(StoreCalendar.Zone(builder.Configuration["Store:TimeZone"])));
 builder.Services.AddOptions<AiPreviewOptions>().Bind(builder.Configuration.GetSection("AiPreview"))
@@ -92,6 +93,10 @@ builder.Services.AddScoped<TaskViews>();
 builder.Services.AddScoped<StaffTasks>();
 builder.Services.AddScoped<OperatorTasks>();
 builder.Services.AddHostedService<TaskOfferWorker>();
+builder.Services.AddScoped<IShiftSwapSchema, EfShiftSwapSchema>();
+builder.Services.AddScoped<SwapPlanner>();
+builder.Services.AddScoped<ShiftSwaps>();
+builder.Services.AddHostedService<ShiftSwapWorker>();
 builder.Services.AddScoped<MonitoringIncidentWriter>();
 builder.Services.AddScoped<MonitoringLive>();
 builder.Services.AddSingleton<MonitoringCameraCoordinator>();

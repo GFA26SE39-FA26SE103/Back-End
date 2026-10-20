@@ -191,4 +191,28 @@ Event `CLEARED` (tạm theo open point 5): task chưa ai nhận → offer `WITHD
 | OPERATOR | `GET /tasks/{taskId}/assignable-staff` | Staff đang trong ca, còn dưới giới hạn task; `assignedToZone` đứng trước. |
 | OPERATOR | `POST /tasks/{taskId}/assign` | Body `{staffUserId, reason?}`. Giao tay vào thẳng `ACCEPTED` (BR appendix B), rút offer đang mở (`MANUALLY_ASSIGNED`). 409 `TASK_NOT_ASSIGNABLE`, `STAFF_NOT_ON_SHIFT`, `WORKLOAD_LIMIT`. |
 
-Notification types: `TASK_OFFER`, `TASK_OFFER_WITHDRAWN`, `TASK_ASSIGNED`, `TASK_NEEDS_ASSIGNMENT`, `TASK_PRIORITY_RAISED`, `EVENT_CLEARED`. Chỉ có kênh `IN_APP`; chưa có FCM/SignalR, mobile poll. `sourceCode` (`EVT-xxxxxxxx`) là mã hiển thị suy từ ID, không phải cột DB. Chưa làm: tạo/sửa ca (MF-04), evidence/submit/verify (MF-03), StaffReport, đổi ca, device token.
+Notification types: `TASK_OFFER`, `TASK_OFFER_WITHDRAWN`, `TASK_ASSIGNED`, `TASK_NEEDS_ASSIGNMENT`, `TASK_PRIORITY_RAISED`, `EVENT_CLEARED`. Chỉ có kênh `IN_APP`; chưa có FCM/SignalR, mobile poll. `sourceCode` (`EVT-xxxxxxxx`) là mã hiển thị suy từ ID, không phải cột DB. Chưa làm: tạo/sửa ca (MF-04), evidence/submit/verify (MF-03), StaffReport, device token. Đổi ca: xem mục MF-04 bên dưới.
+
+### MF-04 đổi ca SWAP/COVER
+
+Cần ERD V6: `ShiftSwapRequest` (V4) với `expires_at` và `cancelled_*` (V5), `StaffUnavailability`, `Zone.min_staff`. Nếu thiếu, các route dưới đây trả 503 `SWAP_SCHEMA_NOT_READY`.
+
+Luồng: Staff A gửi yêu cầu cho một ca tương lai của mình → `PENDING_PEER` → Staff B đồng ý (`PENDING_MANAGER`) hoặc từ chối (`DECLINED_BY_PEER`) → Manager `APPROVED` / `REJECTED`. `SWAP` đổi ca của A với một ca của B; `COVER` chuyển ca của A cho B. A huỷ được khi còn `PENDING_*`; B rút được khi đang `PENDING_MANAGER`; sau khi duyệt thì không huỷ. Chỉ lúc Manager duyệt mới đổi `ShiftAssignment.user_id` (cả hai dòng trong một transaction); `StaffZoneAssignment` đi theo dòng ca nên số Staff mỗi Zone giữ nguyên. Từ chối, huỷ, hết hạn: lịch giữ nguyên.
+
+Hết hạn: `expires_at` = giờ bắt đầu ca sớm nhất bị ảnh hưởng (SWAP: ca sớm hơn của A/B; COVER: ca của A) trừ 24 giờ, tính theo giờ cửa hàng rồi lưu UTC. Gửi yêu cầu khi đã qua mốc này bị từ chối. Worker `ShiftSwaps` (mặc định quét 60 s) chuyển yêu cầu quá hạn sang `EXPIRED`; trước khi worker chạy, view đã trả `EXPIRED` và mọi thao tác trả 409 `SWAP_EXPIRED`.
+
+Luật kiểm lại khi gửi, khi B đồng ý và khi Manager duyệt (view của Manager trả trong `checks[]`, mỗi mục `{code, passed, message}`; Staff nhận `checks: []` vì chi tiết có giờ làm và lịch bận của đồng nghiệp): `ACTIVE_STAFF`, `FUTURE_SHIFT` (chưa bắt đầu, chưa check-in, không CANCELLED), `DECISION_DEADLINE`, `DIFFERENT_SHIFT` (SWAP không đổi cùng ca cùng ngày), `ONE_OPEN_REQUEST` (mỗi ca tối đa một yêu cầu đang chờ; DB không có unique index nên kiểm ở app), rồi cho từng người nhận ca mới: `NO_OVERLAP`, `AVAILABLE` (không trùng `StaffUnavailability`), `WEEKLY_HOURS` (≤ 48 giờ trong tuần Thứ Hai–Chủ Nhật theo giờ cửa hàng), và `ZONE_COVERAGE` (thông tin: số Staff của Zone so với `min_staff`). Có luật không đạt → 409 `SWAP_NOT_ALLOWED`, detail ghi các luật lỗi.
+
+| Quyền | Route | Ghi chú |
+|---|---|---|
+| STAFF | `GET /me/shifts/{shiftAssignmentId}/swap-candidates?type=SWAP\|COVER` | Mặc định SWAP. Chỉ trả đồng nghiệp đạt mọi luật; SWAP liệt kê từng ca của họ trong ±7 ngày. `hiddenCount` = số đồng nghiệp bị ẩn; `deadline` = mốc 24 giờ theo ca của mình. |
+| STAFF | `POST /swap-requests` | Body `{requesterShiftAssignmentId, type, targetUserId, targetShiftAssignmentId?, reasonCode?, note?}`. SWAP bắt buộc `targetShiftAssignmentId`, COVER không được có. `reasonCode` ∈ PERSONAL, HEALTH, STUDY, OTHER; `note` ≤ 1000. 422 `INVALID_SWAP_TYPE`, `TARGET_SHIFT_REQUIRED`, `TARGET_SHIFT_NOT_ALLOWED`, `INVALID_REASON`, `TARGET_NOT_STAFF`; 409 `SWAP_NOT_ALLOWED`. |
+| STAFF | `GET /me/swap-requests?box=sent\|received` | Yêu cầu mình gửi và/hoặc nhận, mới nhất trước, tối đa 100. |
+| STAFF (A hoặc B), MANAGER | `GET /swap-requests/{id}` | Staff khác nhận 404. View có `viewerRole`, `canCancel`, `canRespond`, `canDecide`, hai ca kèm Zone; `checks[]` chỉ có cho Manager. |
+| STAFF (B) | `POST /swap-requests/{id}/respond` | Body `{accept}`. Đồng ý: kiểm lại luật → `PENDING_MANAGER`, báo A và mọi Manager. Từ chối → `DECLINED_BY_PEER`. 409 `SWAP_NOT_PENDING`, `SWAP_EXPIRED`, `SWAP_NOT_ALLOWED`. |
+| STAFF (A hoặc B) | `POST /swap-requests/{id}/cancel` | Body `{reason?}`. A: khi `PENDING_PEER`/`PENDING_MANAGER`; B: chỉ khi `PENDING_MANAGER`. Lưu `cancelled_by/at/reason`, báo bên còn lại (và Manager nếu đang chờ duyệt). |
+| MANAGER | `GET /swap-requests?status=` | Mặc định `PENDING_MANAGER`, sắp theo hạn gần nhất; nhận danh sách status hoặc `ALL`, tối đa 200. |
+| MANAGER | `POST /swap-requests/{id}/approve` | Body `{note?}`. Kiểm lại toàn bộ luật rồi đổi ca nguyên tử; lưu `decided_by/at`, `decision_note`. |
+| MANAGER | `POST /swap-requests/{id}/reject` | Body `{note}` bắt buộc (422 `INVALID_FIELD` nếu trống). |
+
+Notification types (in-app, không gắn task): `SWAP_REQUEST_RECEIVED`, `SWAP_PEER_ACCEPTED`, `SWAP_PEER_DECLINED`, `SWAP_PENDING_APPROVAL`, `SWAP_CANCELLED`, `SWAP_APPROVED`, `SWAP_REJECTED`, `SWAP_EXPIRED`. Bảng `Notification` không có cột trỏ tới yêu cầu đổi ca, nên mobile mở danh sách `GET /me/swap-requests` khi nhận các loại này. Chưa làm: tạo/sửa/publish ca và quản lý `StaffUnavailability` (Manager), giới hạn giờ/tuần qua `SystemSetting` (đang dùng mặc định 48 giờ theo BR), push FCM.

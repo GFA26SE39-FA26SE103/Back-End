@@ -12,7 +12,10 @@ public sealed class StoreCalendar(TimeZoneInfo zone)
         catch (Exception e) when (e is TimeZoneNotFoundException or InvalidTimeZoneException && string.IsNullOrWhiteSpace(id))
         { return TimeZoneInfo.CreateCustomTimeZone("UTC+07", TimeSpan.FromHours(7), "UTC+07", "UTC+07"); }
     }
+    public TimeZoneInfo TimeZone => zone;
     public DateOnly Today(DateTime utc) => DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(utc, zone));
+    /// <summary>UTC instant of local midnight at the start of <paramref name="date"/>.</summary>
+    public DateTime DayStart(DateOnly date) => Utc(date.ToDateTime(TimeOnly.MinValue));
     /// <summary>An end time at or before the start time means the shift ends the next day.</summary>
     public (DateTime StartsAt, DateTime EndsAt) Window(DateOnly workDate, TimeOnly start, TimeOnly end)
     {
@@ -78,9 +81,21 @@ public sealed class TaskNotifier(ISetupStore store, IClock clock)
                 DeliveryChannel = "IN_APP", DeliveryStatus = "SENT", RecipientReason = reason, DeliveredAt = now }, ct);
         return notification;
     }
-    public async Task<List<Guid>> Operators(CancellationToken ct)
+    /// <summary>A notification that is not about a Task (for example a shift swap).</summary>
+    public async Task<Notification> Broadcast(string type, string title, string message, IEnumerable<Guid> recipients, string reason, CancellationToken ct)
     {
-        var role = (await store.List<Role>(r => r.Name == "OPERATOR", ct)).SingleOrDefault();
+        var now = clock.UtcNow;
+        var notification = new Notification { NotificationId = Guid.NewGuid(), NotificationType = type, Title = Cut(title, 200), Message = Cut(message, 4000), CreatedAt = now };
+        await store.Add(notification, ct);
+        foreach (var userId in recipients.Distinct())
+            await store.Add(new NotificationRecipient { NotificationRecipientId = Guid.NewGuid(), NotificationId = notification.NotificationId, UserId = userId,
+                DeliveryChannel = "IN_APP", DeliveryStatus = "SENT", RecipientReason = reason, DeliveredAt = now }, ct);
+        return notification;
+    }
+    public Task<List<Guid>> Operators(CancellationToken ct) => RoleUsers("OPERATOR", ct);
+    public async Task<List<Guid>> RoleUsers(string roleName, CancellationToken ct)
+    {
+        var role = (await store.List<Role>(r => r.Name == roleName, ct)).SingleOrDefault();
         return role is null ? [] : (await store.List<UserAccount>(u => u.RoleId == role.RoleId && u.Status == "ACTIVE", ct)).Select(u => u.UserId).ToList();
     }
     private static string Cut(string value, int max) => value.Length <= max ? value : value[..max];

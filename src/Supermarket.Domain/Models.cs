@@ -118,6 +118,8 @@ public sealed class Zone : TrackedEntity
     }
     public string MapPolygon { get; set; } = "[]";
     public string Status { get; set; } = "ACTIVE";
+    /// <summary>Minimum Staff per shift for this Zone (ERD V6 Zone.min_staff, default 0).</summary>
+    public int MinStaff { get; set; }
 }
 public sealed class Camera : TrackedEntity
 {

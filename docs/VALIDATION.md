@@ -212,3 +212,17 @@ Merged the current `origin/dev` (including MF-02) into `feature/erd-v6-migration
 - Backend Release publish: **PASS**; build completed with 0 warnings and 0 errors.
 - Shared SQL integration and database mutation were not performed during this merge resolution.
 - The resolved merge remains local for review; no push or deployment was performed.
+
+## MF-04 SWAP/COVER shift swap — 2026-10-19
+
+Branch `feature/mf04-shift-swap` from `origin/dev` at `f63b3cd` (ERD V6 scaffold). No generated scaffold file and no database script were changed.
+
+- Release build: **PASS**, 0 warnings and 0 errors.
+- Backend non-SQL suite (`Category!=SqlIntegration`): **312 passed, 0 failed, 0 skipped**, including 11 new `ShiftSwapTests`. Mutation check: disabling the deadline or weekly-hour rule makes the corresponding tests fail.
+- SQL-backed HTTP check against an isolated LocalDB `FA26SE103_LocalSwap` (Backup 18/10/2026 at V5 + `FA26SE103_Database_V6_Cleanup.sql`; the single legacy test Incident was removed from that copy because V6 cleanup refuses it): **28/28 checks passed** (re-run 2026-10-20 after limiting rule details to the Manager view). Covered:
+  - eligible COVER/SWAP candidates with overlapping colleagues hidden, and the exact `expires_at` (24 h before Friday 14:00 local = Thursday 07:00 UTC);
+  - one pending request per shift; peer accept → Manager approve exchanges both `ShiftAssignment.user_id` rows in SQL, and the Staff shift list follows;
+  - peer decline, Manager reject (reason required), requester cancel with actor, and immediate EXPIRED read plus worker-stored EXPIRED;
+  - 403 for Staff approve and Operator queue, 404 for an uninvolved Staff member, Staff views without `checks[]` (colleagues' hours and availability stay with the Manager), in-app notifications, and Swagger routes.
+- `docs/openapi.json`: 8 paths, 10 schemas and 2 tags inserted from the running API without reformatting existing entries.
+- Not claimed: shared `FA26SE103_Dev` execution, concurrent double-approval under load, FCM delivery, Manager shift creation/publishing or `StaffUnavailability` management.

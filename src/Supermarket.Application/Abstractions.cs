@@ -89,6 +89,12 @@ public static class UseCase
         if (user.Role != "OPERATOR")
             throw new ApplicationException("FORBIDDEN", "Operator access is required.", 403);
     }
+    /// <summary>Shift planning and SWAP/COVER approval belong to the Manager.</summary>
+    public static void Manager(ICurrentUser user)
+    {
+        if (user.Role != "MANAGER")
+            throw new ApplicationException("FORBIDDEN", "Manager access is required.", 403);
+    }
     public static T Found<T>(T? entity) where T : class => entity ?? throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
     public static void Unique(bool duplicate)
     {
