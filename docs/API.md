@@ -88,6 +88,8 @@ Ví dụ camera connection:
 {"sourceType":"LIVE","protocol":"RTSP","streamUri":"rtsp://10.0.1.21/main","username":"camera-user","password":"<camera credential>"}
 ```
 
+`GET /api/cameras/{id}/connection` trả lại URL, username và `hasCredentials` để prefill form chỉnh sửa, nhưng không trả password. Khi sửa connection mà không đổi password, client gửi `password: null` và `preservePassword: true`; mặc định `preservePassword: false` vẫn thay hoặc xóa credential như trước.
+
 Ví dụ mapping:
 
 ```json

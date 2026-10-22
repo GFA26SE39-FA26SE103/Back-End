@@ -205,7 +205,7 @@ Proxy: `POST /api/cameras/{id}/ai-preview/start`, `GET .../status`, `GET .../fra
 
 RTSP, HTTP/HLS và recorded video dùng FFmpeg để đọc/giải mã một frame; thành công chỉ khi nhận được frame, không chỉ khi mở được TCP. Cấu hình `Video:FfmpegPath` trỏ tới FFmpeg trên máy. Recorded FILE phải nằm dưới `Video:RecordedRoot`. Dockerfile bao gồm FFmpeg. Browser WebRTC hiện hỗ trợ LIVE/RTSP qua MediaMTX; nguồn khác tiếp tục dùng preview hiện có.
 
-Camera URI không được chứa userinfo, query hay fragment. Gửi `username`/`password` riêng; password được mã hóa bằng ASP.NET Data Protection trong `credential_secret_ref`, DTO chỉ trả `hasCredentials`. PUT thay toàn bộ credentials; bỏ password sẽ xóa credentials cũ. Không trả secret reference, không log FFmpeg stderr hay SQL exception detail. Key ring phải được giữ qua restart; production cần volume riêng, ACL phù hợp và cấu hình bảo vệ key ring at rest. Giữ JWT key/DB credentials trong secrets môi trường, đặt HTTPS tại reverse proxy.
+Camera URI không được chứa userinfo, query hay fragment. Gửi `username`/`password` riêng; password được mã hóa bằng ASP.NET Data Protection trong `credential_secret_ref`. Connection DTO trả URL, username và `hasCredentials` để form edit được prefill nhưng không bao giờ trả password hay secret reference. PUT mặc định thay credentials; editor có thể gửi `preservePassword: true` để giữ secret hiện tại khi password để trống. Không log FFmpeg stderr hay SQL exception detail. Key ring phải được giữ qua restart; production cần volume riêng, ACL phù hợp và cấu hình bảo vệ key ring at rest. Giữ JWT key/DB credentials trong secrets môi trường, đặt HTTPS tại reverse proxy.
 
 ## Configure monitoring → Review & activate (2026-10-03)
 
