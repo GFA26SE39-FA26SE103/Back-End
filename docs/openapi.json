@@ -4745,6 +4745,9 @@
           "password": {
             "type": "string",
             "nullable": true
+          },
+          "preservePassword": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -4791,6 +4794,10 @@
             "nullable": true
           },
           "snapshotUri": {
+            "type": "string",
+            "nullable": true
+          },
+          "username": {
             "type": "string",
             "nullable": true
           },

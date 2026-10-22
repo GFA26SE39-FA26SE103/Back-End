@@ -115,6 +115,22 @@ public sealed class RecordedVideoTests
         Assert.Equal("http://camera/video", h.Connection.StreamUri);
     }
 
+    [Fact]
+    public async Task ConfigureCanPreserveStoredPasswordWithoutReturningIt()
+    {
+        var h = new Harness();
+        var setup = new CameraSetup(h.Store, new User("ADMIN"), new FakeStream(), new Secrets(), new Clock());
+
+        var result = await setup.Configure(h.Camera.CameraId,
+            new ConnectionRequest("LIVE", "RTSP", "rtsp://camera/new", Username: "viewer", PreservePassword: true), default);
+
+        Assert.Equal("rtsp://camera/new", h.Connection.StreamUri);
+        Assert.Equal("viewer", result.Username);
+        Assert.True(result.HasCredentials);
+        Assert.Equal("encrypted", h.Connection.CredentialSecretRef);
+        Assert.DoesNotContain("encrypted", JsonSerializer.Serialize(result));
+    }
+
     [Theory]
     [InlineData("test.exe", 12, "VIDEO_FORMAT_INVALID")]
     [InlineData("test.mp4", 0, "VIDEO_SIZE_INVALID")]

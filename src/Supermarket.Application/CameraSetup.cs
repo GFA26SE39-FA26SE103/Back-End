@@ -82,9 +82,11 @@ public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICamera
             x.SnapshotUri = r.SnapshotUri;
             Rules.Optional(r.Username, 150, "Username");
             Rules.Optional(r.Password, 128, "Password");
-            // Each PUT replaces credentials too. Credentials are recoverably encrypted, never returned.
             x.Username = r.Username;
-            x.CredentialSecretRef = string.IsNullOrEmpty(r.Password) ? null : secrets.Protect(r.Password);
+            // Passwords are never returned. Editors can explicitly retain the stored secret while
+            // changing non-secret connection fields; new sources and uploads still replace it by default.
+            if (!r.PreservePassword)
+                x.CredentialSecretRef = string.IsNullOrEmpty(r.Password) ? null : secrets.Protect(r.Password);
             Rules.Optional(x.CredentialSecretRef, 500, "Encrypted credential");
             Rules.Connection(x);
             x.IsEnabled = false;
@@ -191,6 +193,6 @@ public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICamera
         if (before.UpdatedAt != after.UpdatedAt)
             throw new ApplicationException("CONNECTION_CHANGED", "Connection changed during the probe; retry with the current configuration.");
     }
-    public static ConnectionView View(CameraConnection c) => new(c.ConnectionId, c.CameraId, c.SourceType, c.Protocol, c.StreamUri, c.SnapshotUri, c.CredentialSecretRef is not null, c.IsEnabled, c.LastTestedAt, c.LastTestResult, c.LastTestMessage, c.UpdatedAt);
+    public static ConnectionView View(CameraConnection c) => new(c.ConnectionId, c.CameraId, c.SourceType, c.Protocol, c.StreamUri, c.SnapshotUri, c.Username, c.CredentialSecretRef is not null, c.IsEnabled, c.LastTestedAt, c.LastTestResult, c.LastTestMessage, c.UpdatedAt);
     private static MappingView Mapping(CameraZoneMapping m) => new(m.CameraZoneId, m.CameraId, m.ZoneId, JsonSerializer.Deserialize<Point[]>(m.RoiPolygon)!, m.Status);
 }
