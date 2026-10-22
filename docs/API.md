@@ -6,9 +6,9 @@ Quyền đọc cho màn vận hành (Operator floor map, camera live):
 
 | Quyền | Endpoints |
 |---|---|
-| ADMIN, OPERATOR, MANAGER | `GET /supermarkets`, `GET /supermarkets/{id}`, `GET /supermarkets/{id}/floors`, `GET /floors/{id}`, `GET /floors/{id}/map`, `GET /floors/{id}/zones`, `GET /zones/{id}`, `GET /floors/{id}/cameras`, `GET /cameras/{id}`, `GET /cameras/{id}/zones`, `GET /cameras/{id}/preview` |
+| ADMIN, OPERATOR, MANAGER | `GET /supermarkets`, `GET /supermarkets/{id}`, `GET /supermarkets/{id}/floors`, `GET /floors/{id}`, `GET /floors/{id}/map`, `GET /floors/{id}/zones`, `GET /zones/{id}`, `GET /floors/{id}/cameras`, `GET /cameras/{id}`, `GET /cameras/{id}/zones`, `GET /cameras/{id}/preview`, `POST /cameras/{id}/playback` |
 | ADMIN, OPERATOR | `/cameras/{id}/ai-preview/start`, `status`, `frame`, `frame/next`, `stop` (một phiên GPU dùng chung; người sau có thể nhận `AI_SESSION_CAPACITY`) |
-| Chỉ ADMIN | Mọi POST/PUT/PATCH/DELETE, `GET /cameras/{id}/connection` (có stream URI), `POST .../connection/test`, accounts, monitoring, camera health |
+| Chỉ ADMIN | Mọi setup mutation không được liệt kê riêng ở hai dòng trên; `GET /cameras/{id}/connection` (có stream URI), `POST .../connection/test`, accounts, monitoring, camera health |
 
 Controller và use case cùng kiểm tra quyền; STAFF không đọc được dữ liệu setup.
 
@@ -22,6 +22,7 @@ Controller và use case cùng kiểm tra quyền; STAFF không đọc được d
 | Cameras | GET/POST /floors/{id}/cameras; GET/PATCH /cameras/{id} |
 | Connection | GET/PUT /cameras/{id}/connection; POST .../test, .../enable, .../disable |
 | Preview | GET /cameras/{id}/preview: image/svg+xml cho demo, image/jpeg cho FFmpeg |
+| Browser playback | POST /cameras/{id}/playback: provision MediaMTX path và trả WebRTC/WHEP URL đã sanitize |
 | Geometry | GET /cameras/{id}/zones; PUT/DELETE /cameras/{id}/zones/{zoneId} |
 | AI catalog | GET /incident-types (ADMIN, read-only AI types) |
 | Monitoring | GET/PUT/DELETE /zones/{zoneId}/monitoring; GET .../review; POST .../activate, .../deactivate |
@@ -35,6 +36,18 @@ Liveness `/health/live`, readiness `/health/ready` nằm ngoài prefix `/api`. R
 [Deploy Dev](DEPLOY_DEV.md) dùng public base URL `https://supermarket-api-dev.kitsuracloud.com/api`. Sau NPM, bật `ReverseProxy:Enabled` và liệt kê IP proxy trong `ReverseProxy:KnownProxies`; chỉ một hop `X-Forwarded-For`/`X-Forwarded-Proto` từ proxy tin cậy được dùng trước rate limit/auth. Request Host không lấy từ `X-Forwarded-Host`. Floor-map upload sinh URL theo scheme/host request đã xử lý; các tham chiếu cũ không tự rewrite. JWT/RBAC và response DTO không thay đổi.
 
 `openapi.json` trong thư mục này là contract xuất từ API đã chạy để frontend import; xuất lại khi controller/DTO thay đổi. Runtime Swagger luôn là bản contract hiện tại.
+
+### WebRTC playback qua MediaMTX
+
+`POST /api/cameras/{id}/playback` dành cho ADMIN, OPERATOR và MANAGER. Camera phải `ACTIVE`; connection phải là `LIVE/RTSP`, đã test `SUCCESS` và enabled. Backend sinh path ổn định `cam-{cameraId:N}`, tạo hoặc đồng bộ path đó qua MediaMTX Control API nội bộ, rồi trả:
+
+```json
+{"cameraId":"<uuid>","transport":"WEBRTC","url":"https://stream-dev.kitsuracloud.com/cam-<uuid-without-dashes>/whep"}
+```
+
+Response không chứa RTSP URI, username, password hoặc protected credential reference. Cấu hình Control API thay đổi runtime của MediaMTX và không được lưu ngược vào `mediamtx.yml`; endpoint luôn bảo đảm lại path trước khi trả URL nên path được khôi phục sau khi MediaMTX restart. Nguồn FILE/HTTP/HLS hiện trả 422 `PLAYBACK_UNSUPPORTED` và frontend tiếp tục dùng JPEG/file preview hiện có. Gateway chưa bật trả 503 `MEDIA_GATEWAY_NOT_CONFIGURED`; gateway timeout/unavailable trả 504 `MEDIA_GATEWAY_TIMEOUT` hoặc 503 `MEDIA_GATEWAY_UNAVAILABLE`.
+
+`MediaGateway:ControlBaseUrl` chỉ trỏ tới Docker network riêng, không public port 9997. `ControlUsername`/`ControlPassword` là secret deployment dùng riêng cho quyền MediaMTX `api`; không lưu trong DB, source control hoặc response. `PublicBaseUrl` là HTTPS origin mà browser truy cập. Endpoint này mới quản lý mapping động; viewer authorization trực tiếp tại WHEP ingress là bước hardening riêng, vì URL MediaMTX hiện vẫn public nếu người ngoài biết path.
 
 ### Dashboard tổng quan MF-01
 

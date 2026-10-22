@@ -49,6 +49,11 @@ public interface ICameraStream
     Task<ProbeResult> Test(CameraConnection connection, CancellationToken ct);
     Task<PreviewFrame> Preview(CameraConnection connection, CancellationToken ct);
 }
+public interface IMediaGateway
+{
+    Task<PlaybackEndpoint> EnsurePlayback(CameraConnection connection, CancellationToken ct);
+}
+public sealed record PlaybackEndpoint(string Transport, string Url);
 public interface IFrameHealthAnalyzer
 {
     Task<FrameAnalysisResult> Analyze(PreviewFrame frame, CancellationToken ct);

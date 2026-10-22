@@ -30,7 +30,11 @@ public sealed class OperatorAccessTests
             var roles = Assert.Single(action.GetCustomAttributes<AuthorizeAttribute>()).Roles;
             var verbs = action.GetCustomAttributes<HttpMethodAttribute>().SelectMany(a => a.HttpMethods).ToArray();
             var isRead = verbs.All(v => v == "GET");
-            var expected = isRead && action.Name != nameof(CamerasController.Connection) ? AccessRoles.Viewer : AccessRoles.Admin;
+            // Playback is an idempotent runtime preparation call. It does not mutate setup data,
+            // but uses POST because it can provision a transient MediaMTX path.
+            var isViewerOperation = isRead && action.Name != nameof(CamerasController.Connection)
+                || controller == typeof(CamerasController) && action.Name == nameof(CamerasController.Playback);
+            var expected = isViewerOperation ? AccessRoles.Viewer : AccessRoles.Admin;
             Assert.True(roles == expected, $"{controller.Name}.{action.Name} ({string.Join(',', verbs)}) has roles '{roles}', expected '{expected}'.");
         }
         Assert.Null(controller.GetCustomAttribute<AuthorizeAttribute>()!.Roles);
