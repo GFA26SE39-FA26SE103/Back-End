@@ -121,6 +121,7 @@ Domain không phụ thuộc ASP.NET/EF. Controller không truy cập DbContext. 
 - Upload/replace floor plan PNG, JPEG hoặc PDF qua `POST /api/floors/{id}/map` (multipart `file`, ADMIN, mặc định tối đa 20 MB); asset được lưu ngoài `wwwroot` và chỉ đọc qua authenticated `GET /api/floors/{id}/map`.
 - Camera thuộc Floor; metadata lắp đặt/bảo hành, vị trí và rotation trên map.
 - Connection 1:1: configure → test → preview → enable/disable. Mỗi lần PUT configuration sẽ disable và xóa kết quả test cũ.
+- Browser playback cho LIVE/RTSP qua MediaMTX: backend provision path `cam-{cameraId}` bằng Control API nội bộ và trả WHEP URL đã sanitize; frontend không cần mapping code camera → path trong build env.
 - Upload MP4 làm nguồn RECORDED/FILE qua `POST /api/cameras/{id}/recorded-video` (multipart `file`, ADMIN, tối đa 200 MB). Kiểm tra header và decode frame bằng FFmpeg; server sinh filename, lưu ngoài wwwroot. Không sửa schema DB.
 - Proxy AI preview start/status/frame/stop tới native YOLO26s + ByteTrack, hỗ trợ LIVE HTTP/RTSP/HLS và RECORDED FILE. React nhận JPEG đã vẽ person box/track ID, không gọi Python trực tiếp. Endpoint `frame/next` chờ frame mới theo sequence/session, tránh tải lặp frame cũ và giới hạn polling 250 ms ở UI.
 - Camera N:M Zone qua mapping; cùng tầng; ROI normalized; PUT idempotent.
@@ -177,7 +178,7 @@ PATCH ở increment này nhận toàn bộ DTO chỉnh sửa, không phải JSON
 7. Ngắt hoặc chặn nguồn camera rồi chờ đủ số quan sát lỗi đã cấu hình để mở health event.
 8. Investigate event; khôi phục nguồn và chờ đủ số quan sát tốt để thấy RESOLVED.
 
-Preview hiện là ảnh JPEG lấy từ nguồn LIVE hoặc RECORDED, dùng được để vẽ ROI và refresh. Đây chưa phải browser HLS/WebRTC playback liên tục. Nguồn camera tổng hợp `DEMO` và endpoint đổi demo-state đã bị loại bỏ; row `DEMO` cũ được xem là cấu hình không hợp lệ và phải cấu hình lại.
+Preview ảnh tại `GET /api/cameras/{id}/preview` vẫn lấy một JPEG từ nguồn LIVE hoặc RECORDED để test/snapshot/ROI. Với LIVE/RTSP đã test và enable, `POST /api/cameras/{id}/playback` provision path MediaMTX động và trả WHEP URL để browser xem WebRTC liên tục. Nguồn camera tổng hợp `DEMO` và endpoint đổi demo-state đã bị loại bỏ; row `DEMO` cũ được xem là cấu hình không hợp lệ và phải cấu hình lại.
 
 ## Video và credential
 
@@ -202,7 +203,7 @@ AI đọc tuần tự mọi frame, pace theo FPS và tốc độ inference (có 
 
 Proxy: `POST /api/cameras/{id}/ai-preview/start`, `GET .../status`, `GET .../frame`, `GET .../frame/next?afterSequence=N&afterSessionId=<uuid>`, `POST .../stop`; ADMIN/OPERATOR JWT. `frame/next` chờ tối đa 1 giây ở AI service, trả JPEG với `X-Frame-Sequence`/`X-Session-Id` hoặc 204 nếu không có frame mới; dùng `Cache-Control: no-store`. Browser gọi qua BE bằng JWT, không gọi Python trực tiếp. `AiPreview:BaseUrl` mặc định `http://127.0.0.1:8090`. Model mặc định `../yolo26s.pt`: đặt checkpoint chính thức tại `CAPSTONE/setup/yolo26s.pt` và restart AI + BE; file trọng số không nằm trong Git. Internal key nếu dùng phải khớp `AI_INTERNAL_SERVICE_KEY`. Model/device/default confidence từ `AiPreview`; Admin có thể dùng `start?zoneId=<uuid>` để restart preview-only camera session với confidence của cấu hình zone đã lưu. Zone phải có mapping/ROI cùng tầng hợp lệ; chưa cần Activate để kiểm thử Draft. Nếu camera đang monitoring ACTIVE, active preview chỉ attach; Draft restart bị từ chối để không ngắt monitoring.
 
-RTSP, HTTP/HLS và recorded video dùng FFmpeg để đọc/giải mã một frame; thành công chỉ khi nhận được frame, không chỉ khi mở được TCP. Cấu hình `Video:FfmpegPath` trỏ tới FFmpeg trên máy. Recorded FILE phải nằm dưới `Video:RecordedRoot`. Dockerfile bao gồm FFmpeg. WebRTC yêu cầu adapter media gateway, hiện trả lỗi rõ ràng.
+RTSP, HTTP/HLS và recorded video dùng FFmpeg để đọc/giải mã một frame; thành công chỉ khi nhận được frame, không chỉ khi mở được TCP. Cấu hình `Video:FfmpegPath` trỏ tới FFmpeg trên máy. Recorded FILE phải nằm dưới `Video:RecordedRoot`. Dockerfile bao gồm FFmpeg. Browser WebRTC hiện hỗ trợ LIVE/RTSP qua MediaMTX; nguồn khác tiếp tục dùng preview hiện có.
 
 Camera URI không được chứa userinfo, query hay fragment. Gửi `username`/`password` riêng; password được mã hóa bằng ASP.NET Data Protection trong `credential_secret_ref`, DTO chỉ trả `hasCredentials`. PUT thay toàn bộ credentials; bỏ password sẽ xóa credentials cũ. Không trả secret reference, không log FFmpeg stderr hay SQL exception detail. Key ring phải được giữ qua restart; production cần volume riêng, ACL phù hợp và cấu hình bảo vệ key ring at rest. Giữ JWT key/DB credentials trong secrets môi trường, đặt HTTPS tại reverse proxy.
 

@@ -5,7 +5,7 @@ using Supermarket.Domain;
 namespace Supermarket.Api.Controllers;
 
 [ApiController, Authorize, Route("api/cameras")]
-public sealed class CamerasController(CameraSetup setup) : ControllerBase
+public sealed class CamerasController(CameraSetup setup, CameraPlayback playback) : ControllerBase
 {
     [Authorize(Roles = AccessRoles.Viewer), HttpGet("/api/floors/{id:guid}/cameras")] public Task<List<Camera>> List(Guid id, CancellationToken ct) => setup.List(id, ct);
     [Authorize(Roles = AccessRoles.Admin), HttpPost("/api/floors/{id:guid}/cameras")]
@@ -26,6 +26,8 @@ public sealed class CamerasController(CameraSetup setup) : ControllerBase
         Response.Headers.CacheControl = "no-store";
         return File(frame.Bytes, frame.ContentType);
     }
+    [Authorize(Roles = AccessRoles.Viewer), HttpPost("{id:guid}/playback")]
+    public Task<CameraPlaybackView> Playback(Guid id, CancellationToken ct) => playback.Prepare(id, ct);
     [Authorize(Roles = AccessRoles.Admin), HttpPost("{id:guid}/connection/enable")] public Task<ConnectionView> Enable(Guid id, CancellationToken ct) => setup.Enable(id, true, ct);
     [Authorize(Roles = AccessRoles.Admin), HttpPost("{id:guid}/connection/disable")] public Task<ConnectionView> Disable(Guid id, CancellationToken ct) => setup.Enable(id, false, ct);
     [Authorize(Roles = AccessRoles.Viewer), HttpGet("{id:guid}/zones")] public Task<List<MappingView>> Zones(Guid id, CancellationToken ct) => setup.Mappings(id, ct);

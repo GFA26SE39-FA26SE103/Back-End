@@ -27,6 +27,12 @@ builder.Services.AddOptions<JwtOptions>().Bind(builder.Configuration.GetSection(
 builder.Services.Configure<VideoOptions>(builder.Configuration.GetSection("Video"));
 builder.Services.PostConfigure<VideoOptions>(options =>
     options.RecordedRoot = Path.GetFullPath(options.RecordedRoot, builder.Environment.ContentRootPath));
+builder.Services.AddOptions<MediaGatewayOptions>().Bind(builder.Configuration.GetSection("MediaGateway"))
+    .Validate(o => !o.Enabled || Uri.TryCreate(o.ControlBaseUrl, UriKind.Absolute, out var control) && control.Scheme is "http" or "https", "MediaGateway:ControlBaseUrl must be an absolute HTTP(S) URI.")
+    .Validate(o => !o.Enabled || Uri.TryCreate(o.PublicBaseUrl, UriKind.Absolute, out var publicUrl) && publicUrl.Scheme == "https", "MediaGateway:PublicBaseUrl must be an absolute HTTPS URI.")
+    .Validate(o => !o.Enabled || o.TimeoutSeconds is > 0 and <= 30, "MediaGateway:TimeoutSeconds must be 1 to 30 seconds.")
+    .Validate(o => !o.Enabled || !string.IsNullOrWhiteSpace(o.ControlUsername) && !string.IsNullOrWhiteSpace(o.ControlPassword), "MediaGateway control credentials are required when enabled.")
+    .ValidateOnStart();
 builder.Services.AddOptions<FloorPlanOptions>().Bind(builder.Configuration.GetSection("FloorPlan"))
     .Validate(o => o.Provider.Equals("Local", StringComparison.OrdinalIgnoreCase) || o.Provider.Equals("Cloudinary", StringComparison.OrdinalIgnoreCase), "FloorPlan:Provider must be Local or Cloudinary.")
     .Validate(o => o.MaxBytes is > 0 and <= 20971520, "FloorPlan:MaxBytes must be between 1 and 20971520.")
@@ -68,6 +74,12 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 builder.Services.AddSingleton<IPasswordService, PasswordService>();
 builder.Services.AddSingleton<ICredentialProtector, CredentialProtector>();
 builder.Services.AddScoped<ICameraStream, CameraStream>();
+builder.Services.AddHttpClient<IMediaGateway, MediaMtxGateway>((services, client) =>
+{
+    var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<MediaGatewayOptions>>().Value;
+    client.BaseAddress = new Uri(options.ControlBaseUrl.EndsWith('/') ? options.ControlBaseUrl : options.ControlBaseUrl + "/");
+    client.Timeout = Timeout.InfiniteTimeSpan;
+});
 builder.Services.AddScoped<IRecordedVideoStorage, RecordedVideoStorage>();
 builder.Services.AddScoped<RecordedVideoUpload>();
 builder.Services.AddScoped<LocalFloorPlanStorage>();
@@ -81,6 +93,7 @@ builder.Services.AddScoped<ITokenIssuer, TokenIssuer>();
 builder.Services.AddScoped<Accounts>();
 builder.Services.AddScoped<StoreSetup>();
 builder.Services.AddScoped<CameraSetup>();
+builder.Services.AddScoped<CameraPlayback>();
 builder.Services.AddScoped<MonitoringSetup>();
 builder.Services.AddScoped<IMonitoringSnapshotReader,MonitoringSnapshotReader>();
 builder.Services.AddScoped<IMonitoringIncidentQueries,EfMonitoringIncidentQueries>();
