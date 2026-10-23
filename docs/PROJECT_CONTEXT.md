@@ -4,10 +4,10 @@
 > **Project code:** FA26SE103
 > **Group:** GFA26SE39
 > **Repository:** [GFA26SE39-FA26SE103/Back-End](https://github.com/GFA26SE39-FA26SE103/Back-End), branch `dev`
-> **Synchronization baseline:** **18/10/2026** — synchronized Reports 1–3, current Business Rules, approved Physical ERD **V6**, and inspected backend `dev` at commit `c4c79b0f5e08d913dbbe4381be2e6eebe129ebad`.
+> **Synchronization baseline:** **23/10/2026** — synchronized the current Report 3 SRS, Business Rules, Context/Use Case diagrams V2, Report 4/5 drafts, approved Physical/Logical ERD **V6**, and inspected backend `dev` at commit `4df2864fa670fad64b37c93d1a705a9c9f2a3f56`.
 > **Purpose:** repository-owned guide for developers and coding agents. It defines **approved target behavior** separately from **verified source-code implementation**. It is not a substitute for the official reports or the canonical SQL schema.
 > **Important:** This replacement removes superseded ERD v3/v4 assumptions, historical approval paths, and old OperationalEvent-to-Incident design. Links to external documents are references, **not automatic synchronization**.
-> **Integration note:** the MF-02 Staff-task subset has been ported onto the exact post-cleanup ERD V6 scaffold. It uses V6 `SystemSetting` for retry parameters and does not restore retired entities; see §41.
+> **Integration note:** the MF-02 Staff-task and MF-04 scheduling/SWAP/COVER subsets are merged into `dev` on the exact post-cleanup ERD V6 scaffold. The 23/10 SRS now contains **32 Use Cases** and **38 Business Rules**; old BR numbers must not be reused. See §§36, 41–43.
 
 ---
 
@@ -35,14 +35,14 @@ OperationalEvent NEVER creates, converts into, references or escalates into Inci
 - `OperationalEvent` = tracked operational condition/episode, with priority and resolution when the **condition clears**.
 - `Incident` = independently qualified safety/material-disruption issue, with severity, corrective handling and verified closure.
 - A CRITICAL Event is **not** automatically an Incident. Model confidence filters detections; it is not an Incident-routing approval gate.
-- Current backend code may still perform prohibited Event → Incident writes as **legacy compatibility**, not approved behavior. See §§36, 39–40.
+- Current backend persistence and writer code separate Event and Incident outcomes. The INCIDENT runtime remains disabled until a validated safety measurement/model contract exists; see §§36 and 39–40.
 - An ERD shows structure. Do **not** load it with SQL constraints/business-logic descriptions merely to represent workflow rules.
 
 ---
 
 # 1. Source of truth and document alignment
 
-## 1.0 — 18/10/2026 synchronization baseline (read first)
+## 1.0 — 23/10/2026 synchronization baseline (read first)
 
 1. Latest explicitly confirmed team/mentor decisions and approved Business Rules.
 2. Current Report 1 (scope), Report 2 (plan), Report 3 (SRS, detailed functional requirements).
@@ -58,19 +58,22 @@ If target requirements disagree with code or an old document, **record the misma
 | --- | --- |
 | Report 1 — Project Introduction | [Google Doc](https://docs.google.com/document/d/1C3BnR_XkLTMWYbnAumNLsyNiraRVloaycCHzkTbdhIs/edit); updated for independent Incident sources and shift swapping. |
 | Report 2 — Project Management Plan | [Google Doc](https://docs.google.com/document/d/18o3oA7NQgxV8eJxstP2mQgRGRoqkq_d9e-MnHuxQfTI/edit); synchronized 17/10; 225 man-days retained **pending re-estimation**. |
-| Report 3 — SRS | [Google Doc](https://docs.google.com/document/d/1puRtzzOr7T_TK-ZdnYkcn-bb9euMDxgjqC9wB7Z5qh8/edit); source wording/privacy updated 18/10; Use Case inventory is teammate-owned/in progress. |
-| Business Rules | [Google Drive](https://docs.google.com/document/d/1ODHDSkK0pLCcbKVS2nl3G0KhxIz6Q5PR/edit); apply current approved rules, not historical comments within the document. |
+| Report 3 — SRS | [Google Doc](https://docs.google.com/document/d/1puRtzzOr7T_TK-ZdnYkcn-bb9euMDxgjqC9wB7Z5qh8/edit); synchronized 23/10: 32-use-case inventory, expanded FE-03..FE-06 details, V6 entity overview and 38 renumbered BRs. |
+| Business Rules | [Google Drive](https://docs.google.com/document/d/1ODHDSkK0pLCcbKVS2nl3G0KhxIz6Q5PR/edit); synchronized 23/10 to SRS §5.1 with **38 BRs**, 8 calculation rules and 8 scope rules. |
 | **Physical ERD V6** | [Google Drive draw.io](https://drive.google.com/file/d/17HEN6bpP-hxOfckGZWo2bKzPw4CHsP7S/view); **37 tables / 72 relationship edges**. |
 | Physical ERD V5 | [Google Drive](https://drive.google.com/file/d/1H831nHrqMmRwUnD8K8R-mO0FpIvRBk2Y/view); retained for history; **not the new target**. |
-| Logical ERD | [Google Drive](https://drive.google.com/file/d/1C5OstAPb-IOj3ndAbaYx95NTz5wKwpcK/view); reconcile with V6 before regeneration. |
-| Use Case Diagram | [Google Drive](https://drive.google.com/file/d/1vBWGmRkMKOHVv59SSKZfRMqwL5KmDatM/view); teammate updating. Do not alter as a side effect of backend work. |
+| **Logical ERD V6** | [Google Drive](https://drive.google.com/file/d/1_9YhOCJOsaff-1uZVuNbUTh6zbjBdXEo/view); current logical model, updated 20/10. |
+| Context Diagram V2 | [Google Drive](https://drive.google.com/file/d/1hh3JUEey8Iy29bD6D8i294xiwwxIJVdm/view); refined actor/system boundaries and external CCTV/FCM integrations on 22/10. |
+| Use Case Diagram V2 | [Google Drive](https://drive.google.com/file/d/1mMqMeVPe-a4H0YQcwMvgqGLgSE15TGjx/view); current 32-use-case diagram, updated 23/10. |
+| Report 4 — Software Design Document | [Google Doc](https://docs.google.com/document/d/1oaQQ_NpTwmEFtYNjihoYzzeNDZ5CHcnj2Wdybq4lLCU/edit); initial architecture/database/design skeleton; UML and code-level specifications remain pending. |
+| Report 5 — Software Test Documentation | [Google Doc](https://docs.google.com/document/d/1gF7EPNMVB_XDNGoPpJqH37C6g2Ln2ZWOyxIjn3OTnLY/edit); planning skeleton only; test cases/results and confirmed thresholds remain pending. |
 | Backend working contract | [`AGENTS.md`](../AGENTS.md), [`README.md`](../README.md), [`docs/API.md`](API.md), [`docs/VALIDATION.md`](VALIDATION.md). |
 
 ## 1.2 Conflict rule
 
 **Do not merge old and new Incident models.** Do not infer current DB tables from V6 alone. Distinguish approved target, coded subset, and actual deployed DB. Report discrepancies as an explicit implementation backlog. Record approval before destructive schema changes, workflow changes, or altering documents owned by teammates.
 
-**Known document drift to resolve separately:** Report 3's early entity overview may still mention `ZoneShiftRequirement` / `NotificationConfig` although V6 removes them. The Use Case inventory is being updated by a teammate. Older root `AGENTS.md` and `README.md` also contain obsolete Operator-approved shift-swap and Event-to-Incident descriptions; they should be synchronized in the same reviewed documentation PR as this file.
+The 20–23/10 Report 3 update resolved the earlier V5 entity-overview and incomplete Use Case drift: `ZoneShiftRequirement` / `NotificationConfig` are removed, the V6 entities are listed, and UC-01..UC-32 are defined. Report 4 and Report 5 are still draft skeletons, so placeholders and proposed test/design content are **not implementation evidence**.
 
 ---
 
@@ -112,13 +115,13 @@ Mainflows organize demonstrable end-to-end user work, not every background AI pr
 ## MF-01 — Setup & System Configuration
 
 ```text
-Admin login → default store Floor/Zone setup → camera registration
+Admin login → configure the single store and its Floor/Zone layout → camera registration
 → connection test / preview → CameraZoneMapping + camera-frame ROI
 → zone MonitoringConfiguration + MonitoringRule → review/activate
 → camera/stream health monitoring → investigate/retest/recover exceptions
 ```
 
-- Use **one seeded default supermarket**; do not invent a store-selection flow for a one-branch evaluation.
+- Support exactly **one configured supermarket branch**. The current implementation seeds/uses a default record, while current SRS UC-01/FE-01 also permits authorized Admin maintenance of that single branch. Do not introduce multi-branch selection.
 - An area polygon on a floor plan and camera-frame ROI are separate coordinate spaces.
 - A preview/test request is initiated by Admin; runtime monitoring continues independently of viewers.
 - Camera operations/configuration, health, connection enablement, and monitoring activation are distinct states.
@@ -143,7 +146,7 @@ Observed measurements + rule context
 
 ```text
 Task from OPERATIONAL_EVENT / INCIDENT / STAFF_REPORT / MANUAL
-→ notify eligible, checked-in on-shift Staff for affected zone
+→ notify eligible, checked-in on-shift Staff for the affected and configured adjacent zones
 → first valid explicit acceptance wins → Handle Now / Handle Later
 → Staff works → submit evidence → independent Operator verification
 → Verified (or Rejected with reason → rework/reassignment)
@@ -152,7 +155,7 @@ Task from OPERATIONAL_EVENT / INCIDENT / STAFF_REPORT / MANUAL
 - Staff may decline/cannot-handle with reason. `Accept and Handle Later` can set `planned_start_at`, but does not eliminate response targets.
 - Only the current eligible assignee performs the work; competing offers withdrawn transactionally.
 - Task evidence may require before/after photos by category; no universal before-photo requirement.
-- `TaskEvidence.reject_reason` already exists. `Task.rejection_count` supports BR-29 **reassign after two rejections**.
+- `TaskEvidence.reject_reason` already exists. `Task.rejection_count` supports BR-28 **reassign after two rejections**.
 - A linked Incident closes only after required corrective Tasks are verified and independent Incident closure conditions hold.
 
 ## MF-04 — Manager Operations Planning, Analytics & Reporting
@@ -230,7 +233,7 @@ The schema supports many camera-zone mappings. **Current ROI runtime does not ye
 
 # 9. Physical ERD V6 target vs implemented database
 
-**Approved design:** [V6](https://drive.google.com/file/d/17HEN6bpP-hxOfckGZWo2bKzPw4CHsP7S/view), **37 native draw.io tables and 72 Crow's Foot relationship edges**. V6 is a **design baseline**, not a claim that SQL Server already has those tables/columns. The current backend still has an older SQL-first scaffold and legacy incident connection.
+**Approved design:** [V6](https://drive.google.com/file/d/17HEN6bpP-hxOfckGZWo2bKzPw4CHsP7S/view), **37 native draw.io tables and 72 Crow's Foot relationship edges**. The current backend source is scaffolded from the post-cleanup V6 shape, but that does not prove a particular shared/deployed SQL Server instance has the same migration state.
 
 ## 9.1 Complete V6 table inventory (37)
 
@@ -278,9 +281,9 @@ The schema supports many camera-zone mappings. **Current ROI runtime does not ye
 
 ## 9.4 DB implementation status — do not overstate
 
-At inspected `dev` commit, `src/Supermarket.Infrastructure/Persistence/Scaffolded/MonitoringRule.cs` still has **non-null** `IncidentTypeId` and `EventTypeId` and lacks the V6 `outcome_type` discriminator. `OperationalEvent.cs` still exposes `IncidentId`. `MonitoringIncidentWriter` still creates/links a `DETECTED` Incident from an Event for legacy compatibility. **Those are known divergences, not approved new requirements.**
+At inspected `dev` commit `4df2864fa670fad64b37c93d1a705a9c9f2a3f56`, the generated scaffold has nullable Event/Incident targets plus `MonitoringRule.outcome_type`; `OperationalEvent` no longer links to Incident; `Incident.monitoring_rule_id` supports direct rule provenance. `MonitoringIncidentWriter` writes exactly the configured outcome and its tests assert that an OPERATIONAL_EVENT rule never creates an Incident.
 
-The scaffold covers V6 persistence, but a generated entity is not proof that its workflow is implemented. `SystemSetting` is currently consumed only for the two MF-02 retry keys documented in §41; do not infer Admin settings management, ShiftSwapRequest, ServiceHealthEvent or other target workflows until verified in code, SQL metadata and tests. The canonical Database repo and applied SQL Server version must be checked before writing migrations.
+The scaffold covers V6 persistence, but a generated entity is not proof that its workflow is implemented. `SystemSetting` is currently consumed for the two MF-02 retry keys documented in §41; ShiftSwapRequest and Manager shift planning have application/API/test coverage (§42), while Admin global-settings management, `ServiceHealthEvent`, StaffReport/evidence, FCM delivery and full analytics are not established. The canonical Database repo and applied SQL Server version must still be checked before migrations or deployment claims.
 
 ---
 
@@ -418,7 +421,7 @@ Coordinate interface contracts first; do not allow separate teams to define conf
 
 # 23. V6 target entities — do not prematurely force into MF-01
 
-Later feature tables (`Shift*`, `StaffReport*`, `Task*`, `Notification*`, `ResponsePolicy*`, `ZoneMetric`, `Recommendation`, `AuditLog`, `SystemSetting`, `ServiceHealthEvent`) are approved **as diagram structures** but not assumed deployed or implemented. Build work by the assigned Mainflow/increment; SQL first, then scaffold, code, tests, docs.
+Later feature tables (`Shift*`, `StaffReport*`, `Task*`, `Notification*`, `ResponsePolicy*`, `ZoneMetric`, `Recommendation`, `AuditLog`, `SystemSetting`, `ServiceHealthEvent`) exist in the V6 scaffold, but workflow availability differs by feature. Only claim the subsets verified in §§36 and 41–43; SQL first, then scaffold, code, tests and docs for further changes.
 
 `ServiceHealthEvent` covers backend/AI/database/cache/notification service history. It is intentionally separate from `CameraHealthEvent`. `SystemSetting` stores admin-editable *non-secret* global settings and notification retry parameters.
 
@@ -432,7 +435,7 @@ A validated sustained breach opens/updates a corresponding unresolved episode. P
 
 ### Task dispatch and acceptance
 
-Notify eligible checked-in/on-shift Staff; explicit first valid acceptance wins atomically. `NotificationRecipient` delivery/read and retry state is not proof of assignment. Unaccepted offers retry according to *configured* values, then Operator escalation; critical Incident routing may also notify duty Manager subject to approved policy.
+Notify eligible checked-in/on-shift Staff assigned to the target Zone **and any configured adjacent Zone simultaneously**, subject to workload and channel settings. Explicit first valid acceptance wins atomically. `NotificationRecipient` delivery/read and retry state is not proof of assignment. Unaccepted offers retry according to *configured* values, then Operator escalation; critical Incident routing may also notify duty Manager subject to approved policy. Current code has target-Zone offers only, so adjacent-Zone routing remains an implementation gap.
 
 ### Shift/Zone eligibility
 
@@ -514,7 +517,7 @@ Report 3 FE-01..FE-12 remains the detailed behavior source. The following requir
 - FE-10: distinct historical metrics and proper demo/dismissed exclusions.
 - FE-12: service-health history and non-secret global settings.
 
-**Pending documentation alignment:** some older Report 3 entity overview text still includes removed V5 entities (`ZoneShiftRequirement`, `NotificationConfig`); coordinate that correction with the report owner. Use Cases are teammate-owned and should not be silently updated here.
+**23/10 alignment:** Report 3 now removes the retired V5 entities, defines UC-01..UC-32, and renumbers its consolidated rule set to BR-01..BR-38. Use the new BR numbers in code comments, tests and documentation; older references after the former duplicate BR-17/BR-35 positions are stale.
 
 ---
 
@@ -530,7 +533,7 @@ These require scoped decisions rather than a coding agent's invention:
 6. **Notification delivery:** recipient-level counters/status are approved; provider/device acceptance semantics and transient log retention still need engineering definition.
 7. **Global settings:** allowed keys, type validation, precedence with deployment configuration and audit; never put secrets here.
 8. **Privacy and video:** approved retention/storage/access controls for deployment; provisional durations are not binding.
-9. **Interface alignment:** current diagrams/Use Cases and older `AGENTS.md`/README require coordinated review; do not edit teammates' material unexpectedly.
+9. **Draft design/test artifacts:** Report 4 UML/code-level design and Report 5 test cases, environments, milestones and execution evidence remain to be completed and reviewed.
 
 These open items do not reverse approved target architecture or grant permission to create speculative tables.
 
@@ -551,7 +554,7 @@ These open items do not reverse approved target architecture or grant permission
 # 35. MF-01 quick mental model
 
 ```text
-One default Supermarket
+One configured Supermarket (current implementation seeds a default)
   → Floor: floor plan
   → Zone: polygon on floor plan, min_staff, area_m2
   → Camera: registered on same Floor
@@ -562,11 +565,11 @@ One default Supermarket
   → MonitoringWorker: background measurements/events
 ```
 
-Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a shopper Incident. Do not derive physical density from pixel area. Do not confuse deployed V2 SQL with approved V6 design.
+Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a shopper Incident. Do not derive physical density from pixel area. Do not confuse the V6 source scaffold with proof that a shared/deployed database is migrated.
 
 ---
 
-# 36. Current implementation checkpoint — `dev` baseline plus MF-02 integration branch
+# 36. Current implementation checkpoint — inspected `dev` at `4df2864fa670fad64b37c93d1a705a9c9f2a3f56`
 
 **Observed from source tree and specific inspected files, not fresh runtime execution:**
 
@@ -576,11 +579,13 @@ Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a 
 | Core setup/auth/camera/monitoring APIs | Current Controllers and README/API | **Present in repo**; do not infer live feature acceptance. |
 | Preview/recorded-video/monitoring worker | AI clients, `MonitoringWorker`, camera workers | **Present in repo**, specialized count/queue subset. |
 | OperationalEvent episodes | `MonitoringIncidentWriter`, scaffolded `OperationalEvent`, targeted tests | **Implemented subset**; Episode behavior detailed §40. |
-| V6 rule `outcome_type` | Scaffolded `MonitoringRule.cs` | **Not aligned**; has non-null `EventTypeId` and `IncidentTypeId` without outcome discriminator. |
-| Independent Incident path | `MonitoringIncidentWriter.cs`, `OperationalEvent.cs` | **Not aligned**; legacy Event → Incident link remains. |
-| MF-02 operational Task offers and Staff responses | `StaffWorkController`, `StaffTasks`, `StaffWork`, `TaskOfferWorker`, `StaffTaskTests` | **Implemented subset on `feature/mf02-staff-tasks`**: shift check-in, eligible offers, Handle Now/Later, Cannot Handle, atomic first acceptance, retry/exhaustion and Operator manual assignment. See §41. |
-| Evidence verification, StaffReport, SWAP/COVER, FCM delivery, complete analytics | Not established by this integration | **Do not claim implemented**. |
-| `SystemSetting`, `ServiceHealthEvent`, V6 zone staffing fields | V6 only | **Present in the exact V6 scaffold**. Application support is partial: MF-02 reads two retry settings; broader workflows remain unimplemented unless separately verified. |
+| V6 rule `outcome_type` and provenance | Scaffolded `MonitoringRule`, `OperationalEvent`, `Incident`; writer tests | **Aligned in source scaffold/writer**: mutually exclusive targets and no Event→Incident link. Applied shared-DB state is not inferred. |
+| Direct Incident outcome | `MonitoringIncidentWriter`, monitoring review/live readers | Writer/persistence branch is present, but activation/runtime is deliberately rejected as `INCIDENT_RULE_RUNTIME_UNSUPPORTED` until a validated safety contract exists. |
+| MF-02 operational Task offers and Staff responses | `StaffWorkController`, `StaffTasks`, `StaffWork`, `TaskOfferWorker`, `StaffTaskTests` | **Merged to `dev`**: check-in, target-Zone offers, Handle Now/Later, Cannot Handle, atomic first acceptance, retry/exhaustion and Operator manual assignment. Adjacent-Zone dispatch is not implemented. See §41. |
+| MF-04 SWAP/COVER and shift planning | `ShiftSwaps`, `ShiftPlanning`, controllers, workers and tests | **Merged to `dev`** with the bounded behavior in §42. |
+| Camera playback/editing | `CameraPlayback`, `MediaMtxGateway`, `CameraSetup`, camera tests | Dynamic MediaMTX playback paths, sanitized WHEP URLs and preserve-password editing are present; see §43. |
+| Evidence verification, confirmed StaffReport, FCM delivery, complete analytics | No complete application flow established | **Do not claim implemented**. |
+| `SystemSetting`, `ServiceHealthEvent`, V6 zone staffing fields | V6 scaffold plus focused application reads | MF-02 consumes two retry settings; broader Admin settings and service-health workflows remain unimplemented unless separately verified. |
 | Deployment health / CI results | Historical README, workflow and VALIDATION docs | **Dated evidence only**, no live deployment check performed for this synchronization. |
 
 Do not present a passing test score, deploy availability, complete SQL V6 migration or shipped features without running/verifying them.
@@ -624,7 +629,7 @@ The inspected implementation uses camera-local tracked observations, ROI footpoi
 
 A backend-owned worker consumes batches independently of a viewer. It must recheck current configuration/source mapping before persistence. Gaps/reconnect/config changes can reset sustain continuity; unavailable data must not be interpreted as a valid zero. Recorded video can complete at EOF and is not an automatically looping production stream. Preview is read-only relative to monitoring-owned runtime and does not itself generate production measurements.
 
-**Legacy compatibility warning:** `MonitoringIncidentWriter` may still create a `DETECTED` Incident linked from an OperationalEvent. This is a **code/SQL migration gap** relative to approved V6; it is not evidence that the old model should survive. Do not extend that pathway. Coordinate the direct `INCIDENT` rule route and legacy migration as a separate change.
+`MonitoringIncidentWriter` now persists OPERATIONAL_EVENT and INCIDENT outcomes independently. However, the monitoring review/live runtime rejects INCIDENT rules until an approved and validated safety observation contract exists. Do not bypass `INCIDENT_RULE_RUNTIME_UNSUPPORTED` by reusing person-count thresholds as hazard evidence.
 
 ---
 
@@ -647,13 +652,13 @@ new breach after clear       → start a new episode
 missing/unavailable readings → do NOT synthesize zero or clear automatically
 ```
 
-Recovery/hysteresis, source capture timestamps, selected camera and stale-config protection require the exact implementation/tests to be checked for every change. This implementation checkpoint **does not** authorize Event-origin Incident generation. The scoped Task-offer implementation in §41 does not imply complete ResponsePolicy execution, confirmed StaffReports, SWAP/COVER, external push delivery, historical KPI completeness or completed V6 migration.
+Recovery/hysteresis, source capture timestamps, selected camera and stale-config protection require the exact implementation/tests to be checked for every change. This implementation checkpoint **does not** authorize Event-origin Incident generation. The scoped Task-offer and MF-04 implementations in §§41–42 do not imply complete ResponsePolicy execution, confirmed StaffReports, external push delivery, historical KPI completeness or a verified deployed V6 migration.
 
 ---
 
 # 41. MF-02 Staff-task implementation subset — integration evidence
 
-`feature/mf02-staff-tasks` implements the following bounded workflow:
+The MF-02 work merged into `dev` implements the following bounded workflow:
 
 ```text
 AUTOMATIC CREATE_OPERATIONAL_TASK policy
@@ -667,13 +672,13 @@ The branch also contains Operator candidate lookup/manual assignment and preserv
 
 This subset is now mapped to the exact 37-table post-cleanup V6 scaffold. Retry overrides use `SystemSetting` keys `task_offer.retry_interval_sec` and `task_offer.max_retry_count`; invalid or absent values fall back to 60 seconds and three total attempts. `NotificationConfig` remains retired, and no generated scaffold file was hand-edited to restore it.
 
-Not implemented by this subset: approval-required policy actions, SLA/deadline/overdue rules, FCM/SignalR delivery, task evidence and verification, confirmed StaffReports, shift SWAP/COVER, ZoneAdjacency dispatch, StaffUnavailability workflow or complete analytics.
+Not implemented by this subset: approval-required policy actions, SLA/deadline/overdue rules, FCM/SignalR delivery, task evidence and verification, confirmed StaffReports, simultaneous `ZoneAdjacency` dispatch or complete analytics. SWAP/COVER and Manager-maintained `StaffUnavailability` are separate MF-04 capabilities in §42.
 
 ---
 
 # 42. MF-04 SWAP/COVER implementation subset
 
-`feature/mf04-shift-swap` implements the current shift-swap approval flow on the post-cleanup V6 scaffold:
+The MF-04 work merged into `dev` implements the current shift-swap approval flow on the post-cleanup V6 scaffold:
 
 ```text
 Staff A: SWAP (exchange with one of B's shifts) or COVER (B takes A's shift) on a future ShiftAssignment
@@ -689,13 +694,25 @@ Staff A: SWAP (exchange with one of B's shifts) or COVER (B takes A's shift) on 
 
 Manager shift planning on the same branch:
 
-- `Shift` rows are templates of 4, 6 or 8 hours (BR-33); times are locked while live assignments use them.
+- `Shift` rows are templates of 4, 6 or 8 hours (BR-31); times are locked while live assignments use them.
 - `ShiftAssignment.status` is `DRAFT` while the Manager plans (hidden from Staff, no check-in, no swap), `SCHEDULED` once a date range is published, and `CANCELLED` when removed. Pre-existing rows already carry `SCHEDULED`.
-- Publishing is refused while any future shift leaves an ACTIVE Zone below `Zone.min_staff` (BR-02). Assigning, editing and leave use the same BR-34/35 checks as swaps; started or checked-in shifts are locked.
+- Publishing is refused while any future shift leaves an ACTIVE Zone below `Zone.min_staff` (BR-02). Assigning, editing and leave enforce the current BR-32/BR-33 overlap, weekly-hours, future-shift and availability constraints; started or checked-in shifts are locked.
 - Only active `STAFF` accounts can be scheduled; dispatch eligibility remains Role + Zone, with no staff-skill table.
 - Cancelling an assignment also cancels pending swap requests on it. `StaffUnavailability` is Manager-maintained leave and is refused while the person still has an unfinished shift in that period.
 
 Not implemented: weekly copy/recurrence, Staff self-service leave requests, a `SystemSetting` override for the weekly limit, and FCM delivery. Routes and validation evidence are in [`docs/API.md`](API.md) and [`docs/VALIDATION.md`](VALIDATION.md).
+
+---
+
+# 43. Recent MF-01 camera integration changes (22/10/2026)
+
+Inspected `dev` includes three camera-focused updates after the prior context baseline:
+
+- LIVE/RTSP browser playback provisions a stable `cam-{cameraId}` MediaMTX path through the internal Control API and returns a sanitized WHEP URL; clients no longer require build-time camera-path mappings.
+- Editing a connection may set `preservePassword: true` to keep the encrypted stored password when the password field is intentionally blank. Responses expose only `hasCredentials`, never the password or secret reference.
+- Stream failures are classified so transport/source errors are not mislabeled as camera visual-health failures; AI-service unavailability remains processing health, not an operational Incident.
+
+These are source/test observations, not live deployment claims. See [`README.md`](../README.md), [`docs/API.md`](API.md) and camera-focused tests for current routes and configuration.
 
 ---
 
