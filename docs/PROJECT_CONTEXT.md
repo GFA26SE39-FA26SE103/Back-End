@@ -672,6 +672,8 @@ The branch also contains Operator candidate lookup/manual assignment and preserv
 
 This subset is now mapped to the exact 37-table post-cleanup V6 scaffold. Retry overrides use `SystemSetting` keys `task_offer.retry_interval_sec` and `task_offer.max_retry_count`; invalid or absent values fall back to 60 seconds and three total attempts. `NotificationConfig` remains retired, and no generated scaffold file was hand-edited to restore it.
 
+**25/10 mapper correction and SQL check:** removed obsolete Incident-qualification fields from the domain `ResponsePolicyAction` to match the approved V6 scaffold; the EF mapper now rejects incompatible domain properties explicitly. Two mapper regression tests and the non-SQL suite pass (340 tests). A rollback-only check against the configured 37-table Development database verified application check-in, evaluator → Event → Task/offer/IN_APP notification, retry, acceptance/start, priority escalation and recovery. Measurements were synthetic; camera/AI capture, HTTP/device delivery and concurrent acceptance were not exercised. The rollback retained the original DB configuration: the active rule had no response policy, camera/connection were inactive/disabled, and no current checked-in Staff covered the rule Zone. See the dated [validation entry](VALIDATION.md#mf-02-v6-task-mapper-and-live-sql-rollback-proof--2026-10-25).
+
 Not implemented by this subset: approval-required policy actions, SLA/deadline/overdue rules, FCM/SignalR delivery, task evidence and verification, confirmed StaffReports, simultaneous `ZoneAdjacency` dispatch or complete analytics. SWAP/COVER and Manager-maintained `StaffUnavailability` are separate MF-04 capabilities in §42.
 
 ---

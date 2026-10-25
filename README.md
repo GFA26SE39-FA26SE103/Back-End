@@ -2,6 +2,12 @@
 
 Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.md](AGENTS.md) và [context đầy đủ của team](docs/PROJECT_CONTEXT.md), đồng bộ SRS/BR/diagram V2 và ERD V6 ngày **23/10/2026** trên baseline Mainflow 02/10/2026. SQL Server là nguồn dữ liệu chính. Backend có API setup, floor-plan upload, upload MP4 và AI preview; mức độ nối frontend cần đối chiếu với checkout frontend hiện tại. Phạm vi chính là **MF-01**, kèm các subset MF-02/MF-04 được ghi rõ bên dưới.
 
+## MF-02 Task readiness — checked 25/10/2026
+
+Đã sửa lệch domain `ResponsePolicyAction` so với scaffold V6 và kiểm chứng bằng SQL Dev thật trong transaction rollback: check-in → sustained Event → Task/offer/notification → nhận việc/bắt đầu → tăng priority → Event clear. Non-SQL suite: **340 passed**. Đây là kiểm chứng application/EF/SQL với measurement giả lập, chưa phải camera/AI hoặc HTTP/mobile acceptance; xem [bằng chứng và giới hạn](docs/VALIDATION.md#mf-02-v6-task-mapper-and-live-sql-rollback-proof--2026-10-25).
+
+DB Dev tại lúc kiểm tra chưa sẵn sàng tự tạo Task cho demo: rule ACTIVE chưa có ResponsePolicy/action, camera INACTIVE và connection disabled, Staff chưa có ca hiện tại/check-in ở Zone của rule. Policy phải enabled, khớp rule + priority, có action `CREATE_OPERATIONAL_TASK` / `AUTOMATIC`; ca đã publish, đang diễn ra và Staff check-in/đúng Zone/workload < 2. Fixture thử đã rollback; chưa bật camera, tạo policy hay ghi check-in vào lịch thật. API contract và schema không đổi.
+
 ## Dev deployment checkpoint — 04/10/2026
 
 Backend Dev đang chạy tại `https://supermarket-api-dev.kitsuracloud.com`; health, Swagger, login và `GET /api/auth/me` qua HTTPS đã được xác minh với `FA26SE103_Dev`. Push vào nhánh `dev` tự chạy test không cần SQL, build/push image GHCR theo digest, kết nối Tailscale, SSH deploy Docker và readiness/rollback. Xem [runbook và trạng thái tự động/thủ công](docs/DEPLOY_DEV.md#verified-deployment-checkpoint-2026-10-04).

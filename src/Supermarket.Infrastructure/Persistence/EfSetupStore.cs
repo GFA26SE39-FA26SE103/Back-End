@@ -60,7 +60,15 @@ public sealed class EfSetupStore(AppDbContext db, IClock clock) : ISetupStore
     }
     private sealed class EfSet<TDomain, TDb>(AppDbContext db, IClock clock) : ISet<TDomain> where TDomain : Entity, new() where TDb : class, new()
     {
-        private static readonly (PropertyInfo Domain, PropertyInfo Db)[] Properties = typeof(TDomain).GetProperties().Select(p => (p, typeof(TDb).GetProperty(p.Name)!)).ToArray();
+        private static readonly (PropertyInfo Domain, PropertyInfo Db)[] Properties = MappedProperties();
+        private static (PropertyInfo Domain, PropertyInfo Db)[] MappedProperties()
+            => typeof(TDomain).GetProperties().Select(domain =>
+            {
+                var persistence = typeof(TDb).GetProperty(domain.Name);
+                if (persistence is null || persistence.PropertyType != domain.PropertyType || !persistence.CanRead || !persistence.CanWrite)
+                    throw new InvalidOperationException($"Persistence mapping for {typeof(TDomain).Name}.{domain.Name} does not match the approved scaffold.");
+                return (domain, persistence);
+            }).ToArray();
         private static TDomain ToDomain(TDb entity)
         {
             var result = new TDomain();
