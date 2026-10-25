@@ -75,6 +75,7 @@ public sealed class AiPreviewApiTests
     {
         var cameraId = Guid.NewGuid();
         var sessionId = Guid.NewGuid();
+        var viewerLeaseId = Guid.NewGuid();
         var handler = new RecordingHandler(request =>
         {
             var response = new HttpResponseMessage(request.RequestUri!.Query.Contains("after_sequence=2") ? HttpStatusCode.NoContent : HttpStatusCode.OK);
@@ -89,20 +90,22 @@ public sealed class AiPreviewApiTests
         });
         var client = new AiPreviewClient(new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:8090") }, Options.Create(new AiPreviewOptions()), new TestProtector());
 
-        var first = await client.NextFrame(cameraId, 1, sessionId, CancellationToken.None);
+        var first = await client.NextFrame(cameraId, viewerLeaseId, 1, sessionId, CancellationToken.None);
         Assert.NotNull(first);
         Assert.Equal(2, first.FrameSequence);
         Assert.Equal(sessionId, first.SessionId);
         Assert.Contains("after_sequence=1", handler.LastRequest!.RequestUri!.Query);
         Assert.Contains($"after_session_id={sessionId}", handler.LastRequest.RequestUri.Query);
-        Assert.Null(await client.NextFrame(cameraId, 2, sessionId, CancellationToken.None));
+        Assert.Equal(viewerLeaseId.ToString(), handler.LastRequest.Headers.GetValues("X-AI-Viewer-Lease").Single());
+        Assert.Null(await client.NextFrame(cameraId, viewerLeaseId, 2, sessionId, CancellationToken.None));
     }
 
     [Fact]
     public async Task InternalClientDecryptsCredentialOnlyForStartRequest()
     {
         var cameraId = Guid.NewGuid();
-        var handler = new RecordingHandler(_ => Json(HttpStatusCode.OK, StatusJson(cameraId, "LIVE")));
+        var viewerLeaseId = Guid.NewGuid();
+        var handler = new RecordingHandler(_ => Json(HttpStatusCode.OK, StatusJson(cameraId, "LIVE", viewerLeaseId)));
         var options = Options.Create(new AiPreviewOptions { InternalServiceKey = "service-key" });
         var client = new AiPreviewClient(new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:8090") }, options, new TestProtector());
         var connection = ReadyConnection(cameraId);
@@ -110,6 +113,7 @@ public sealed class AiPreviewApiTests
         var result = await client.Start(connection, CancellationToken.None);
 
         Assert.Equal("LIVE", result.State);
+        Assert.Equal(viewerLeaseId, result.ViewerLeaseId);
         Assert.Equal("service-key", handler.LastRequest!.Headers.GetValues("X-AI-Service-Key").Single());
         Assert.Contains("camera-password", handler.LastBody);
         Assert.Contains(connection.StreamUri, handler.LastBody);
@@ -123,6 +127,10 @@ public sealed class AiPreviewApiTests
     [Theory]
     [InlineData(HttpStatusCode.Conflict, "AI_PREVIEW_NOT_RUNNING", 409)]
     [InlineData(HttpStatusCode.Conflict, "AI_SESSION_CAPACITY", 409)]
+    [InlineData(HttpStatusCode.Conflict, "AI_VIEWER_LEASE_EXPIRED", 409)]
+    [InlineData(HttpStatusCode.Conflict, "AI_PREVIEW_CONFIGURATION_CONFLICT", 409)]
+    [InlineData(HttpStatusCode.Conflict, "AI_MONITORING_START_PENDING", 409)]
+    [InlineData(HttpStatusCode.UnprocessableEntity, "AI_VIEWER_LEASE_REQUIRED", 422)]
     [InlineData(HttpStatusCode.ServiceUnavailable, "AI_FRAME_NOT_READY", 503)]
     public async Task InternalClientMapsStableErrorsWithoutLeakingUpstreamDetail(HttpStatusCode status, string code, int expectedStatus)
     {
@@ -136,12 +144,69 @@ public sealed class AiPreviewApiTests
             Options.Create(new AiPreviewOptions()),
             new TestProtector());
 
-        var error = await Assert.ThrowsAsync<AppError>(() => client.Frame(Guid.NewGuid(), CancellationToken.None));
+        var error = await Assert.ThrowsAsync<AppError>(() => client.Frame(Guid.NewGuid(), Guid.NewGuid(), CancellationToken.None));
 
         Assert.Equal(code, error.Code);
         Assert.Equal(expectedStatus, error.Status);
         Assert.DoesNotContain("camera-password", error.Message);
         Assert.DoesNotContain("viewer:", error.Message);
+    }
+
+    [Fact]
+    public async Task InternalClientScopesReadAndReleaseRequestsToSuppliedViewerLease()
+    {
+        var cameraId = Guid.NewGuid();
+        var viewerLeaseId = Guid.NewGuid();
+        var sessionId = Guid.NewGuid();
+        var handler = new RecordingHandler(request =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/frame"))
+            {
+                var frame = new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent([0xFF, 0xD8, 0xFF, 0xD9])
+                };
+                frame.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("image/jpeg");
+                return frame;
+            }
+
+            return Json(HttpStatusCode.OK, StatusJson(cameraId, "LIVE", viewerLeaseId, sessionId));
+        });
+        var client = new AiPreviewClient(
+            new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:8090") },
+            Options.Create(new AiPreviewOptions { InternalServiceKey = "service-key" }),
+            new TestProtector());
+
+        await client.Status(cameraId, viewerLeaseId, CancellationToken.None);
+        AssertViewerLeaseHeaders(handler.LastRequest!, viewerLeaseId);
+        await client.Frame(cameraId, viewerLeaseId, CancellationToken.None);
+        AssertViewerLeaseHeaders(handler.LastRequest!, viewerLeaseId);
+        await client.ReleaseViewer(cameraId, viewerLeaseId, CancellationToken.None);
+        AssertViewerLeaseHeaders(handler.LastRequest!, viewerLeaseId);
+        Assert.Equal($"/sessions/{cameraId}/viewer", handler.LastRequest!.RequestUri!.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task InternalClientSeparatesAttachViewerFromMaintenanceForceStop()
+    {
+        var cameraId = Guid.NewGuid();
+        var viewerLeaseId = Guid.NewGuid();
+        var handler = new RecordingHandler(_ =>
+            Json(HttpStatusCode.OK, StatusJson(cameraId, "LIVE", viewerLeaseId)));
+        var client = new AiPreviewClient(
+            new HttpClient(handler) { BaseAddress = new Uri("http://127.0.0.1:8090") },
+            Options.Create(new AiPreviewOptions()),
+            new TestProtector());
+
+        var attached = await client.AttachViewer(cameraId, CancellationToken.None);
+        Assert.Equal(viewerLeaseId, attached.ViewerLeaseId);
+        Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+        Assert.Equal($"/sessions/{cameraId}/viewers/attach", handler.LastRequest.RequestUri!.AbsolutePath);
+
+        await client.ForceStop(cameraId, CancellationToken.None);
+        Assert.Equal(HttpMethod.Delete, handler.LastRequest!.Method);
+        Assert.Equal($"/sessions/{cameraId}/force", handler.LastRequest.RequestUri!.AbsolutePath);
+        Assert.False(handler.LastRequest.Headers.Contains("X-AI-Viewer-Lease"));
     }
 
     [Fact]
@@ -196,7 +261,7 @@ public sealed class AiPreviewApiTests
         Content = new StringContent(json, Encoding.UTF8, "application/json")
     };
 
-    private static string StatusJson(Guid cameraId, string state)
+    private static string StatusJson(Guid cameraId, string state, Guid? viewerLeaseId = null, Guid? sessionId = null)
         => JsonSerializer.Serialize(new
         {
             camera_id = cameraId,
@@ -204,8 +269,16 @@ public sealed class AiPreviewApiTests
             started_at = "2026-10-01T00:00:00Z",
             updated_at = "2026-10-01T00:00:01Z",
             frame_sequence = 1,
-            error_code = (string?)null
+            error_code = (string?)null,
+            session_id = sessionId,
+            viewer_lease_id = viewerLeaseId
         });
+
+    private static void AssertViewerLeaseHeaders(HttpRequestMessage request, Guid viewerLeaseId)
+    {
+        Assert.Equal(viewerLeaseId.ToString(), request.Headers.GetValues("X-AI-Viewer-Lease").Single());
+        Assert.Equal("service-key", request.Headers.GetValues("X-AI-Service-Key").Single());
+    }
 
     private sealed class RecordingHandler(Func<HttpRequestMessage, HttpResponseMessage> response) : HttpMessageHandler
     {

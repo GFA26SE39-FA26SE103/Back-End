@@ -26,7 +26,11 @@ public sealed class AiPreviewClient(
         "AI_REQUEST_INVALID",
         "AI_SERVICE_UNAUTHORIZED",
         "AI_PREVIEW_FAILED"
-        ,"AI_SESSION_MONITORING_OWNED","AI_SESSION_OWNER_MISMATCH"
+        ,"AI_SESSION_MONITORING_OWNED","AI_SESSION_OWNER_MISMATCH",
+        "AI_VIEWER_LEASE_REQUIRED",
+        "AI_VIEWER_LEASE_EXPIRED",
+        "AI_PREVIEW_CONFIGURATION_CONFLICT",
+        "AI_MONITORING_START_PENDING"
     ];
     private readonly AiPreviewOptions options = configured.Value;
 
@@ -54,9 +58,28 @@ public sealed class AiPreviewClient(
     public Task<AiPreviewStatusView> Status(Guid cameraId, CancellationToken ct)
         => SendStatus(HttpMethod.Get, $"/sessions/{cameraId}/status", null, ct);
 
+    public Task<AiPreviewStatusView> AttachViewer(Guid cameraId, CancellationToken ct)
+        => SendStatus(HttpMethod.Post, $"/sessions/{cameraId}/viewers/attach", null, ct);
+
+    public Task<AiPreviewStatusView> Status(Guid cameraId, Guid viewerLeaseId, CancellationToken ct)
+        => SendStatus(HttpMethod.Get, $"/sessions/{cameraId}/status", null, ct, viewerLeaseId);
+
     public async Task<PreviewFrame> Frame(Guid cameraId, CancellationToken ct)
     {
         using var response = await Send(new HttpRequestMessage(HttpMethod.Get, $"/sessions/{cameraId}/frame"), ct);
+        if (!response.IsSuccessStatusCode)
+            throw await Error(response, ct);
+        var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+        if (bytes.Length == 0 || bytes.Length > 8 * 1024 * 1024)
+            throw new AppError("AI_FRAME_INVALID", "AI preview returned an invalid frame.", 503);
+        return new PreviewFrame(bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg");
+    }
+
+    public async Task<PreviewFrame> Frame(Guid cameraId, Guid viewerLeaseId, CancellationToken ct)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"/sessions/{cameraId}/frame");
+        AddViewerLease(request, viewerLeaseId);
+        using var response = await Send(request, ct);
         if (!response.IsSuccessStatusCode)
             throw await Error(response, ct);
         var bytes = await response.Content.ReadAsByteArrayAsync(ct);
@@ -84,12 +107,41 @@ public sealed class AiPreviewClient(
         return new SequencedPreviewFrame(bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg", sequence, sessionId);
     }
 
+    public async Task<SequencedPreviewFrame?> NextFrame(Guid cameraId, Guid viewerLeaseId, long afterSequence, Guid? afterSessionId, CancellationToken ct)
+    {
+        var path = $"/sessions/{cameraId}/frame/next?after_sequence={afterSequence}";
+        if (afterSessionId is not null) path += $"&after_session_id={afterSessionId}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, path);
+        AddViewerLease(request, viewerLeaseId);
+        using var response = await Send(request, ct);
+        if (response.StatusCode == HttpStatusCode.NoContent) return null;
+        if (!response.IsSuccessStatusCode) throw await Error(response, ct);
+        if (!response.Headers.TryGetValues("X-Frame-Sequence", out var sequences)
+            || !long.TryParse(sequences.SingleOrDefault(), out var sequence)
+            || sequence < 1
+            || !response.Headers.TryGetValues("X-Session-Id", out var sessions)
+            || !Guid.TryParse(sessions.SingleOrDefault(), out var sessionId))
+            throw new AppError("AI_FRAME_INVALID", "AI preview returned invalid frame metadata.", 503);
+        var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+        if (bytes.Length == 0 || bytes.Length > 8 * 1024 * 1024)
+            throw new AppError("AI_FRAME_INVALID", "AI preview returned an invalid frame.", 503);
+        return new SequencedPreviewFrame(bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg", sequence, sessionId);
+    }
+
     public Task<AiPreviewStatusView> Stop(Guid cameraId, CancellationToken ct)
         => SendStatus(HttpMethod.Delete, $"/sessions/{cameraId}", null, ct);
 
-    private async Task<AiPreviewStatusView> SendStatus(HttpMethod method, string path, object? body, CancellationToken ct)
+    public Task<AiPreviewStatusView> ReleaseViewer(Guid cameraId, Guid viewerLeaseId, CancellationToken ct)
+        => SendStatus(HttpMethod.Delete, $"/sessions/{cameraId}/viewer", null, ct, viewerLeaseId);
+
+    public Task<AiPreviewStatusView> ForceStop(Guid cameraId, CancellationToken ct)
+        => SendStatus(HttpMethod.Delete, $"/sessions/{cameraId}/force", null, ct);
+
+    private async Task<AiPreviewStatusView> SendStatus(HttpMethod method, string path, object? body, CancellationToken ct, Guid? viewerLeaseId = null)
     {
         using var request = new HttpRequestMessage(method, path);
+        if (viewerLeaseId is { } leaseId)
+            AddViewerLease(request, leaseId);
         if (body is not null)
             request.Content = JsonContent.Create(body, options: Json);
         using var response = await Send(request, ct);
@@ -97,8 +149,11 @@ public sealed class AiPreviewClient(
             throw await Error(response, ct);
         var dto = await response.Content.ReadFromJsonAsync<StatusResponse>(Json, ct)
             ?? throw new AppError("AI_SERVICE_INVALID_RESPONSE", "AI preview service returned an invalid response.", 503);
-        return new AiPreviewStatusView(dto.CameraId, dto.State, dto.StartedAt, dto.UpdatedAt, dto.FrameSequence, dto.ErrorCode,dto.SessionId,dto.Purpose??"PREVIEW",dto.ConfigurationFingerprint,dto.AnnotationContext);
+        return new AiPreviewStatusView(dto.CameraId, dto.State, dto.StartedAt, dto.UpdatedAt, dto.FrameSequence, dto.ErrorCode,dto.SessionId,dto.Purpose??"PREVIEW",dto.ConfigurationFingerprint,dto.AnnotationContext,dto.ViewerLeaseId);
     }
+
+    private static void AddViewerLease(HttpRequestMessage request, Guid viewerLeaseId)
+        => request.Headers.TryAddWithoutValidation("X-AI-Viewer-Lease", viewerLeaseId.ToString());
 
     private async Task<HttpResponseMessage> Send(HttpRequestMessage request, CancellationToken ct)
     {
@@ -141,6 +196,10 @@ public sealed class AiPreviewClient(
             "AI_PREVIEW_NOT_RUNNING" => "AI preview is not running.",
             "AI_FRAME_NOT_READY" => "AI preview frame is not ready.",
             "AI_SESSION_CAPACITY" => "Another AI preview session is already using the GPU.",
+            "AI_VIEWER_LEASE_REQUIRED" => "AI viewer lease is required.",
+            "AI_VIEWER_LEASE_EXPIRED" => "AI viewer lease is missing or expired.",
+            "AI_PREVIEW_CONFIGURATION_CONFLICT" => "AI preview is already running with different camera configuration.",
+            "AI_MONITORING_START_PENDING" => "AI monitoring session is still starting.",
             "AI_REQUEST_INVALID" => "AI preview request is invalid.",
             _ => "AI preview failed."
         };
@@ -168,5 +227,5 @@ public sealed class AiPreviewClient(
         DateTime? StartedAt,
         DateTime UpdatedAt,
         long FrameSequence,
-        string? ErrorCode,Guid? SessionId,string? Purpose,string? ConfigurationFingerprint,string? AnnotationContext);
+        string? ErrorCode,Guid? SessionId,string? Purpose,string? ConfigurationFingerprint,string? AnnotationContext,Guid? ViewerLeaseId);
 }

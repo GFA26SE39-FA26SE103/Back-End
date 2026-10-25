@@ -10,7 +10,8 @@ public sealed record AiPreviewStatusView(
     Guid? SessionId=null,
     string Purpose="PREVIEW",
     string? ConfigurationFingerprint=null,
-    string? AnnotationContext=null);
+    string? AnnotationContext=null,
+    Guid? ViewerLeaseId=null);
 
 public sealed record SequencedPreviewFrame(byte[] Bytes, string ContentType, long FrameSequence, Guid SessionId);
 
