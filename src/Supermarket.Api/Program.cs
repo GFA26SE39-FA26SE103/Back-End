@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using Supermarket.Api;
+using Supermarket.Api.Configuration;
 using Supermarket.Application;
 using Supermarket.Domain;
 using Supermarket.Infrastructure;
@@ -105,6 +106,7 @@ builder.Services.AddScoped<IOperationalEventResponder>(s => s.GetRequiredService
 builder.Services.AddScoped<TaskViews>();
 builder.Services.AddScoped<StaffTasks>();
 builder.Services.AddScoped<OperatorTasks>();
+builder.Services.AddResponsePolicyManagement();
 builder.Services.AddHostedService<TaskOfferWorker>();
 builder.Services.AddScoped<IShiftSwapSchema, EfShiftSwapSchema>();
 builder.Services.AddScoped<SwapPlanner>();
