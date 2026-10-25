@@ -320,6 +320,47 @@ Firebase Cloud Messaging / push   → communication (not Task acceptance)
 
 ---
 
+## 11.1 Approved UML Package Diagrams — implementation alignment (25/10/2026)
+
+The following **five editable UML Package Diagrams** define the agreed **target logical module boundaries** for subsequent implementation and Report 4. They supplement the SRS, business rules and Physical ERD V6; they do **not** supersede those artifacts, establish database changes, or prove the packages already exist as source folders.
+
+| Scope | Approved diagram |
+| --- | --- |
+| Overall System | [Overall System Package Diagram](https://drive.google.com/file/d/15VccEY3mjZE873lEd9ZewgQ28ODFT5gd/view) |
+| Backend | [Backend Package Diagram](https://drive.google.com/file/d/16Hds29vypPHzu7LiUNI5KtKLZyEG7ZsL/view) |
+| Frontend | [Frontend Package Diagram](https://drive.google.com/file/d/12uenwf5n_vMIOg6OIoanxsncZdxlDBH9/view) |
+| Mobile | [Mobile Package Diagram](https://drive.google.com/file/d/12Zye5FYjqmUfLslm1QjMv6YqxIh_Uttb/view) |
+| AI Service | [AI Service Package Diagram](https://drive.google.com/file/d/19_2c3UbZclmVOGyy3Zvg82WWO0U_nKr6/view) |
+
+### Backend target package map
+
+Preserve the four actual .NET project roots. Names below are **logical package responsibilities**; do not assume matching physical namespaces/folders already exist.
+
+- **`Supermarket.Api`**: `Controllers`, `Authentication`, `Configuration` — transport endpoints, authentication/authorization wiring, dependency injection and HTTP composition; keep controllers thin.
+- **`Supermarket.Application`**: `Identity`, `SupermarketManagement`, `Cameras`, `Monitoring`, `OperationalEvents`, `Incidents`, `StaffReports`, `Tasks`, `Workforce`, `Notifications`, `Analytics`, `Administration`, `Common` — use cases, orchestration, contracts/DTOs, transaction coordination and interfaces for external dependencies.
+- **`Supermarket.Domain`**: `Identity`, `SupermarketStructure`, `Monitoring`, `OperationalEvents`, `Incidents`, `StaffReports`, `Tasks`, `Workforce`, `Common` — entities, value types, invariants, validation, state transitions and business policies; no HTTP, EF Core, SQL, AI HTTP calls or push-delivery implementation.
+- **`Supermarket.Infrastructure`**: `Persistence`, `AI`, `Video`, `MediaStorage`, `Messaging`, `Caching`, `Security`, `BackgroundWorkers` — EF/SQL and external adapters, storage, workers and technical integration. Keep generated EF scaffold in its existing generated location until an approved migration/refactor.
+
+**Naming decisions:** use `Application.SupermarketManagement` for store setup/maintenance use cases and `Domain.SupermarketStructure` for the physical `Supermarket`–`Floor`–`Zone`–`Camera` structure and constraints. Use `Domain.Common` rather than `Domain.Shared`; `Application.Common` remains its own shared application-level utilities/contracts. Do not confuse the `Supermarket` entity with the package name. The `Supermarket.*` prefix is appropriate for the actual .NET projects; do not force it into Python, Dart or React module names.
+
+### Other repositories' target package map
+
+These names provide cross-repository **contract alignment**, not a mandate to rename working directories in unrelated repos without team approval.
+
+- **Frontend (React):** `App & Routing` (`Bootstrap`, `RouteRegistry`); `Pages / Features` (`Authentication`, `Administration`, `SupermarketLayout`, `Cameras`, `Monitoring`, `OperationalEvents`, `Incidents`, `Tasks`, `Workforce`, `Notifications`, `Dashboards`, `AnalyticsReports`, `DecisionSupport`, `SystemSetup`); `Components` (`Layouts`, `SharedUI`, `CameraMapWidgets`); `API` (`HttpClient`, `FeatureEndpoints`, `Contracts`); `Auth` (`Session`, `RoleGuards`); `Data / Config / Styles` (`ClientData`, `Configuration`, `StyleTokens`, `Assets`). `SupermarketLayout` means floor/zone layout, not POS or inventory.
+- **Mobile (Flutter, Staff-focused):** `App Shell` (`Bootstrap`, `NavigationShell`); `Features` (`Auth`, `StaffReports`, `Alerts`, `Shifts`, `Tasks`, `ShiftSwaps`, `TaskEvidence`, `StaffProfile`); `Data` (`Models`, `OperationsRepository`, `HttpRepository`, `DemoRepository`, `Providers`); `Core` (`Routing`, `Config`, `NetworkProviders`, `DeviceNotifications`, `Theme`, `PushMessaging`); `Shared` (`Widgets`, `Formatting`). `StaffReports` and `StaffProfile` are logical labels, even where current source paths still use `report` and `me`; TaskEvidence and push messaging remain subject to actual implementation status.
+- **AI Service (Python/FastAPI):** `InternalAPI` (`PreviewRoutes`, `MonitoringRoutes`, `HealthRoutes`); `Session Runtime` (`SessionManager`, `LeaseOwnership`, `SourceClock`); `Video Analytics` (`CameraReader`, `PreviewTracker`, `MonitoringTracker`, `FrameHealth`); `Measurements` (`ROIMeasurements`, `QueueDwell`, `MeasurementBuffer`); `Contracts & Config` (`SessionSchemas`, `MonitoringSchemas`, `Settings`). `InternalAPI` is an internal Backend-facing integration boundary, not a direct Web/Mobile API; it does not own business Incident/Task decisions or SQL persistence.
+
+### Implementation rules for coding agents and developers
+
+1. **Use the diagrams as target boundaries when creating or refactoring modules.** First inspect the real repo, interfaces, tests and existing dependencies. Do not move all files or rename public APIs/namespaces in one unreviewed change merely to mirror a diagram.
+2. **Keep ownership explicit:** API receives requests; Application coordinates use cases and transactions; Domain enforces business invariants; Infrastructure implements technical integrations. Domain must not depend on API/Infrastructure. Prefer interfaces owned by Application for external integrations.
+3. **Preserve approved business separation:** one `MonitoringRule` produces either `OPERATIONAL_EVENT` or `INCIDENT`; an OperationalEvent never becomes an Incident. StaffReports independently qualify for a routine Task or Incident. Tasks and Workforce remain separate business modules.
+4. **Backend is authoritative** for authentication, role checks, eligibility, shift swaps, Task offer first-winner concurrency, Event/Incident state and persistence. Frontend/Mobile call authenticated Backend APIs, **not** the AI Service directly. AI sends validated measurements/observations; Backend applies MonitoringRules and persists outcomes.
+5. **Do not misread UML dependencies as a complete runtime call graph.** The diagrams describe intended package ownership and dependencies, not every class or future endpoint. Keep cross-package coupling narrow and avoid circular dependencies.
+6. **Maintain a gap list** whenever diagram packages are planned but not implemented. The source snapshot in §§36, 39–43 remains the evidence for implemented functionality; no diagram label changes that status. In particular, evidence verification, confirmed StaffReports, FCM, complete analytics and validated INCIDENT-targeting AI remain unverified/incomplete as described there.
+7. **For a scoped change:** identify its owning package, preserve existing contracts and generated SQL scaffold, write focused tests, update `docs/API.md`/`VALIDATION.md` where relevant, and document any remaining diagram↔code discrepancy. Seek approval before breaking changes or cross-repository refactors.
+
 # 12. MF-01 service boundaries
 
 Account/RBAC; floor-plan/zone geometry; camera metadata, stream credentials and validation; camera-zone mapping; MonitoringConfiguration/Rule; preview; background monitoring; camera health; status/overview. Keep camera preview read-only and monitoring processing owned by the runtime worker. Do not add unapproved functionality merely because a scaffold allows it.
