@@ -49,6 +49,9 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Camera-worker capacity, monitoring start, or shared configuration conflict (`AI_SESSION_CAPACITY`, `AI_MONITORING_START_PENDING`, `AI_PREVIEW_CONFIGURATION_CONFLICT`)."
           }
         }
       }
@@ -62,6 +65,15 @@
           {
             "name": "id",
             "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-AI-Viewer-Lease",
+            "in": "header",
             "required": true,
             "schema": {
               "type": "string",
@@ -89,6 +101,12 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Viewer lease is expired or belongs to an earlier session generation (`AI_VIEWER_LEASE_EXPIRED`)."
+          },
+          "422": {
+            "description": "Viewer lease is missing (`AI_VIEWER_LEASE_REQUIRED`)."
           }
         }
       }
@@ -107,13 +125,32 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "X-AI-Viewer-Lease",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
           "200": {
             "description": "OK"
+          },
+          "409": {
+            "description": "Viewer lease is expired or belongs to an earlier session generation (`AI_VIEWER_LEASE_EXPIRED`)."
+          },
+          "422": {
+            "description": "Viewer lease is missing (`AI_VIEWER_LEASE_REQUIRED`)."
+          },
+          "503": {
+            "description": "Annotated frame is not ready (`AI_FRAME_NOT_READY`)."
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/api/cameras/{id}/ai-preview/frame/next": {
@@ -126,25 +163,54 @@
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-AI-Viewer-Lease",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "afterSequence",
             "in": "query",
-            "schema": { "type": "integer", "format": "int64", "default": 0 }
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "default": 0
+            }
           },
           {
             "name": "afterSessionId",
             "in": "query",
-            "schema": { "type": "string", "format": "uuid", "nullable": true }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "New annotated frame",
-            "content": { "image/jpeg": { "schema": { "type": "string", "format": "binary" } } }
+            "description": "OK"
           },
-          "204": { "description": "No new frame" }
+          "204": {
+            "description": "No Content"
+          },
+          "409": {
+            "description": "Viewer lease is expired or belongs to an earlier session generation (`AI_VIEWER_LEASE_EXPIRED`)."
+          },
+          "422": {
+            "description": "Viewer lease is missing (`AI_VIEWER_LEASE_REQUIRED`)."
+          },
+          "503": {
+            "description": "Annotated frame is not ready (`AI_FRAME_NOT_READY`)."
+          }
         }
       }
     },
@@ -164,6 +230,26 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseAiPreviewRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseAiPreviewRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseAiPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "OK",
@@ -184,6 +270,12 @@
                 }
               }
             }
+          },
+          "409": {
+            "description": "Viewer lease is expired or belongs to an earlier session generation (`AI_VIEWER_LEASE_EXPIRED`)."
+          },
+          "422": {
+            "description": "Viewer lease is missing (`AI_VIEWER_LEASE_REQUIRED`)."
           }
         }
       }
@@ -1801,6 +1893,495 @@
         }
       }
     },
+    "/api/monitoring-rules/{ruleId}/response-policies": {
+      "get": {
+        "tags": [
+          "ResponsePolicies"
+        ],
+        "parameters": [
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ResponsePolicyView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ResponsePolicyView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ResponsePolicyView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/monitoring-rules/{ruleId}/response-policies/{priority}": {
+      "put": {
+        "tags": [
+          "ResponsePolicies"
+        ],
+        "parameters": [
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "priority",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResponsePolicySaveRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResponsePolicySaveRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResponsePolicySaveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponsePolicyView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponsePolicyView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResponsePolicyView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "ResponsePolicies"
+        ],
+        "parameters": [
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "priority",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResponsePolicyDeleteRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResponsePolicyDeleteRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResponsePolicyDeleteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/schedule": {
+      "get": {
+        "tags": [
+          "Schedule"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/schedule/staff-options": {
+      "get": {
+        "tags": [
+          "Schedule"
+        ],
+        "parameters": [
+          {
+            "name": "shiftId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "workDate",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "replacingAssignmentId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffOptionView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffOptionView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffOptionView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/schedule/assignments": {
+      "post": {
+        "tags": [
+          "Schedule"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignShiftRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignShiftRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignShiftRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledShiftView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledShiftView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledShiftView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/schedule/assignments/{id}": {
+      "patch": {
+        "tags": [
+          "Schedule"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAssignmentRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAssignmentRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAssignmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledShiftView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledShiftView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledShiftView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/schedule/assignments/{id}/cancel": {
+      "post": {
+        "tags": [
+          "Schedule"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelAssignmentRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelAssignmentRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelAssignmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledShiftView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledShiftView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledShiftView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/schedule/publish": {
+      "post": {
+        "tags": [
+          "Schedule"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishScheduleRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishScheduleRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishScheduleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishScheduleResult"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishScheduleResult"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublishScheduleResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/setup/overview": {
       "get": {
         "tags": [
@@ -1826,6 +2407,1014 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/swap-requests": {
+      "get": {
+        "tags": [
+          "ShiftSwaps"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SwapRequestView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SwapRequestView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SwapRequestView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ShiftSwaps"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapCreateRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapCreateRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/swap-requests/{id}": {
+      "get": {
+        "tags": [
+          "ShiftSwaps"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/swap-requests/{id}/respond": {
+      "post": {
+        "tags": [
+          "ShiftSwaps"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapRespondRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapRespondRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapRespondRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/swap-requests/{id}/cancel": {
+      "post": {
+        "tags": [
+          "ShiftSwaps"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapCancelRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapCancelRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapCancelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/swap-requests/{id}/approve": {
+      "post": {
+        "tags": [
+          "ShiftSwaps"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapDecisionRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapDecisionRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/swap-requests/{id}/reject": {
+      "post": {
+        "tags": [
+          "ShiftSwaps"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapDecisionRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapDecisionRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapRequestView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/shifts": {
+      "get": {
+        "tags": [
+          "ShiftTemplates"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ShiftTemplateView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ShiftTemplateView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ShiftTemplateView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ShiftTemplates"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShiftTemplateRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShiftTemplateRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShiftTemplateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftTemplateView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftTemplateView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftTemplateView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/shifts/{id}": {
+      "patch": {
+        "tags": [
+          "ShiftTemplates"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShiftTemplateUpdate"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShiftTemplateUpdate"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShiftTemplateUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftTemplateView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftTemplateView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftTemplateView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/shifts": {
+      "get": {
+        "tags": [
+          "StaffMe"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ShiftView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ShiftView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ShiftView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/shifts/{shiftAssignmentId}/check-in": {
+      "post": {
+        "tags": [
+          "StaffMe"
+        ],
+        "parameters": [
+          {
+            "name": "shiftAssignmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/eligibility": {
+      "get": {
+        "tags": [
+          "StaffMe"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/EligibilityView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EligibilityView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EligibilityView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/task-offers": {
+      "get": {
+        "tags": [
+          "StaffMe"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskOfferView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskOfferView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskOfferView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/tasks": {
+      "get": {
+        "tags": [
+          "StaffMe"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffTaskView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffTaskView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffTaskView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/notifications": {
+      "get": {
+        "tags": [
+          "StaffMe"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/notifications/read-all": {
+      "post": {
+        "tags": [
+          "StaffMe"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/api/me/swap-requests": {
+      "get": {
+        "tags": [
+          "StaffSwaps"
+        ],
+        "parameters": [
+          {
+            "name": "box",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SwapRequestView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SwapRequestView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SwapRequestView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/shifts/{shiftAssignmentId}/swap-candidates": {
+      "get": {
+        "tags": [
+          "StaffSwaps"
+        ],
+        "parameters": [
+          {
+            "name": "shiftAssignmentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapCandidatesView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapCandidatesView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwapCandidatesView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/staff-unavailability": {
+      "get": {
+        "tags": [
+          "StaffUnavailability"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UnavailabilityView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UnavailabilityView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UnavailabilityView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "StaffUnavailability"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnavailabilityRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnavailabilityRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnavailabilityRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailabilityView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailabilityView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnavailabilityView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/staff-unavailability/{id}": {
+      "delete": {
+        "tags": [
+          "StaffUnavailability"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
           }
         }
       }
@@ -2533,519 +4122,6 @@
         }
       }
     },
-    "/api/users": {
-      "get": {
-        "tags": [
-          "Users"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/UserView"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/UserView"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/UserView"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "Users"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateUserRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateUserRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateUserRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/users/{id}": {
-      "patch": {
-        "tags": [
-          "Users"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateUserRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateUserRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateUserRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/users/{id}/disable": {
-      "post": {
-        "tags": [
-          "Users"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/users/{id}/enable": {
-      "post": {
-        "tags": [
-          "Users"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UserView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/roles": {
-      "get": {
-        "tags": [
-          "Users"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Role"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Role"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Role"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/me/shifts": {
-      "get": {
-        "tags": [
-          "StaffMe"
-        ],
-        "parameters": [
-          {
-            "name": "from",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "to",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ShiftView"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ShiftView"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ShiftView"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/me/shifts/{shiftAssignmentId}/check-in": {
-      "post": {
-        "tags": [
-          "StaffMe"
-        ],
-        "parameters": [
-          {
-            "name": "shiftAssignmentId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShiftView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShiftView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShiftView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/me/eligibility": {
-      "get": {
-        "tags": [
-          "StaffMe"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/EligibilityView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EligibilityView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EligibilityView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/me/task-offers": {
-      "get": {
-        "tags": [
-          "StaffMe"
-        ],
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TaskOfferView"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TaskOfferView"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TaskOfferView"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/me/tasks": {
-      "get": {
-        "tags": [
-          "StaffMe"
-        ],
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/StaffTaskView"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/StaffTaskView"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/StaffTaskView"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/me/notifications": {
-      "get": {
-        "tags": [
-          "StaffMe"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/NotificationView"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/NotificationView"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/NotificationView"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/me/notifications/read-all": {
-      "post": {
-        "tags": [
-          "StaffMe"
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          }
-        }
-      }
-    },
     "/api/task-offers/{offerId}": {
       "get": {
         "tags": [
@@ -3387,19 +4463,10 @@
         }
       }
     },
-    "/api/swap-requests": {
+    "/api/users": {
       "get": {
         "tags": [
-          "ShiftSwaps"
-        ],
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
+          "Users"
         ],
         "responses": {
           "200": {
@@ -3409,7 +4476,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/SwapRequestView"
+                    "$ref": "#/components/schemas/UserView"
                   }
                 }
               },
@@ -3417,7 +4484,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/SwapRequestView"
+                    "$ref": "#/components/schemas/UserView"
                   }
                 }
               },
@@ -3425,7 +4492,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/SwapRequestView"
+                    "$ref": "#/components/schemas/UserView"
                   }
                 }
               }
@@ -3435,584 +4502,38 @@
       },
       "post": {
         "tags": [
-          "ShiftSwaps"
+          "Users"
         ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SwapCreateRequest"
+                "$ref": "#/components/schemas/CreateUserRequest"
               }
             },
             "text/json": {
               "schema": {
-                "$ref": "#/components/schemas/SwapCreateRequest"
+                "$ref": "#/components/schemas/CreateUserRequest"
               }
             },
             "application/*+json": {
               "schema": {
-                "$ref": "#/components/schemas/SwapCreateRequest"
+                "$ref": "#/components/schemas/CreateUserRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              }
-            }
+            "description": "OK"
           }
         }
       }
     },
-    "/api/swap-requests/{id}": {
-      "get": {
-        "tags": [
-          "ShiftSwaps"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/swap-requests/{id}/respond": {
-      "post": {
-        "tags": [
-          "ShiftSwaps"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SwapRespondRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SwapRespondRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/SwapRespondRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/swap-requests/{id}/cancel": {
-      "post": {
-        "tags": [
-          "ShiftSwaps"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SwapCancelRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SwapCancelRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/SwapCancelRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/swap-requests/{id}/approve": {
-      "post": {
-        "tags": [
-          "ShiftSwaps"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SwapDecisionRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SwapDecisionRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/SwapDecisionRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/swap-requests/{id}/reject": {
-      "post": {
-        "tags": [
-          "ShiftSwaps"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SwapDecisionRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SwapDecisionRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/SwapDecisionRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapRequestView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/me/swap-requests": {
-      "get": {
-        "tags": [
-          "StaffSwaps"
-        ],
-        "parameters": [
-          {
-            "name": "box",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/SwapRequestView"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/SwapRequestView"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/SwapRequestView"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/me/shifts/{shiftAssignmentId}/swap-candidates": {
-      "get": {
-        "tags": [
-          "StaffSwaps"
-        ],
-        "parameters": [
-          {
-            "name": "shiftAssignmentId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "type",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapCandidatesView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapCandidatesView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SwapCandidatesView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/schedule": {
-      "get": {
-        "tags": [
-          "Schedule"
-        ],
-        "parameters": [
-          {
-            "name": "from",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "to",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduleView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduleView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduleView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/schedule/staff-options": {
-      "get": {
-        "tags": [
-          "Schedule"
-        ],
-        "parameters": [
-          {
-            "name": "shiftId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "workDate",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "replacingAssignmentId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/StaffOptionView"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/StaffOptionView"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/StaffOptionView"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/schedule/assignments": {
-      "post": {
-        "tags": [
-          "Schedule"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AssignShiftRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AssignShiftRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/AssignShiftRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduledShiftView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduledShiftView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduledShiftView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/schedule/assignments/{id}": {
+    "/api/users/{id}": {
       "patch": {
         "tags": [
-          "Schedule"
+          "Users"
         ],
         "parameters": [
           {
@@ -4029,17 +4550,17 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateAssignmentRequest"
+                "$ref": "#/components/schemas/UpdateUserRequest"
               }
             },
             "text/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateAssignmentRequest"
+                "$ref": "#/components/schemas/UpdateUserRequest"
               }
             },
             "application/*+json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateAssignmentRequest"
+                "$ref": "#/components/schemas/UpdateUserRequest"
               }
             }
           }
@@ -4050,17 +4571,17 @@
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScheduledShiftView"
+                  "$ref": "#/components/schemas/UserView"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScheduledShiftView"
+                  "$ref": "#/components/schemas/UserView"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScheduledShiftView"
+                  "$ref": "#/components/schemas/UserView"
                 }
               }
             }
@@ -4068,10 +4589,10 @@
         }
       }
     },
-    "/api/schedule/assignments/{id}/cancel": {
+    "/api/users/{id}/disable": {
       "post": {
         "tags": [
-          "Schedule"
+          "Users"
         ],
         "parameters": [
           {
@@ -4084,42 +4605,23 @@
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CancelAssignmentRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CancelAssignmentRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/CancelAssignmentRequest"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScheduledShiftView"
+                  "$ref": "#/components/schemas/UserView"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScheduledShiftView"
+                  "$ref": "#/components/schemas/UserView"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScheduledShiftView"
+                  "$ref": "#/components/schemas/UserView"
                 }
               }
             }
@@ -4127,47 +4629,39 @@
         }
       }
     },
-    "/api/schedule/publish": {
+    "/api/users/{id}/enable": {
       "post": {
         "tags": [
-          "Schedule"
+          "Users"
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PublishScheduleRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PublishScheduleRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/PublishScheduleRequest"
-              }
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
             }
           }
-        },
+        ],
         "responses": {
           "200": {
             "description": "OK",
             "content": {
               "text/plain": {
                 "schema": {
-                  "$ref": "#/components/schemas/PublishScheduleResult"
+                  "$ref": "#/components/schemas/UserView"
                 }
               },
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PublishScheduleResult"
+                  "$ref": "#/components/schemas/UserView"
                 }
               },
               "text/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PublishScheduleResult"
+                  "$ref": "#/components/schemas/UserView"
                 }
               }
             }
@@ -4175,10 +4669,10 @@
         }
       }
     },
-    "/api/shifts": {
+    "/api/roles": {
       "get": {
         "tags": [
-          "ShiftTemplates"
+          "Users"
         ],
         "responses": {
           "200": {
@@ -4188,7 +4682,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ShiftTemplateView"
+                    "$ref": "#/components/schemas/Role"
                   }
                 }
               },
@@ -4196,7 +4690,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ShiftTemplateView"
+                    "$ref": "#/components/schemas/Role"
                   }
                 }
               },
@@ -4204,249 +4698,11 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ShiftTemplateView"
+                    "$ref": "#/components/schemas/Role"
                   }
                 }
               }
             }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "ShiftTemplates"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ShiftTemplateRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ShiftTemplateRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/ShiftTemplateRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShiftTemplateView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShiftTemplateView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShiftTemplateView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/shifts/{id}": {
-      "patch": {
-        "tags": [
-          "ShiftTemplates"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ShiftTemplateUpdate"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ShiftTemplateUpdate"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/ShiftTemplateUpdate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShiftTemplateView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShiftTemplateView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ShiftTemplateView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/staff-unavailability": {
-      "get": {
-        "tags": [
-          "StaffUnavailability"
-        ],
-        "parameters": [
-          {
-            "name": "from",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "to",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "userId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/UnavailabilityView"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/UnavailabilityView"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/UnavailabilityView"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "StaffUnavailability"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UnavailabilityRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UnavailabilityRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/UnavailabilityRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/UnavailabilityView"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UnavailabilityView"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/UnavailabilityView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/staff-unavailability/{id}": {
-      "delete": {
-        "tags": [
-          "StaffUnavailability"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
           }
         }
       }
@@ -4496,6 +4752,108 @@
             "nullable": true
           },
           "annotationContext": {
+            "type": "string",
+            "nullable": true
+          },
+          "viewerLeaseId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssignShiftRequest": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "shiftId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "zoneIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssignableStaffView": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fullName": {
+            "type": "string",
+            "nullable": true
+          },
+          "assignedToZone": {
+            "type": "boolean"
+          },
+          "activeTasks": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "shiftEndsAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AutomaticTaskPolicyRequest": {
+        "type": "object",
+        "properties": {
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "instructions": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AutomaticTaskPolicyView": {
+        "type": "object",
+        "properties": {
+          "actionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "actionType": {
+            "type": "string",
+            "nullable": true
+          },
+          "executionMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "instructions": {
             "type": "string",
             "nullable": true
           }
@@ -4582,45 +4940,6 @@
         },
         "additionalProperties": false
       },
-      "CameraHealthView": {
-        "type": "object",
-        "properties": {
-          "cameraId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "connectionStatus": {
-            "type": "string",
-            "nullable": true
-          },
-          "processingAvailability": {
-            "type": "string",
-            "nullable": true
-          },
-          "monitoringReadiness": {
-            "type": "string",
-            "nullable": true
-          },
-          "activeHealthIssues": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "nullable": true
-          },
-          "lastSeenAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "observedAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
       "CameraHealthEvent": {
         "type": "object",
         "properties": {
@@ -4660,6 +4979,63 @@
             "nullable": true
           },
           "resolutionNote": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "CameraHealthView": {
+        "type": "object",
+        "properties": {
+          "cameraId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "connectionStatus": {
+            "type": "string",
+            "nullable": true
+          },
+          "processingAvailability": {
+            "type": "string",
+            "nullable": true
+          },
+          "monitoringReadiness": {
+            "type": "string",
+            "nullable": true
+          },
+          "activeHealthIssues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "observedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "CameraPlaybackView": {
+        "type": "object",
+        "properties": {
+          "cameraId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "transport": {
+            "type": "string",
+            "nullable": true
+          },
+          "url": {
             "type": "string",
             "nullable": true
           }
@@ -4719,6 +5095,16 @@
         },
         "additionalProperties": false
       },
+      "CancelAssignmentRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "ConnectionRequest": {
         "type": "object",
         "properties": {
@@ -4748,24 +5134,6 @@
           },
           "preservePassword": {
             "type": "boolean"
-          }
-        },
-        "additionalProperties": false
-      },
-      "CameraPlaybackView": {
-        "type": "object",
-        "properties": {
-          "cameraId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "transport": {
-            "type": "string",
-            "nullable": true
-          },
-          "url": {
-            "type": "string",
-            "nullable": true
           }
         },
         "additionalProperties": false
@@ -4845,6 +5213,40 @@
           "roleId": {
             "type": "string",
             "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EligibilityView": {
+        "type": "object",
+        "properties": {
+          "checkedIn": {
+            "type": "boolean"
+          },
+          "shiftAssignmentId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "shiftEndsAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "activeTasks": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxActiveTasks": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "zones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShiftZoneView"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -5460,8 +5862,6 @@
             "items": {
               "$ref": "#/components/schemas/MonitoringRuleRequest"
             },
-            "minItems": 1,
-            "description": "At least one incident rule is required when saving; an empty array returns RULES_REQUIRED.",
             "nullable": true
           },
           "expectedUpdatedAt": {
@@ -5719,6 +6119,51 @@
         },
         "additionalProperties": false
       },
+      "NotificationView": {
+        "type": "object",
+        "properties": {
+          "notificationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "severity": {
+            "type": "string",
+            "nullable": true
+          },
+          "taskId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "eventId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "readAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "Point": {
         "type": "object",
         "properties": {
@@ -5758,7 +6203,43 @@
             "nullable": true
           }
         },
-        "additionalProperties": {}
+        "additionalProperties": { }
+      },
+      "PublishScheduleRequest": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PublishScheduleResult": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "published": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "notified": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
       },
       "RecordedVideoView": {
         "type": "object",
@@ -5778,11 +6259,90 @@
         },
         "additionalProperties": false
       },
+      "ReleaseAiPreviewRequest": {
+        "type": "object",
+        "properties": {
+          "viewerLeaseId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
       "ResolveRequest": {
         "type": "object",
         "properties": {
           "resolutionNote": {
             "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResponsePolicyDeleteRequest": {
+        "type": "object",
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResponsePolicySaveRequest": {
+        "type": "object",
+        "properties": {
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "action": {
+            "$ref": "#/components/schemas/AutomaticTaskPolicyRequest"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResponsePolicyView": {
+        "type": "object",
+        "properties": {
+          "policyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ruleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventPriority": {
+            "type": "string",
+            "nullable": true
+          },
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "action": {
+            "$ref": "#/components/schemas/AutomaticTaskPolicyView"
+          },
+          "readyForAutomaticTask": {
+            "type": "boolean"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "nullable": true
           }
         },
@@ -5804,6 +6364,108 @@
             "nullable": true
           },
           "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ScheduleView": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "assignments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScheduledShiftView"
+            },
+            "nullable": true
+          },
+          "coverage": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ZoneCoverageView"
+            },
+            "nullable": true
+          },
+          "draftCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "gapCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ScheduledShiftView": {
+        "type": "object",
+        "properties": {
+          "shiftAssignmentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fullName": {
+            "type": "string",
+            "nullable": true
+          },
+          "shiftId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "shiftName": {
+            "type": "string",
+            "nullable": true
+          },
+          "workDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "checkInAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "zones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShiftZoneView"
+            },
+            "nullable": true
+          },
+          "editable": {
+            "type": "boolean"
+          },
+          "pendingSwapRequestId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "updatedAt": {
             "type": "string",
             "format": "date-time"
           }
@@ -6145,294 +6807,77 @@
         },
         "additionalProperties": false
       },
-      "StoreRequest": {
+      "ShiftTemplateRequest": {
         "type": "object",
         "properties": {
-          "code": {
+          "name": {
             "type": "string",
             "nullable": true
+          },
+          "startTime": {
+            "type": "string",
+            "format": "time"
+          },
+          "endTime": {
+            "type": "string",
+            "format": "time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ShiftTemplateUpdate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "startTime": {
+            "type": "string",
+            "format": "time",
+            "nullable": true
+          },
+          "endTime": {
+            "type": "string",
+            "format": "time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ShiftTemplateView": {
+        "type": "object",
+        "properties": {
+          "shiftId": {
+            "type": "string",
+            "format": "uuid"
           },
           "name": {
             "type": "string",
             "nullable": true
           },
-          "address": {
+          "startTime": {
             "type": "string",
-            "nullable": true
+            "format": "time"
           },
-          "status": {
+          "endTime": {
             "type": "string",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "Supermarket": {
-        "type": "object",
-        "properties": {
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
+            "format": "time"
           },
-          "updatedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "supermarketId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "code": {
-            "type": "string",
-            "nullable": true
-          },
-          "name": {
-            "type": "string",
-            "nullable": true
-          },
-          "address": {
-            "type": "string",
-            "nullable": true
-          },
-          "status": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "UpdateUserRequest": {
-        "type": "object",
-        "properties": {
-          "fullName": {
-            "type": "string",
-            "nullable": true
-          },
-          "roleId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        },
-        "additionalProperties": false
-      },
-      "UserView": {
-        "type": "object",
-        "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "email": {
-            "type": "string",
-            "nullable": true
-          },
-          "fullName": {
-            "type": "string",
-            "nullable": true
-          },
-          "roleId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "role": {
-            "type": "string",
-            "nullable": true
-          },
-          "status": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "ZoneRequest": {
-        "type": "object",
-        "properties": {
-          "code": {
-            "type": "string",
-            "nullable": true
-          },
-          "name": {
-            "type": "string",
-            "nullable": true
-          },
-          "zoneType": {
-            "type": "string",
-            "nullable": true
-          },
-          "mapPolygon": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Point"
-            },
-            "nullable": true
-          },
-          "status": {
-            "type": "string",
-            "nullable": true
-          },
-          "colorHex": {
-            "type": "string",
-            "nullable": true
-          },
-          "areaM2": {
+          "hours": {
             "type": "number",
-            "format": "double",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "ZoneView": {
-        "type": "object",
-        "properties": {
-          "zoneId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "floorId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "code": {
-            "type": "string",
-            "nullable": true
-          },
-          "name": {
-            "type": "string",
-            "nullable": true
-          },
-          "zoneType": {
-            "type": "string",
-            "nullable": true
-          },
-          "mapPolygon": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Point"
-            },
-            "nullable": true
-          },
-          "colorHex": {
-            "type": "string",
-            "nullable": true
-          },
-          "areaM2": {
-            "type": "number",
-            "format": "double",
-            "nullable": true
+            "format": "double"
           },
           "status": {
             "type": "string",
             "nullable": true
           },
-          "updatedAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        },
-        "additionalProperties": false
-      },
-      "AssignableStaffView": {
-        "type": "object",
-        "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "fullName": {
-            "type": "string",
-            "nullable": true
-          },
-          "assignedToZone": {
+          "inUse": {
             "type": "boolean"
-          },
-          "activeTasks": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "shiftEndsAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        },
-        "additionalProperties": false
-      },
-      "EligibilityView": {
-        "type": "object",
-        "properties": {
-          "checkedIn": {
-            "type": "boolean"
-          },
-          "shiftAssignmentId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          },
-          "shiftEndsAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "activeTasks": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "maxActiveTasks": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "zones": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ShiftZoneView"
-            },
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "NotificationView": {
-        "type": "object",
-        "properties": {
-          "notificationId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "type": {
-            "type": "string",
-            "nullable": true
-          },
-          "title": {
-            "type": "string",
-            "nullable": true
-          },
-          "message": {
-            "type": "string",
-            "nullable": true
-          },
-          "severity": {
-            "type": "string",
-            "nullable": true
-          },
-          "taskId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          },
-          "eventId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "readAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
           }
         },
         "additionalProperties": false
@@ -6501,6 +6946,34 @@
           },
           "zoneName": {
             "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaffOptionView": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fullName": {
+            "type": "string",
+            "nullable": true
+          },
+          "eligible": {
+            "type": "boolean"
+          },
+          "weeklyHoursAfter": {
+            "type": "number",
+            "format": "double"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
             "nullable": true
           }
         },
@@ -6614,154 +7087,58 @@
         },
         "additionalProperties": false
       },
-      "TaskAssignRequest": {
+      "StoreRequest": {
         "type": "object",
         "properties": {
-          "staffUserId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "reason": {
+          "code": {
             "type": "string",
             "nullable": true
           },
-          "expectedUpdatedAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "TaskOfferView": {
-        "type": "object",
-        "properties": {
-          "offerId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "taskId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "origin": {
+          "name": {
             "type": "string",
             "nullable": true
           },
-          "sourceCode": {
+          "address": {
             "type": "string",
-            "nullable": true
-          },
-          "eventTypeCode": {
-            "type": "string",
-            "nullable": true
-          },
-          "title": {
-            "type": "string",
-            "nullable": true
-          },
-          "instructions": {
-            "type": "string",
-            "nullable": true
-          },
-          "priority": {
-            "type": "string",
-            "nullable": true
-          },
-          "zoneId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "zoneName": {
-            "type": "string",
-            "nullable": true
-          },
-          "cameraCode": {
-            "type": "string",
-            "nullable": true
-          },
-          "cameraName": {
-            "type": "string",
-            "nullable": true
-          },
-          "metricValue": {
-            "type": "number",
-            "format": "double",
-            "nullable": true
-          },
-          "measurementMode": {
-            "type": "string",
-            "nullable": true
-          },
-          "measurementUnit": {
-            "type": "string",
-            "nullable": true
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "recipients": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "attempt": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "maxAttempts": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "nextAlertAt": {
-            "type": "string",
-            "format": "date-time",
             "nullable": true
           },
           "status": {
             "type": "string",
             "nullable": true
-          },
-          "closedReason": {
-            "type": "string",
-            "nullable": true
-          },
-          "eventClearedAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
           }
         },
         "additionalProperties": false
       },
-      "TaskResponseRequest": {
+      "Supermarket": {
         "type": "object",
         "properties": {
-          "response": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "supermarketId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
             "type": "string",
             "nullable": true
           },
-          "plannedStartAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "reason": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "TaskResponseResult": {
-        "type": "object",
-        "properties": {
-          "response": {
+          "name": {
             "type": "string",
             "nullable": true
           },
-          "task": {
-            "$ref": "#/components/schemas/StaffTaskView"
+          "address": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -7040,35 +7417,138 @@
         },
         "additionalProperties": false
       },
-      "AssignShiftRequest": {
+      "TaskAssignRequest": {
         "type": "object",
         "properties": {
-          "userId": {
+          "staffUserId": {
             "type": "string",
             "format": "uuid"
           },
-          "shiftId": {
+          "reason": {
             "type": "string",
-            "format": "uuid"
+            "nullable": true
           },
-          "workDate": {
+          "expectedUpdatedAt": {
             "type": "string",
-            "format": "date"
-          },
-          "zoneIds": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "uuid"
-            },
+            "format": "date-time",
             "nullable": true
           }
         },
         "additionalProperties": false
       },
-      "CancelAssignmentRequest": {
+      "TaskOfferView": {
         "type": "object",
         "properties": {
+          "offerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "taskId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "origin": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "eventTypeCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "instructions": {
+            "type": "string",
+            "nullable": true
+          },
+          "priority": {
+            "type": "string",
+            "nullable": true
+          },
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "zoneName": {
+            "type": "string",
+            "nullable": true
+          },
+          "cameraCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "cameraName": {
+            "type": "string",
+            "nullable": true
+          },
+          "metricValue": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "measurementMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "measurementUnit": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recipients": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "attempt": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxAttempts": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "nextAlertAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "closedReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "eventClearedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskResponseRequest": {
+        "type": "object",
+        "properties": {
+          "response": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedStartAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
           "reason": {
             "type": "string",
             "nullable": true
@@ -7076,243 +7556,15 @@
         },
         "additionalProperties": false
       },
-      "PublishScheduleRequest": {
+      "TaskResponseResult": {
         "type": "object",
         "properties": {
-          "from": {
-            "type": "string",
-            "format": "date"
-          },
-          "to": {
-            "type": "string",
-            "format": "date"
-          }
-        },
-        "additionalProperties": false
-      },
-      "PublishScheduleResult": {
-        "type": "object",
-        "properties": {
-          "from": {
-            "type": "string",
-            "format": "date"
-          },
-          "to": {
-            "type": "string",
-            "format": "date"
-          },
-          "published": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "notified": {
-            "type": "integer",
-            "format": "int32"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ScheduleView": {
-        "type": "object",
-        "properties": {
-          "from": {
-            "type": "string",
-            "format": "date"
-          },
-          "to": {
-            "type": "string",
-            "format": "date"
-          },
-          "assignments": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ScheduledShiftView"
-            },
-            "nullable": true
-          },
-          "coverage": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ZoneCoverageView"
-            },
-            "nullable": true
-          },
-          "draftCount": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "gapCount": {
-            "type": "integer",
-            "format": "int32"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ScheduledShiftView": {
-        "type": "object",
-        "properties": {
-          "shiftAssignmentId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "fullName": {
+          "response": {
             "type": "string",
             "nullable": true
           },
-          "shiftId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "shiftName": {
-            "type": "string",
-            "nullable": true
-          },
-          "workDate": {
-            "type": "string",
-            "format": "date"
-          },
-          "startsAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "endsAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "status": {
-            "type": "string",
-            "nullable": true
-          },
-          "checkInAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "zones": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ShiftZoneView"
-            },
-            "nullable": true
-          },
-          "editable": {
-            "type": "boolean"
-          },
-          "pendingSwapRequestId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          },
-          "updatedAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ShiftTemplateRequest": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "nullable": true
-          },
-          "startTime": {
-            "type": "string",
-            "format": "time"
-          },
-          "endTime": {
-            "type": "string",
-            "format": "time"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ShiftTemplateUpdate": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "nullable": true
-          },
-          "startTime": {
-            "type": "string",
-            "format": "time",
-            "nullable": true
-          },
-          "endTime": {
-            "type": "string",
-            "format": "time",
-            "nullable": true
-          },
-          "status": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "ShiftTemplateView": {
-        "type": "object",
-        "properties": {
-          "shiftId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "name": {
-            "type": "string",
-            "nullable": true
-          },
-          "startTime": {
-            "type": "string",
-            "format": "time"
-          },
-          "endTime": {
-            "type": "string",
-            "format": "time"
-          },
-          "hours": {
-            "type": "number",
-            "format": "double"
-          },
-          "status": {
-            "type": "string",
-            "nullable": true
-          },
-          "inUse": {
-            "type": "boolean"
-          }
-        },
-        "additionalProperties": false
-      },
-      "StaffOptionView": {
-        "type": "object",
-        "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "fullName": {
-            "type": "string",
-            "nullable": true
-          },
-          "eligible": {
-            "type": "boolean"
-          },
-          "weeklyHoursAfter": {
-            "type": "number",
-            "format": "double"
-          },
-          "problems": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "nullable": true
+          "task": {
+            "$ref": "#/components/schemas/StaffTaskView"
           }
         },
         "additionalProperties": false
@@ -7392,6 +7644,50 @@
         },
         "additionalProperties": false
       },
+      "UpdateUserRequest": {
+        "type": "object",
+        "properties": {
+          "fullName": {
+            "type": "string",
+            "nullable": true
+          },
+          "roleId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "UserView": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "fullName": {
+            "type": "string",
+            "nullable": true
+          },
+          "roleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "ZoneCoverageView": {
         "type": "object",
         "properties": {
@@ -7429,6 +7725,94 @@
           },
           "belowMinimum": {
             "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ZoneRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "zoneType": {
+            "type": "string",
+            "nullable": true
+          },
+          "mapPolygon": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "colorHex": {
+            "type": "string",
+            "nullable": true
+          },
+          "areaM2": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ZoneView": {
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "floorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "zoneType": {
+            "type": "string",
+            "nullable": true
+          },
+          "mapPolygon": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "nullable": true
+          },
+          "colorHex": {
+            "type": "string",
+            "nullable": true
+          },
+          "areaM2": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "additionalProperties": false
@@ -7473,7 +7857,28 @@
       "name": "RecordedVideos"
     },
     {
+      "name": "ResponsePolicies"
+    },
+    {
+      "name": "Schedule"
+    },
+    {
       "name": "Setup"
+    },
+    {
+      "name": "ShiftSwaps"
+    },
+    {
+      "name": "ShiftTemplates"
+    },
+    {
+      "name": "StaffMe"
+    },
+    {
+      "name": "StaffSwaps"
+    },
+    {
+      "name": "StaffUnavailability"
     },
     {
       "name": "Store"
@@ -7482,31 +7887,13 @@
       "name": "Supermarket.Api"
     },
     {
-      "name": "Users"
-    },
-    {
-      "name": "StaffMe"
-    },
-    {
       "name": "TaskOffers"
     },
     {
       "name": "Tasks"
     },
     {
-      "name": "ShiftSwaps"
-    },
-    {
-      "name": "StaffSwaps"
-    },
-    {
-      "name": "Schedule"
-    },
-    {
-      "name": "ShiftTemplates"
-    },
-    {
-      "name": "StaffUnavailability"
+      "name": "Users"
     }
   ]
 }

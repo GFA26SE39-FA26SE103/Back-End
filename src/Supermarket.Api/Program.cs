@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
+using Swashbuckle.AspNetCore.SwaggerGen;
 using Supermarket.Api;
 using Supermarket.Api.Configuration;
 using Supermarket.Application;
@@ -177,6 +178,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(o =>
 {
     o.SwaggerDoc("v1", new OpenApiInfo { Title = "FA26SE103 Operations API", Version = "v1" });
+    o.OperationFilter<AiPreviewOpenApiFilter>();
     o.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme { Type = SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "JWT" });
     o.AddSecurityRequirement(document => new OpenApiSecurityRequirement { { new OpenApiSecuritySchemeReference("Bearer", document), new List<string>() } });
 });
@@ -206,3 +208,58 @@ app.MapGet("/health/ready", async (AppDbContext db, CancellationToken ct) =>
 await Bootstrap.Run(app);
 app.Run();
 public partial class Program;
+
+public sealed class AiPreviewOpenApiFilter : IOperationFilter
+{
+    public void Apply(OpenApiOperation operation, OperationFilterContext context)
+    {
+        var path = context.ApiDescription.RelativePath;
+        if (string.Equals(path, "api/cameras/{id}/ai-preview/frame", StringComparison.OrdinalIgnoreCase))
+            operation.Deprecated = true;
+
+        var leaseProtectedRead = path is
+            "api/cameras/{id}/ai-preview/status" or
+            "api/cameras/{id}/ai-preview/frame" or
+            "api/cameras/{id}/ai-preview/frame/next";
+        if (leaseProtectedRead)
+        {
+            var lease = operation.Parameters?.FirstOrDefault(parameter =>
+                string.Equals(parameter.Name, "X-AI-Viewer-Lease", StringComparison.OrdinalIgnoreCase));
+            if (lease is OpenApiParameter mutableLease) mutableLease.Required = true;
+            operation.Responses?.TryAdd("409", new OpenApiResponse
+            {
+                Description = "Viewer lease is expired or belongs to an earlier session generation (`AI_VIEWER_LEASE_EXPIRED`)."
+            });
+            operation.Responses?.TryAdd("422", new OpenApiResponse
+            {
+                Description = "Viewer lease is missing (`AI_VIEWER_LEASE_REQUIRED`)."
+            });
+        }
+
+        if (string.Equals(path, "api/cameras/{id}/ai-preview/start", StringComparison.OrdinalIgnoreCase))
+            operation.Responses?.TryAdd("409", new OpenApiResponse
+            {
+                Description = "Camera-worker capacity, monitoring start, or shared configuration conflict (`AI_SESSION_CAPACITY`, `AI_MONITORING_START_PENDING`, `AI_PREVIEW_CONFIGURATION_CONFLICT`)."
+            });
+
+        if (string.Equals(path, "api/cameras/{id}/ai-preview/stop", StringComparison.OrdinalIgnoreCase))
+        {
+            if (operation.RequestBody is OpenApiRequestBody mutableBody) mutableBody.Required = true;
+            operation.Responses?.TryAdd("409", new OpenApiResponse
+            {
+                Description = "Viewer lease is expired or belongs to an earlier session generation (`AI_VIEWER_LEASE_EXPIRED`)."
+            });
+            operation.Responses?.TryAdd("422", new OpenApiResponse
+            {
+                Description = "Viewer lease is missing (`AI_VIEWER_LEASE_REQUIRED`)."
+            });
+        }
+
+        if (string.Equals(path, "api/cameras/{id}/ai-preview/frame", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "api/cameras/{id}/ai-preview/frame/next", StringComparison.OrdinalIgnoreCase))
+            operation.Responses?.TryAdd("503", new OpenApiResponse
+            {
+                Description = "Annotated frame is not ready (`AI_FRAME_NOT_READY`)."
+            });
+    }
+}
