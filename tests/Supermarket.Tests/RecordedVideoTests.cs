@@ -64,7 +64,7 @@ public sealed class RecordedVideoTests
         Assert.Null(h.Connection.CredentialSecretRef);
         Assert.Equal("UNKNOWN", h.Camera.HealthStatus);
         Assert.Contains(mapping, h.Store.Values);
-        Assert.Equal(1, h.Ai.Stops);
+        Assert.Equal(1, h.Ai.ForceStops);
         Assert.DoesNotContain("file:", JsonSerializer.Serialize(result));
     }
 
@@ -90,7 +90,7 @@ public sealed class RecordedVideoTests
         var error = await Assert.ThrowsAsync<AppError>(() => h.Upload.Upload(h.Camera.CameraId, Stream.Null, "test.mp4", 12, default));
         Assert.Equal("MONITORING_ACTIVE", error.Code);
         Assert.Equal(0, h.Files.Saves);
-        Assert.Equal(0, h.Ai.Stops);
+        Assert.Equal(0, h.Ai.ForceStops);
     }
 
     [Fact]
@@ -212,8 +212,9 @@ public sealed class RecordedVideoTests
     }
     private sealed class FakeAi : IAiPreviewClient
     {
-        public int Stops;
-        public Task<AiPreviewStatusView> Stop(Guid id, CancellationToken ct) { Stops++; return Task.FromResult(new AiPreviewStatusView(id, "STOPPED", null, DateTime.UtcNow, 0, null)); }
+        public int ForceStops;
+        public Task<AiPreviewStatusView> ForceStop(Guid id, CancellationToken ct) { ForceStops++; return Task.FromResult(new AiPreviewStatusView(id, "STOPPED", null, DateTime.UtcNow, 0, null)); }
+        public Task<AiPreviewStatusView> Stop(Guid id, CancellationToken ct) => Task.FromResult(new AiPreviewStatusView(id, "STOPPED", null, DateTime.UtcNow, 0, null));
         public Task<AiPreviewStatusView> Start(CameraConnection c, CancellationToken ct, decimal? confidence = null) => throw new NotSupportedException();
         public Task<AiPreviewStatusView> Status(Guid id, CancellationToken ct) => throw new NotSupportedException();
         public Task<PreviewFrame> Frame(Guid id, CancellationToken ct) => throw new NotSupportedException();

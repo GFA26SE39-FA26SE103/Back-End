@@ -7,7 +7,7 @@ namespace Supermarket.Tests;
 public sealed class MonitoringConfidencePreviewTests
 {
     [Fact]
-    public async Task ZonePreviewUsesSavedDraftConfidenceAndRestartsTrackerWithoutActivation()
+    public async Task ZonePreviewUsesSavedDraftConfidenceWithoutForceRestartingSharedTracker()
     {
         var h = new MonitoringSetupTests.Harness();
         h.Configuration.ConfidenceThreshold = .8123m;
@@ -15,7 +15,7 @@ public sealed class MonitoringConfidencePreviewTests
         var preview = new AiPreview(h.Store, new MonitoringSetupTests.User("ADMIN"), client);
         await preview.Start(h.Camera.CameraId, default, h.Zone.ZoneId);
         Assert.Equal(.8123m, client.Confidence);
-        Assert.Equal(new[] { "stop", "start" }, client.Calls);
+        Assert.Equal(new[] { "start" }, client.Calls);
         Assert.Equal("DRAFT", h.Configuration.Status);
     }
     [Theory]

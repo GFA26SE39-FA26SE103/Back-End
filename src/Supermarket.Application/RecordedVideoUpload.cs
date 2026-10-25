@@ -27,7 +27,7 @@ public sealed class RecordedVideoUpload(ISetupStore store, ICurrentUser current,
                 throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before replacing the camera source.");
 
         // Stop the old session so an idempotent start cannot continue processing its previous source.
-        try { await ai.Stop(cameraId, ct); }
+        try { await ai.ForceStop(cameraId, ct); }
         catch (ApplicationException error) when (error.Code == "AI_SERVICE_UNAVAILABLE") { }
 
         var uri = await files.Save(content, filename, length, ct);

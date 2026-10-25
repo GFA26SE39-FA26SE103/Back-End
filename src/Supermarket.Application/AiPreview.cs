@@ -39,36 +39,33 @@ public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPrevie
                 return await Attach(cameraId,ct);
             }
             confidence = configuration.ConfidenceThreshold;
-            // Python reuses a running camera session. Restart so the saved confidence is actually applied.
-            await client.Stop(cameraId, ct);
         }
         if(owned) return await Attach(cameraId,ct);
         return await client.Start(connection, ct, confidence);
     }
 
-    public async Task<AiPreviewStatusView> Status(Guid cameraId, CancellationToken ct)
+    public async Task<AiPreviewStatusView> Status(Guid cameraId, Guid viewerLeaseId, CancellationToken ct)
     {
         await Camera(cameraId, ct);
-        return await client.Status(cameraId, ct);
+        return await client.Status(cameraId, viewerLeaseId, ct);
     }
 
-    public async Task<PreviewFrame> Frame(Guid cameraId, CancellationToken ct)
+    public async Task<PreviewFrame> Frame(Guid cameraId, Guid viewerLeaseId, CancellationToken ct)
     {
         await Camera(cameraId, ct);
-        return await client.Frame(cameraId, ct);
+        return await client.Frame(cameraId, viewerLeaseId, ct);
     }
 
-    public async Task<SequencedPreviewFrame?> NextFrame(Guid cameraId, long afterSequence, Guid? afterSessionId, CancellationToken ct)
+    public async Task<SequencedPreviewFrame?> NextFrame(Guid cameraId, Guid viewerLeaseId, long afterSequence, Guid? afterSessionId, CancellationToken ct)
     {
         await Camera(cameraId, ct);
-        return await client.NextFrame(cameraId, afterSequence, afterSessionId, ct);
+        return await client.NextFrame(cameraId, viewerLeaseId, afterSequence, afterSessionId, ct);
     }
 
-    public async Task<AiPreviewStatusView> Stop(Guid cameraId, CancellationToken ct)
+    public async Task<AiPreviewStatusView> Stop(Guid cameraId, Guid viewerLeaseId, CancellationToken ct)
     {
         await Camera(cameraId, ct);
-        if(await Owned(cameraId,ct)) return await Attach(cameraId,ct);
-        return await client.Stop(cameraId, ct);
+        return await client.ReleaseViewer(cameraId, viewerLeaseId, ct);
     }
 
     private async Task<bool> Owned(Guid cameraId,CancellationToken ct)
@@ -80,8 +77,15 @@ public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPrevie
     }
     private async Task<AiPreviewStatusView> Attach(Guid cameraId,CancellationToken ct)
     {
-        var status=await client.Status(cameraId,ct);
-        return status with { Purpose="MONITORING",State=status.State=="STOPPED"?"STARTING":status.State };
+        try
+        {
+            var status=await client.AttachViewer(cameraId,ct);
+            return status with { Purpose="MONITORING" };
+        }
+        catch(ApplicationException error) when(error.Code=="AI_PREVIEW_NOT_RUNNING")
+        {
+            throw new ApplicationException("AI_MONITORING_START_PENDING","AI monitoring is active but its worker is still starting.",409);
+        }
     }
 
     private async Task<Camera> Camera(Guid cameraId, CancellationToken ct)

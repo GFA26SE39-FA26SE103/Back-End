@@ -31,6 +31,14 @@ public sealed class AiPreviewApiTests
         Assert.NotNull(type.GetMethod("Frame")!.GetCustomAttributes(typeof(HttpGetAttribute), true).Single());
         Assert.Equal("frame/next", type.GetMethod("NextFrame")!.GetCustomAttributes(typeof(HttpGetAttribute), true).Cast<HttpGetAttribute>().Single().Template);
         Assert.Equal("stop", type.GetMethod("Stop")!.GetCustomAttributes(typeof(HttpPostAttribute), true).Cast<HttpPostAttribute>().Single().Template);
+        foreach (var methodName in new[] { "Status", "Frame", "NextFrame" })
+        {
+            var lease = type.GetMethod(methodName)!.GetParameters().Single(p => p.Name == "viewerLeaseId");
+            var header = Assert.IsType<FromHeaderAttribute>(Assert.Single(lease.GetCustomAttributes(typeof(FromHeaderAttribute), true)));
+            Assert.Equal("X-AI-Viewer-Lease", header.Name);
+        }
+        var stopBody = type.GetMethod("Stop")!.GetParameters().Single(p => p.Name == "request");
+        Assert.Single(stopBody.GetCustomAttributes(typeof(FromBodyAttribute), true));
     }
 
     [Fact]
@@ -43,7 +51,7 @@ public sealed class AiPreviewApiTests
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
 
-        var result = await controller.Frame(camera.CameraId, CancellationToken.None);
+        var result = await controller.Frame(camera.CameraId, StubClient.Lease, CancellationToken.None);
 
         var file = Assert.IsType<FileContentResult>(result);
         Assert.Equal("image/jpeg", file.ContentType);
@@ -61,12 +69,12 @@ public sealed class AiPreviewApiTests
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
 
-        var result = await controller.NextFrame(camera.CameraId, CancellationToken.None, 1);
+        var result = await controller.NextFrame(camera.CameraId, StubClient.Lease, CancellationToken.None, 1);
         Assert.IsType<FileContentResult>(result);
         Assert.Equal("2", controller.Response.Headers["X-Frame-Sequence"]);
         Assert.Equal("no-store", controller.Response.Headers.CacheControl);
 
-        var duplicate = await controller.NextFrame(camera.CameraId, CancellationToken.None, 2);
+        var duplicate = await controller.NextFrame(camera.CameraId, StubClient.Lease, CancellationToken.None, 2);
         Assert.IsType<NoContentResult>(duplicate);
     }
 
@@ -326,7 +334,13 @@ public sealed class AiPreviewApiTests
 
     private sealed class StubClient : IAiPreviewClient
     {
-        public Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct, decimal? confidence = null) => Task.FromResult(View(connection.CameraId, "LIVE"));
+        public static Guid Lease { get; } = Guid.NewGuid();
+        public Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct, decimal? confidence = null) => Task.FromResult(View(connection.CameraId, "LIVE") with { ViewerLeaseId = Lease });
+        public Task<AiPreviewStatusView> Status(Guid cameraId, Guid viewerLeaseId, CancellationToken ct) => Task.FromResult(View(cameraId, "LIVE") with { ViewerLeaseId = viewerLeaseId });
+        public Task<PreviewFrame> Frame(Guid cameraId, Guid viewerLeaseId, CancellationToken ct) => Task.FromResult(new PreviewFrame([0xFF, 0xD8, 0xFF, 0xD9], "image/jpeg"));
+        public Task<SequencedPreviewFrame?> NextFrame(Guid cameraId, Guid viewerLeaseId, long afterSequence, Guid? afterSessionId, CancellationToken ct)
+            => Task.FromResult<SequencedPreviewFrame?>(afterSequence >= 2 ? null : new SequencedPreviewFrame([0xFF, 0xD8, 0xFF, 0xD9], "image/jpeg", 2, Guid.NewGuid()));
+        public Task<AiPreviewStatusView> ReleaseViewer(Guid cameraId, Guid viewerLeaseId, CancellationToken ct) => Task.FromResult(View(cameraId, "STOPPED"));
         public Task<AiPreviewStatusView> Status(Guid cameraId, CancellationToken ct) => Task.FromResult(View(cameraId, "LIVE"));
         public Task<PreviewFrame> Frame(Guid cameraId, CancellationToken ct) => Task.FromResult(new PreviewFrame([0xFF, 0xD8, 0xFF, 0xD9], "image/jpeg"));
         public Task<SequencedPreviewFrame?> NextFrame(Guid cameraId, long afterSequence, Guid? afterSessionId, CancellationToken ct)

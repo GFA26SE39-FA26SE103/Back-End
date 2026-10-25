@@ -89,18 +89,34 @@ public sealed class AiPreviewApplicationTests
     }
 
     [Fact]
-    public async Task StartAndStopAreIdempotent()
+    public async Task TwoStartsReturnDistinctLeasesAndReleasingOneKeepsTheOtherUsable()
     {
         var harness = Harness.Ready();
 
         var first = await harness.UseCase.Start(harness.Camera.CameraId, Ct);
         var second = await harness.UseCase.Start(harness.Camera.CameraId, Ct);
-        var stopped = await harness.UseCase.Stop(harness.Camera.CameraId, Ct);
-        var stoppedAgain = await harness.UseCase.Stop(harness.Camera.CameraId, Ct);
+        var released = await harness.UseCase.Stop(harness.Camera.CameraId, first.ViewerLeaseId!.Value, Ct);
+        var remaining = await harness.UseCase.Status(harness.Camera.CameraId, second.ViewerLeaseId!.Value, Ct);
 
-        Assert.Equal(first, second);
-        Assert.Equal("STOPPED", stopped.State);
-        Assert.Equal(stopped, stoppedAgain);
+        Assert.NotEqual(first.ViewerLeaseId, second.ViewerLeaseId);
+        Assert.Equal("LIVE", released.State);
+        Assert.Equal("LIVE", remaining.State);
+        Assert.Equal([first.ViewerLeaseId], harness.Client.ReleasedLeases);
+        Assert.Equal(0, harness.Client.ForceStops);
+    }
+
+    [Fact]
+    public async Task UnknownViewerLeaseIsPropagatedWithoutSubstitution()
+    {
+        var harness = Harness.Ready();
+        await harness.UseCase.Start(harness.Camera.CameraId, Ct);
+        var unknownLease = Guid.NewGuid();
+
+        var error = await Assert.ThrowsAsync<AppError>(
+            () => harness.UseCase.Status(harness.Camera.CameraId, unknownLease, Ct));
+
+        Assert.Equal("AI_VIEWER_LEASE_EXPIRED", error.Code);
+        Assert.Equal(unknownLease, harness.Client.LastLeaseRead);
     }
 
     [Fact]
@@ -118,8 +134,8 @@ public sealed class AiPreviewApplicationTests
     public async Task ChangedConnectionIsUsedAfterStopAndRestart()
     {
         var harness = Harness.Ready();
-        await harness.UseCase.Start(harness.Camera.CameraId, Ct);
-        await harness.UseCase.Stop(harness.Camera.CameraId, Ct);
+        var first = await harness.UseCase.Start(harness.Camera.CameraId, Ct);
+        await harness.UseCase.Stop(harness.Camera.CameraId, first.ViewerLeaseId!.Value, Ct);
         var replacement = Harness.ConnectionFor(harness.Camera.CameraId);
         replacement.StreamUri = "http://camera-new.local:8080/video";
         harness.Store.Connection = replacement;
@@ -199,16 +215,49 @@ public sealed class AiPreviewApplicationTests
     private sealed class RecordingAiPreviewClient : IAiPreviewClient
     {
         private readonly Dictionary<Guid, AiPreviewStatusView> states = [];
+        private readonly HashSet<Guid> leases = [];
         public List<CameraConnection> StartedConnections { get; } = [];
+        public List<Guid?> ReleasedLeases { get; } = [];
+        public Guid? LastLeaseRead { get; private set; }
+        public int ForceStops { get; private set; }
 
         public Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct, decimal? confidence = null)
         {
             if (!states.TryGetValue(connection.CameraId, out var status) || status.State == "STOPPED")
             {
                 StartedConnections.Add(connection);
-                status = View(connection.CameraId, "LIVE");
-                states[connection.CameraId] = status;
             }
+            var lease = Guid.NewGuid();
+            leases.Add(lease);
+            status = View(connection.CameraId, "LIVE") with { ViewerLeaseId = lease };
+            states[connection.CameraId] = status;
+            return Task.FromResult(status);
+        }
+
+        public Task<AiPreviewStatusView> Status(Guid cameraId, Guid viewerLeaseId, CancellationToken ct)
+        {
+            LastLeaseRead = viewerLeaseId;
+            if (!leases.Contains(viewerLeaseId))
+                throw new AppError("AI_VIEWER_LEASE_EXPIRED", "AI viewer lease is missing or expired.", 409);
+            return Task.FromResult(states[cameraId] with { ViewerLeaseId = viewerLeaseId });
+        }
+
+        public Task<AiPreviewStatusView> ReleaseViewer(Guid cameraId, Guid viewerLeaseId, CancellationToken ct)
+        {
+            ReleasedLeases.Add(viewerLeaseId);
+            leases.Remove(viewerLeaseId);
+            var state = leases.Count == 0 ? "STOPPED" : "LIVE";
+            var status = View(cameraId, state);
+            states[cameraId] = status;
+            return Task.FromResult(status);
+        }
+
+        public Task<AiPreviewStatusView> ForceStop(Guid cameraId, CancellationToken ct)
+        {
+            ForceStops++;
+            leases.Clear();
+            var status = View(cameraId, "STOPPED");
+            states[cameraId] = status;
             return Task.FromResult(status);
         }
 

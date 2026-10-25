@@ -98,9 +98,10 @@ public sealed class OperatorAccessTests
     {
         var world = World.Create("OPERATOR");
 
-        Assert.Equal("LIVE", (await world.Ai.Start(world.CameraId, Ct)).State);
-        Assert.Equal("LIVE", (await world.Ai.Status(world.CameraId, Ct)).State);
-        Assert.Equal("STOPPED", (await world.Ai.Stop(world.CameraId, Ct)).State);
+        var started = await world.Ai.Start(world.CameraId, Ct);
+        Assert.Equal("LIVE", started.State);
+        Assert.Equal("LIVE", (await world.Ai.Status(world.CameraId, started.ViewerLeaseId!.Value, Ct)).State);
+        Assert.Equal("STOPPED", (await world.Ai.Stop(world.CameraId, started.ViewerLeaseId.Value, Ct)).State);
     }
 
     [Theory, InlineData("MANAGER"), InlineData("STAFF")]
@@ -109,7 +110,7 @@ public sealed class OperatorAccessTests
         var world = World.Create(role);
 
         await Forbidden(() => world.Ai.Start(world.CameraId, Ct));
-        await Forbidden(() => world.Ai.Frame(world.CameraId, Ct));
+        await Forbidden(() => world.Ai.Frame(world.CameraId, Guid.NewGuid(), Ct));
         Assert.Equal(0, world.AiClient.Calls);
     }
 
@@ -222,7 +223,10 @@ public sealed class OperatorAccessTests
         {
             get; private set;
         }
-        public Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct, decimal? confidence = null) => View(connection.CameraId, "LIVE");
+        public Task<AiPreviewStatusView> Start(CameraConnection connection, CancellationToken ct, decimal? confidence = null) => View(connection.CameraId, "LIVE", Guid.NewGuid());
+        public Task<AiPreviewStatusView> Status(Guid cameraId, Guid viewerLeaseId, CancellationToken ct) => View(cameraId, "LIVE", viewerLeaseId);
+        public Task<PreviewFrame> Frame(Guid cameraId, Guid viewerLeaseId, CancellationToken ct) => Frame(cameraId, ct);
+        public Task<AiPreviewStatusView> ReleaseViewer(Guid cameraId, Guid viewerLeaseId, CancellationToken ct) => View(cameraId, "STOPPED");
         public Task<AiPreviewStatusView> Status(Guid cameraId, CancellationToken ct) => View(cameraId, "LIVE");
         public Task<PreviewFrame> Frame(Guid cameraId, CancellationToken ct)
         {
@@ -231,10 +235,10 @@ public sealed class OperatorAccessTests
         }
         public Task<SequencedPreviewFrame?> NextFrame(Guid cameraId, long afterSequence, Guid? afterSessionId, CancellationToken ct) => throw new NotSupportedException();
         public Task<AiPreviewStatusView> Stop(Guid cameraId, CancellationToken ct) => View(cameraId, "STOPPED");
-        private Task<AiPreviewStatusView> View(Guid cameraId, string state)
+        private Task<AiPreviewStatusView> View(Guid cameraId, string state, Guid? viewerLeaseId = null)
         {
             Calls++;
-            return Task.FromResult(new AiPreviewStatusView(cameraId, state, null, DateTime.UtcNow, 1, null));
+            return Task.FromResult(new AiPreviewStatusView(cameraId, state, null, DateTime.UtcNow, 1, null, ViewerLeaseId: viewerLeaseId));
         }
     }
 

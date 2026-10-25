@@ -55,25 +55,11 @@ public sealed class AiPreviewClient(
         return await SendStatus(HttpMethod.Post, $"/sessions/{connection.CameraId}/start", body, ct);
     }
 
-    public Task<AiPreviewStatusView> Status(Guid cameraId, CancellationToken ct)
-        => SendStatus(HttpMethod.Get, $"/sessions/{cameraId}/status", null, ct);
-
     public Task<AiPreviewStatusView> AttachViewer(Guid cameraId, CancellationToken ct)
         => SendStatus(HttpMethod.Post, $"/sessions/{cameraId}/viewers/attach", null, ct);
 
     public Task<AiPreviewStatusView> Status(Guid cameraId, Guid viewerLeaseId, CancellationToken ct)
         => SendStatus(HttpMethod.Get, $"/sessions/{cameraId}/status", null, ct, viewerLeaseId);
-
-    public async Task<PreviewFrame> Frame(Guid cameraId, CancellationToken ct)
-    {
-        using var response = await Send(new HttpRequestMessage(HttpMethod.Get, $"/sessions/{cameraId}/frame"), ct);
-        if (!response.IsSuccessStatusCode)
-            throw await Error(response, ct);
-        var bytes = await response.Content.ReadAsByteArrayAsync(ct);
-        if (bytes.Length == 0 || bytes.Length > 8 * 1024 * 1024)
-            throw new AppError("AI_FRAME_INVALID", "AI preview returned an invalid frame.", 503);
-        return new PreviewFrame(bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg");
-    }
 
     public async Task<PreviewFrame> Frame(Guid cameraId, Guid viewerLeaseId, CancellationToken ct)
     {
@@ -86,25 +72,6 @@ public sealed class AiPreviewClient(
         if (bytes.Length == 0 || bytes.Length > 8 * 1024 * 1024)
             throw new AppError("AI_FRAME_INVALID", "AI preview returned an invalid frame.", 503);
         return new PreviewFrame(bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg");
-    }
-
-    public async Task<SequencedPreviewFrame?> NextFrame(Guid cameraId, long afterSequence, Guid? afterSessionId, CancellationToken ct)
-    {
-        var path = $"/sessions/{cameraId}/frame/next?after_sequence={afterSequence}";
-        if (afterSessionId is not null) path += $"&after_session_id={afterSessionId}";
-        using var response = await Send(new HttpRequestMessage(HttpMethod.Get, path), ct);
-        if (response.StatusCode == HttpStatusCode.NoContent) return null;
-        if (!response.IsSuccessStatusCode) throw await Error(response, ct);
-        if (!response.Headers.TryGetValues("X-Frame-Sequence", out var sequences)
-            || !long.TryParse(sequences.SingleOrDefault(), out var sequence)
-            || sequence < 1
-            || !response.Headers.TryGetValues("X-Session-Id", out var sessions)
-            || !Guid.TryParse(sessions.SingleOrDefault(), out var sessionId))
-            throw new AppError("AI_FRAME_INVALID", "AI preview returned invalid frame metadata.", 503);
-        var bytes = await response.Content.ReadAsByteArrayAsync(ct);
-        if (bytes.Length == 0 || bytes.Length > 8 * 1024 * 1024)
-            throw new AppError("AI_FRAME_INVALID", "AI preview returned an invalid frame.", 503);
-        return new SequencedPreviewFrame(bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg", sequence, sessionId);
     }
 
     public async Task<SequencedPreviewFrame?> NextFrame(Guid cameraId, Guid viewerLeaseId, long afterSequence, Guid? afterSessionId, CancellationToken ct)
@@ -127,9 +94,6 @@ public sealed class AiPreviewClient(
             throw new AppError("AI_FRAME_INVALID", "AI preview returned an invalid frame.", 503);
         return new SequencedPreviewFrame(bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg", sequence, sessionId);
     }
-
-    public Task<AiPreviewStatusView> Stop(Guid cameraId, CancellationToken ct)
-        => SendStatus(HttpMethod.Delete, $"/sessions/{cameraId}", null, ct);
 
     public Task<AiPreviewStatusView> ReleaseViewer(Guid cameraId, Guid viewerLeaseId, CancellationToken ct)
         => SendStatus(HttpMethod.Delete, $"/sessions/{cameraId}/viewer", null, ct, viewerLeaseId);
