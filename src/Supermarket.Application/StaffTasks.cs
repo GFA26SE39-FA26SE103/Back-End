@@ -89,6 +89,8 @@ public sealed class StaffTasks(ISetupStore store, ICurrentUser current, IClock c
                 taskId = task.TaskId;
                 if (offer.Status != OfferStatus.Offered || task.Status != WorkTaskStatus.Offered || task.CurrentAssigneeUserId is not null)
                 {
+                    // A retry of my own acceptance (e.g. after a timeout) returns the task as it is now.
+                    if (offer.Status == OfferStatus.Accepted && task.CurrentAssigneeUserId == current.UserId && request.Response != TaskResponse.CannotHandle) return true;
                     if (task.CurrentAssigneeUserId is { } other && other != current.UserId) throw await Taken(task, ct);
                     throw new ApplicationException("OFFER_CLOSED", "This offer is no longer open.");
                 }
