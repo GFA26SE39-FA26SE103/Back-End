@@ -48,6 +48,8 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
         await store.Transaction(async () =>
         {
             var task = UseCase.Found(await store.Find<WorkTask>(taskId, ct));
+            if (request.ExpectedUpdatedAt is { } expected && expected != task.UpdatedAt)
+                throw new ApplicationException("TASK_CHANGED", "This task changed. Reload its current assignment before assigning again.");
             if (task.Status is not (WorkTaskStatus.Offered or WorkTaskStatus.Accepted))
                 throw new ApplicationException("TASK_NOT_ASSIGNABLE", "Only an offered task, or an accepted task that has not started, can be assigned.");
             var now = clock.UtcNow;
@@ -55,6 +57,8 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
                 ?? throw new ApplicationException("STAFF_NOT_ON_SHIFT", "The Staff member is not checked in to a current shift.");
             if (task.CurrentAssigneeUserId == staff.User.UserId) return 0;
             if (staff.ActiveTasks >= TaskRules.MaxActiveTasks) throw new ApplicationException("WORKLOAD_LIMIT", "The Staff member has reached the active-task limit.");
+            if (task.CurrentAssigneeUserId is not null || !staff.ZoneIds.Contains(task.ZoneId))
+                Rules.Require(!string.IsNullOrWhiteSpace(request.Reason), "REASON_REQUIRED", "A reason is required for reassignment or assignment outside the Task Zone.");
             foreach (var previous in await store.List<TaskAssignmentHistory>(a => a.TaskId == taskId && a.Status == OfferStatus.Accepted && a.EndedAt == null, ct))
             {
                 previous.EndedAt = now; previous.Reason = "REASSIGNED";

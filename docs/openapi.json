@@ -6624,6 +6624,11 @@
           "reason": {
             "type": "string",
             "nullable": true
+          },
+          "expectedUpdatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         },
         "additionalProperties": false

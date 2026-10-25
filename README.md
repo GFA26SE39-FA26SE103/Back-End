@@ -4,6 +4,8 @@ Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.
 
 ## MF-02 Task readiness — checked 25/10/2026
 
+**Operator web integration:** controller/service ownership was split without route changes in commit `9f8488b`: StaffTasks/StaffMeController/TaskOffersController are separate from OperatorTasks/TaskViews/TasksController. Assignment now accepts optional `expectedUpdatedAt`, returns `TASK_CHANGED` on stale data, and requires a reason for reassignment/outside-Zone assignment. The latest validation is **343 non-SQL tests PASS**, 15 local HTTP/auth checks PASS, and real-SQL assignment/reassignment verified inside a rollback transaction. See API.md and the dated Owner A validation entry below.
+
 Đã sửa lệch domain `ResponsePolicyAction` so với scaffold V6 và kiểm chứng bằng SQL Dev thật trong transaction rollback: check-in → sustained Event → Task/offer/notification → nhận việc/bắt đầu → tăng priority → Event clear. Non-SQL suite: **340 passed**. Đây là kiểm chứng application/EF/SQL với measurement giả lập, chưa phải camera/AI hoặc HTTP/mobile acceptance; xem [bằng chứng và giới hạn](docs/VALIDATION.md#mf-02-v6-task-mapper-and-live-sql-rollback-proof--2026-10-25).
 
 DB Dev tại lúc kiểm tra chưa sẵn sàng tự tạo Task cho demo: rule ACTIVE chưa có ResponsePolicy/action, camera INACTIVE và connection disabled, Staff chưa có ca hiện tại/check-in ở Zone của rule. Policy phải enabled, khớp rule + priority, có action `CREATE_OPERATIONAL_TASK` / `AUTOMATIC`; ca đã publish, đang diễn ra và Staff check-in/đúng Zone/workload < 2. Fixture thử đã rollback; chưa bật camera, tạo policy hay ghi check-in vào lịch thật. API contract và schema không đổi.

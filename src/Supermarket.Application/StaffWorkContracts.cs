@@ -20,5 +20,5 @@ public sealed record StaffTaskView(Guid TaskId, string Origin, string SourceCode
 public sealed record NotificationView(Guid NotificationId, string Type, string Title, string Message, string? Severity, Guid? TaskId, Guid? EventId,
     DateTime CreatedAt, DateTime? ReadAt);
 
-public sealed record TaskAssignRequest(Guid StaffUserId, string? Reason);
+public sealed record TaskAssignRequest(Guid StaffUserId, string? Reason, DateTime? ExpectedUpdatedAt = null);
 public sealed record AssignableStaffView(Guid UserId, string FullName, bool AssignedToZone, int ActiveTasks, DateTime ShiftEndsAt);
