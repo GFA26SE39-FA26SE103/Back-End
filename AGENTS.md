@@ -2,7 +2,7 @@
 
 Project: AI-Powered Smart Supermarket Operations Monitoring System, GFA26SE39.
 Assigned increment 03/10/2026: MF-02 ROI count/queue → OperationalEvent + live feed; see PROJECT_CONTEXT sections 39–41. The implementation stores OperationalEvents as episodes keyed by Camera + Zone + OperationalEventType while unresolved: repeated observations update the episode, escalation preserves the row, sustained recovery clears it, and a later breach opens a new episode. `MonitoringRule.outcome_type` keeps OperationalEvent and Incident persistence as separate branches; an OperationalEvent threshold breach does not create an Incident. A scoped MF-02 subset now implements automatic operational Task offers and Staff responses on the V6 scaffold; evidence verification and StaffReport remain target work unless verified in code. A SWAP/COVER request/approval subset and Manager shift planning (templates, DRAFT → published assignments, Zone coverage gate, leave) are implemented on the same scaffold (PROJECT_CONTEXT §42).
-Business/Mainflow baseline: **18/10/2026 synchronization** over the 02/10/2026 Mainflow baseline. Current implementation focus remains **MF-01 — Setup & System Configuration**, plus the explicitly documented MF-02 subset.
+Business/Mainflow baseline: **23/10/2026 synchronization** over the 02/10/2026 Mainflow baseline. Report 3 now defines UC-01..UC-32 and BR-01..BR-38; do not reuse pre-23/10 BR numbering. Current implementation focus remains **MF-01 — Setup & System Configuration**, plus the explicitly documented MF-02 and MF-04 subsets.
 Approved workflow delta (05/10/2026): Staff shift-swap requests and deferred task-response options are part of the project baseline/design, but are not assumed implemented unless verified in the repository.
 
 ## Required context
@@ -25,7 +25,7 @@ Implement and verify this setup flow:
 
 ```text
 Admin login
-→ Floor / Zone setup (single default store; no store setup step)
+→ maintain the single configured supermarket, then Floor / Zone setup
 → Register & configure camera
 → Test connection & preview
 → Map camera to Zone(s), including camera-frame ROI
@@ -40,7 +40,7 @@ Account administration supports MF-01 but is not a required diagram step. Later 
 
 ## Domain rules to preserve
 
-- One supermarket branch, as a single default `Supermarket` record from seed data. Do not build store create/edit/select flows; Admin setup starts at Floor. `Supermarket → Floor`; both `Zone` and `Camera` belong to `Floor`.
+- One supermarket branch only. Current code seeds/uses a default `Supermarket`; current SRS UC-01/FE-01 permits authorized Admin maintenance of that single branch. Do not build multi-branch selection. `Supermarket → Floor`; both `Zone` and `Camera` belong to `Floor`.
 - Camera ↔ Zone is N:M through `CameraZoneMapping`. Reject mappings across floors.
 - `Zone.map_polygon` is on the floor map; `CameraZoneMapping.roi_polygon` is on a camera frame. They are separate coordinate spaces, not an automatic projection.
 - Persist spatial coordinates normalized to `[0,1]`, with valid polygon geometry and at least three points. Normalization handles scaling, not arbitrary crop/perspective changes.
@@ -50,7 +50,7 @@ Account administration supports MF-01 but is not a required diagram step. Later 
 - OperationalEvent response is `OperationalEvent → ResponsePolicy → ResponsePolicyAction → notification/recommendation/operational Task`. Incident is an independent MonitoringRule outcome or confirmed-report path; a threshold breach or CRITICAL priority alone does not convert an Event into an Incident.
 - `StaffReport` is a separate confirmed staff-submission path; routine reports must not be fabricated into OperationalEvents.
 - `Task` has exactly one origin type: `OPERATIONAL_EVENT`, `INCIDENT`, `STAFF_REPORT`, or `MANUAL`, with exclusive nullable source FKs.
-- Task acceptance must be atomic first-valid-acceptance-wins; eligibility uses checked-in/on-shift state, assigned zone, role, and availability.
+- Task acceptance must be atomic first-valid-acceptance-wins; target requirements evaluate eligible checked-in/on-shift Staff in the target Zone and configured adjacent Zones simultaneously, using role, availability and workload. The current MF-02 subset still offers only to the target Zone.
 - Model confidence filters detections; it does not decide incident routing. No cross-camera identity matching, face recognition, or customer identity storage.
 - Only Admin creates accounts; protect the last active Admin. User passwords are hashed; recoverable camera credentials are encrypted and never returned/logged as secrets.
 - For task offers, preserve the distinction between accepting responsibility, starting work, deferred start, active work, and overdue/escalated work. Staff responses are Handle Now, Accept and Handle Later, or Cannot Handle; `Cannot Handle` is not evidence rejection.
@@ -72,7 +72,7 @@ Keep controllers thin. Domain must not depend on ASP.NET or EF. Do not expose sc
 
 Database-first: approved ERD/schema → approved SQL Server change → re-scaffold → review generated changes → update mappings/use cases/contracts/tests. Generated files under `src/Supermarket.Infrastructure/Persistence/Scaffolded` must not be manually edited for business behavior. Keep custom EF extensions outside that directory. Do not introduce code-first migrations or a competing schema.
 
-The target physical persistence baseline is approved `FA26SE103_ERD_v6.drawio` / the 18/10/2026 synchronized project context. Database V5 is the non-destructive V6 expansion; Database V6 Cleanup is the guarded final cutover after all older writers are stopped and the V6-aware backend is deployed. The migration branch scaffold is generated from the exact 37-table post-cleanup schema: MonitoringRule has one nullable target per outcome, OperationalEvent has no Incident/string-type link, and IncidentType has no source/measurement columns. Workflow availability must still be verified in application code; a scaffolded table is not proof that its use case is implemented. Legacy DTOs/comments do not establish schema approval. Do not edit team-owned ERD/schema unless assigned.
+The target physical persistence baseline is approved `FA26SE103_ERD_v6.drawio` / the 23/10/2026 synchronized project context. Database V5 is the non-destructive V6 expansion; Database V6 Cleanup is the guarded final cutover after all older writers are stopped and the V6-aware backend is deployed. The current source scaffold is generated from the exact 37-table post-cleanup schema: MonitoringRule has one nullable target per outcome, OperationalEvent has no Incident/string-type link, and IncidentType has no source/measurement columns. Workflow availability and the applied shared/deployed DB version must still be verified; a scaffolded table is not proof that its use case is implemented or deployed. Legacy DTOs/comments do not establish schema approval. Do not edit team-owned ERD/schema unless assigned.
 
 SQL source and approved migrations are in the separate Database repository. Apply the migration chain through `FA26SE103_Database_V5.sql`; run `FA26SE103_Database_V6_Cleanup.sql` only at coordinated cutover after a current backup, preflight, stopped older writers, and matching backend deployment are confirmed. Do not infer schema from an old entity count. A missing legacy SQL-test bootstrap file does not justify generating SQL from C# models or creating a new one-off SQL script solely to make a test fixture run.
 

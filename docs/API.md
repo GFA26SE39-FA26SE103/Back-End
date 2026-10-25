@@ -206,7 +206,7 @@ Event `CLEARED` (tạm theo open point 5): task chưa ai nhận → offer `WITHD
 | STAFF (người liên quan), ADMIN, OPERATOR, MANAGER | `GET /tasks/{taskId}` | Staff chỉ đọc task mình được offer hoặc được giao. |
 | ADMIN, OPERATOR, MANAGER | `GET /tasks?status=&needsAssignment=true` | Mặc định OFFERED, ACCEPTED, IN_PROGRESS, SUBMITTED; tối đa 200. |
 | OPERATOR | `GET /tasks/{taskId}/assignable-staff` | Staff đang trong ca, còn dưới giới hạn task; `assignedToZone` đứng trước. |
-| OPERATOR | `POST /tasks/{taskId}/assign` | Body `{staffUserId, reason?}`. Giao tay vào thẳng `ACCEPTED` (BR appendix B), rút offer đang mở (`MANUALLY_ASSIGNED`). 409 `TASK_NOT_ASSIGNABLE`, `STAFF_NOT_ON_SHIFT`, `WORKLOAD_LIMIT`. |
+| OPERATOR | `POST /tasks/{taskId}/assign` | Body `{staffUserId, reason?, expectedUpdatedAt?}`. Giao tay vào thẳng `ACCEPTED`, chỉ khi Task còn `OFFERED/ACCEPTED`; rút offer đang mở (`MANUALLY_ASSIGNED`). Web gửi `updatedAt` đã đọc vào `expectedUpdatedAt`; 409 `TASK_CHANGED` nếu dữ liệu đã đổi. Reassign hoặc giao ngoài Zone bắt buộc reason (422 `REASON_REQUIRED`). 409 `TASK_NOT_ASSIGNABLE`, `STAFF_NOT_ON_SHIFT`, `WORKLOAD_LIMIT`. |
 
 Notification types: `TASK_OFFER`, `TASK_OFFER_WITHDRAWN`, `TASK_ASSIGNED`, `TASK_NEEDS_ASSIGNMENT`, `TASK_PRIORITY_RAISED`, `EVENT_CLEARED`. Chỉ có kênh `IN_APP`; chưa có FCM/SignalR, mobile poll. `sourceCode` (`EVT-xxxxxxxx`) là mã hiển thị suy từ ID, không phải cột DB. Chưa làm: tạo/sửa ca (MF-04), evidence/submit/verify (MF-03), StaffReport, device token. Đổi ca: xem mục MF-04 bên dưới.
 

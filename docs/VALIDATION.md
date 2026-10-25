@@ -244,3 +244,40 @@ Same branch `feature/mf04-shift-swap`, on top of `078acf7`. No generated scaffol
 - Swap HTTP regression re-run on the same database: **28/28 checks passed**.
 - `docs/openapi.json`: 10 paths, 14 schemas and 3 tags inserted (1003 added lines, existing entries unchanged).
 - Not claimed: shared `FA26SE103_Dev` execution, concurrent planning by two Managers under load, or frontend/mobile integration.
+
+## MF-02 V6 Task mapper and live SQL rollback proof — 2026-10-25
+
+Branch `feature/mf02-staff-tasks`, based on `f6a9369`. Removed `TargetIncidentTypeId` and `ProposedIncidentSeverity` from the domain `ResponsePolicyAction`: the approved V6 scaffold and live table no longer contain these fields. Previously `EfSetupStore` reflected every domain property without checking its corresponding persistence property, so reading a real policy action could throw before Task creation. Mapping now validates property existence/type/accessors explicitly. Generated scaffold, SQL schema and HTTP contracts are unchanged.
+
+Verification:
+
+- Release build before the fix: PASS; the defect is runtime mapping rather than compilation.
+- `dotnet test tests/Supermarket.Tests/Supermarket.Tests.csproj -c Release --no-restore --disable-build-servers -p:UseSharedCompilation=false --filter 'Category!=SqlIntegration' --verbosity minimal`: **340 passed, 0 failed, 0 skipped** after the fix. Includes two new tests using actual `EfSetupStore` Add/Find with tracked EF rows (no SQL connection) for V6 policy actions and Event-origin Tasks/offers.
+- Read the configured shared `FA26SE103_Dev`: **37 dbo tables**. Task has 22 columns including `rejection_count`; ResponsePolicyAction has 10 columns and no obsolete Incident-qualification fields; Event has its independent type/priority/clear columns and no `incident_id`.
+- Actual schema readiness checks `EfTaskSchema.Ready` and `EfMonitoringIncidentQueries.EnsureSchema`: PASS.
+- Controlled SQL proof used the production snapshot reader, evaluator, writer, Task dispatch, Staff use cases and EF mapper/store with **synthetic aggregate observations**. An outer SERIALIZABLE transaction isolated temporary Zone/config/rule/policies/shift assignments and temporary camera/connection enablement. A store decorator flushed nested application transactions to SQL without committing the outer transaction. Rows were queried from SQL before rollback.
+- Check-in persisted and eligibility became true; unchecked-in Staff were excluded. A sustained Warning created one Event, one `OPERATIONAL_EVENT` Task, one eligible offer and an `IN_APP` recipient. After a second Staff check-in, retry added their offer. Handle Later accepted the Task; a subsequent second acceptance returned `TASK_ALREADY_TAKEN`; Start moved it to IN_PROGRESS. This is sequential competing acceptance, not a concurrent-load test.
+- Critical escalation updated the same Event/Task; sustained recovery cleared the Event while retaining the accepted Task IN_PROGRESS. No Incident was created.
+- Example transient proof IDs: Event `c6db8651-e2bc-4d88-b318-5bed8c010c2f`, Task `cf444d04-705d-455a-bcce-7206a344ce03`. These were rolled back and are not persistent demo records.
+- Rollback verified: fixture Zone/config/rule/policies/shift, temporary check-ins, Event/Task removed; original camera/connection status restored.
+
+Current data blockers observed at approximately 11:23–11:28 Asia/Saigon on 25/10:
+
+- The only saved active rule is CONGESTION on `zone test 2` (`6288c2c2-1bda-40fb-9e63-72e94c8d8167`); no ResponsePolicy/action is configured.
+- Its camera is INACTIVE; recorded FILE connection is disabled, with an older saved SUCCESS test. No current capture/test was executed.
+- There are two active Staff accounts but no current checked-in Staff covering that Zone. Today's saved assignment is 14:00–22:00 on `ZONE 1`, unchecked-in. Retry settings are absent, so defaults apply.
+- The database still contains historical `INCIDENT_LINKED` Event status strings from older data. Their presence is not evidence of current Event→Incident behavior; this task did not rewrite historical data.
+
+No permanent shared-data/schema changes, deployment, live-camera/AI inference, HTTP/mobile acceptance, FCM delivery or complete legacy SQL integration suite was performed. Local evidence JSON and repeatable scratch harness are kept in the workspace `.audit` and `tmp/task-sql-smoke`; they contain no connection secrets and are not included in this repository patch.
+
+## Owner A — Task Board assignment integration, 2026-10-25
+
+- Mechanical ownership split saved in local commit `9f8488b`: separated StaffTasks, OperatorTasks, TaskViews and their HTTP controllers into individual files. Namespaces, routes, DTOs and class bodies were unchanged by that commit. Non-SQL suite after the split: **340 PASS**.
+- Added optional `TaskAssignRequest.expectedUpdatedAt` for Operator writes. A mismatched version returns 409 `TASK_CHANGED`; normal EF concurrency still applies during persistence. Clients omitting the field retain the existing contract. Reassignment/outside-Zone assignment now requires a reason (422 `REASON_REQUIRED`); the checked-in/current-shift/workload and OFFERED/ACCEPTED-only restrictions remain.
+- Non-SQL suite after assignment guards: **343 passed, 0 failed, 0 skipped**, including stale-board acceptance, audit-reason preservation and prevention of reassignment after work starts. API.md and OpenAPI schema were synchronized.
+- Started the Release API locally at port 5192 with Bootstrap, CameraHealth, Monitoring, TaskOffers and ShiftSwaps disabled. Issued short-lived local QA tokens for existing active roles using local signing configuration without exposing or persisting tokens/secrets. **15 HTTP checks PASS** against configured Development SQL: ready/list/needsAssignment/Staff-own tasks/inbox; anonymous 401, Staff board 403, Admin assign 403, Operator-only mutation boundaries, invalid filter 422 and absent Task 404. Mutation probes used a random nonexistent TaskId, so they did not change operational rows.
+- Extended the rollback SQL harness to invoke actual OperatorTasks.Assign: stale version refused; correct-version assignment persisted ACCEPTED; reasonless reassignment refused; valid reassignment persisted with old history EndedAt/REASSIGNED and TASK_ASSIGNED notification. The manual fixture Task `8a7ff5a2-1b2b-4580-a507-707d8a0d193a`, Event fixture `d3a47ab9-34af-4bb6-8c54-2f63e4906589` and all related fixtures were rolled back; original camera/connection states were verified restored. These rows are not persistent demo data.
+- Front-End branch `feature/operator-task-board`: API client, Task Board/detail, assignment dialog, role-aware actions, status/needs-assignment filters, UTC→Vietnam presentation and foreground polling/backoff. **205 frontend tests PASS**, including 12 new feature/lifecycle checks; production build and lint PASS. Existing bundle-size warning remains.
+- Edge browser QA with intercepted API fixture responses verified Board/detail navigation, outside-Zone reason validation and successful assignment updating to Accepted. Local screenshots: `Front-End/output/playwright/task-board.png`, `task-assignment-validation.png`, `task-assigned.png`. The UI fixture is deliberately separate from real-SQL HTTP validation and is not evidence of mobile/public-backend acceptance.
+
+No shared schema change, permanent policy/shift/check-in update, deployment, camera/model capture, concurrent-load SQL acceptance, mobile evidence submission or Operator verification implementation was performed in this continuation. Those remain the B/C/integration workstreams. Local scratch evidence is outside the backend repository; only intended source/tests/contracts/docs belong in the patch.

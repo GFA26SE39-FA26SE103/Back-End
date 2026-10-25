@@ -81,8 +81,6 @@ public sealed class ResponsePolicyAction : TrackedEntity
     public string ExecutionMode { get; set; } = "AUTOMATIC";
     public string? ConditionJson { get; set; }
     public string? ActionParametersJson { get; set; }
-    public Guid? TargetIncidentTypeId { get; set; }
-    public string? ProposedIncidentSeverity { get; set; }
     public bool IsEnabled { get; set; } = true;
 }
 public sealed class Notification : Entity

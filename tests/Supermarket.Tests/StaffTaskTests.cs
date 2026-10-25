@@ -245,6 +245,49 @@ public sealed class StaffTaskTests
     }
 
     [Fact]
+    public async Task OperatorAssignmentRejectsAStaleTaskWithoutChangingItsAssigneeOrOffers()
+    {
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy("WARNING");
+        await w.Raise("WARNING");
+        var task = Assert.Single(w.Tasks);
+        var staleVersion = task.UpdatedAt;
+        // A Staff acceptance occurs after the Operator loaded the board.
+        await w.StaffTasks(a).Respond(w.OfferFor(a).TaskAssignmentId, new(TaskResponse.HandleLater, Now.AddMinutes(10), null), default);
+        Assert.Equal("TASK_CHANGED", (await Assert.ThrowsAsync<AppError>(() => w.Operator(op).Assign(task.TaskId, new(a, null, staleVersion), default))).Code);
+        Assert.Equal(a, task.CurrentAssigneeUserId);
+        Assert.Equal(TaskAssignmentType.Offer, (await w.Operator(op).Get(task.TaskId, default)).AssignmentType);
+        Assert.Empty(w.Notifications(task, TaskNotifier.Assigned));
+    }
+
+    [Fact]
+    public async Task OutsideZoneAssignmentAndReassignmentRequireAnAuditReason()
+    {
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true, zone: w.OtherZone);
+        var op = w.User("OPERATOR", "Olivia"); w.Policy("WARNING"); await w.Raise("WARNING");
+        var task = Assert.Single(w.Tasks);
+        Assert.Equal("REASON_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() => w.Operator(op).Assign(task.TaskId, new(b, " ", task.UpdatedAt), default))).Code);
+        Assert.Null(task.CurrentAssigneeUserId);
+        await w.Operator(op).Assign(task.TaskId, new(a, null, task.UpdatedAt), default);
+        Assert.Equal("REASON_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() => w.Operator(op).Assign(task.TaskId, new(b, null, task.UpdatedAt), default))).Code);
+        Assert.Equal(a, task.CurrentAssigneeUserId);
+        var assigned = await w.Operator(op).Assign(task.TaskId, new(b, "Cross-zone support", task.UpdatedAt), default);
+        Assert.Equal(b, assigned.AssigneeUserId);
+        Assert.Equal("Cross-zone support", w.Store.Values.OfType<TaskAssignmentHistory>().Single(h => h.AssignmentType == TaskAssignmentType.Manual && h.StaffUserId == b).Reason);
+    }
+
+    [Fact]
+    public async Task OperatorCannotReassignWorkAlreadyInProgressEvenWithTheCurrentVersion()
+    {
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true);
+        var op = w.User("OPERATOR", "Olivia"); w.Policy("WARNING"); await w.Raise("WARNING");
+        var task = Assert.Single(w.Tasks);
+        await w.StaffTasks(a).Respond(w.OfferFor(a).TaskAssignmentId, new(TaskResponse.HandleNow, null, null), default);
+        Assert.Equal("TASK_NOT_ASSIGNABLE", (await Assert.ThrowsAsync<AppError>(() => w.Operator(op).Assign(task.TaskId, new(b, "Change Staff", task.UpdatedAt), default))).Code);
+        Assert.Equal(a, task.CurrentAssigneeUserId);
+        Assert.Equal(WorkTaskStatus.InProgress, task.Status);
+    }
+
+    [Fact]
     public async Task MissingTaskSchemaDisablesDispatchButNotMonitoring()
     {
         var w = new World(schemaReady: false); w.Staff("An", checkedIn: true); w.Policy("WARNING");
