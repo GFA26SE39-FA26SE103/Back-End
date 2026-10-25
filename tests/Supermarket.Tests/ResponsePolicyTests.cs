@@ -2,8 +2,6 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Linq.Expressions;
 using System.Text.Json;
-using Microsoft.AspNetCore.TestHost;
-using Supermarket.Api.Configuration;
 using Supermarket.Application;
 using Supermarket.Domain;
 using Xunit;
@@ -147,9 +145,7 @@ public sealed class ResponsePolicyTests
     {
         var h = World();
         var rule = Assert.Single(h.Store.Values.OfType<MonitoringRule>());
-        await using var baseFactory = new SetupOverviewTests.Factory(h.Store);
-        await using var factory = baseFactory.WithWebHostBuilder(builder =>
-            builder.ConfigureTestServices(services => services.AddResponsePolicyManagement()));
+        await using var factory = new SetupOverviewTests.Factory(h.Store);
         using var client = factory.CreateClient();
         if (role is not null) client.DefaultRequestHeaders.Add("X-Test-Role", role);
 
