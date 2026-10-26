@@ -3,7 +3,7 @@ using Store = Supermarket.Domain.Supermarket;
 namespace Supermarket.Application;
 
 /// <summary>
-/// Manager shift planning (MF-04, BR-02/33/34/35): shift templates, DRAFT assignments of active Staff to a shift and Zones,
+/// Manager shift planning (MF-04, BR-02/33/34/35): shift templates, DRAFT assignments of active Staff to a shift and one Zone,
 /// publishing a date range (blocked while any Zone is below Zone.min_staff), edits and cancellation before a shift starts,
 /// and Staff leave (StaffUnavailability). Staff only see SCHEDULED (published) assignments.
 /// </summary>
@@ -168,7 +168,7 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
                     await notifier.Broadcast(Changed, "New shift", $"You are scheduled for {when}.", [row.UserId], "SHIFT_ASSIGNEE", ct);
                 }
                 else if (zoneIds is not null)
-                    await notifier.Broadcast(Changed, "Shift zones changed", $"Your zones for {when} changed.", [row.UserId], "SHIFT_ASSIGNEE", ct);
+                    await notifier.Broadcast(Changed, "Shift zone changed", $"Your zone for {when} changed.", [row.UserId], "SHIFT_ASSIGNEE", ct);
             }
             return 0;
         }, ct);
@@ -336,7 +336,9 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
     private static Guid[] ZoneList(Guid[]? zoneIds)
     {
         var ids = (zoneIds ?? []).Where(z => z != Guid.Empty).Distinct().ToArray();
-        Rules.Require(ids.Length > 0, "ZONE_REQUIRED", "Assign at least one Zone.");
+        Rules.Require(ids.Length > 0, "ZONE_REQUIRED", "Assign one Zone.");
+        if (ids.Length > 1)
+            throw new ApplicationException("MULTIPLE_ZONES_NOT_ALLOWED", "Assign exactly one Zone to each Staff shift.", 422);
         return ids;
     }
     private async Task RequireZones(Guid[] zoneIds, CancellationToken ct)
@@ -344,7 +346,7 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
         var found = await store.List<Zone>(z => zoneIds.Contains(z.ZoneId) && z.Status == "ACTIVE", ct);
         if (found.Count != zoneIds.Length) throw new ApplicationException("ZONE_NOT_FOUND", "Every Zone must exist and be active.", 422);
     }
-    /// <summary>Keeps rows for Zones that stay, ends the others and adds the new ones.</summary>
+    /// <summary>Keeps the selected Zone row, ends other active rows and adds the selected Zone when needed.</summary>
     private async Task SetZones(Guid assignmentId, Guid[] zoneIds, CancellationToken ct)
     {
         var now = clock.UtcNow;

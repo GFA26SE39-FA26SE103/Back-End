@@ -65,10 +65,13 @@ public sealed class ShiftPlanningTests
 
         Assert.Equal("NOT_STAFF", (await Assert.ThrowsAsync<AppError>(() => plan.Assign(new(manager, w.Morning.ShiftId, Wed, zone), default))).Code);
         Assert.Equal("ZONE_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() => plan.Assign(new(an, w.Morning.ShiftId, Wed, []), default))).Code);
+        var multipleZones = await Assert.ThrowsAsync<AppError>(() => plan.Assign(new(an, w.Morning.ShiftId, Wed, [w.Checkout.ZoneId, w.Produce.ZoneId]), default));
+        Assert.Equal(("MULTIPLE_ZONES_NOT_ALLOWED", 422), (multipleZones.Code, multipleZones.Status));
         Assert.Equal("ZONE_NOT_FOUND", (await Assert.ThrowsAsync<AppError>(() => plan.Assign(new(an, w.Morning.ShiftId, Wed, [Guid.NewGuid()]), default))).Code);
         Assert.Equal("SHIFT_LOCKED", (await Assert.ThrowsAsync<AppError>(() => plan.Assign(new(an, w.Morning.ShiftId, new(2026, 10, 19), zone), default))).Code);
 
-        await plan.Assign(new(an, w.Morning.ShiftId, Wed, zone), default);
+        var assigned = await plan.Assign(new(an, w.Morning.ShiftId, Wed, [w.Checkout.ZoneId, w.Checkout.ZoneId]), default);
+        Assert.Equal(w.Checkout.ZoneId, Assert.Single(assigned.Zones).ZoneId);
         Assert.Equal("ALREADY_ASSIGNED", (await Assert.ThrowsAsync<AppError>(() => plan.Assign(new(an, w.Morning.ShiftId, Wed, zone), default))).Code);
         w.Store.Values.Add(w.Mid);
         var overlap = await Assert.ThrowsAsync<AppError>(() => plan.Assign(new(an, w.Mid.ShiftId, Wed, zone), default));
@@ -114,7 +117,7 @@ public sealed class ShiftPlanningTests
     }
 
     [Fact]
-    public async Task ReassigningAPublishedShiftNotifiesBothStaffAndZonesCanBeReplaced()
+    public async Task ReassigningAPublishedShiftNotifiesBothStaffAndTheZoneCanBeReplaced()
     {
         var w = new World(); var manager = w.User("MANAGER", "Lan"); var plan = w.Planning(manager);
         var an = w.Staff("An"); var binh = w.Staff("Binh"); var chi = w.Staff("Chi");
@@ -122,10 +125,14 @@ public sealed class ShiftPlanningTests
         await plan.Assign(new(binh, w.Evening.ShiftId, Thu, [w.Checkout.ZoneId]), default);
         await plan.Publish(new(Thu, Thu), default);
 
-        var moved = await plan.Update(a.ShiftAssignmentId, new(chi, [w.Checkout.ZoneId, w.Produce.ZoneId]), default);
+        var multipleZones = await Assert.ThrowsAsync<AppError>(() => plan.Update(a.ShiftAssignmentId, new(chi, [w.Checkout.ZoneId, w.Produce.ZoneId]), default));
+        Assert.Equal(("MULTIPLE_ZONES_NOT_ALLOWED", 422), (multipleZones.Code, multipleZones.Status));
+
+        var moved = await plan.Update(a.ShiftAssignmentId, new(chi, [w.Produce.ZoneId]), default);
 
         Assert.Equal(chi, moved.UserId);
-        Assert.Equal(new[] { w.Checkout.ZoneId, w.Produce.ZoneId }.Order(), moved.Zones.Select(z => z.ZoneId).Order());
+        Assert.Equal(w.Produce.ZoneId, Assert.Single(moved.Zones).ZoneId);
+        Assert.DoesNotContain(w.Store.Values.OfType<StaffZoneAssignment>(), z => z.ShiftAssignmentId == a.ShiftAssignmentId && z.ZoneId == w.Checkout.ZoneId && z.UnassignedAt == null);
         Assert.Equal(new[] { an }, w.Recipients(ShiftPlanning.Removed));
         Assert.Equal(new[] { chi }, w.Recipients(ShiftPlanning.Changed));
         Assert.Empty(await w.StaffTasks(an).Shifts(Thu, Thu, default));

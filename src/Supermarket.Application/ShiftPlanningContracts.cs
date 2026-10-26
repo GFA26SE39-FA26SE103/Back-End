@@ -13,7 +13,7 @@ public sealed record ScheduleView(DateOnly From, DateOnly To, ScheduledShiftView
 
 public sealed record StaffOptionView(Guid UserId, string FullName, bool Eligible, double WeeklyHoursAfter, string[] Problems);
 public sealed record AssignShiftRequest(Guid UserId, Guid ShiftId, DateOnly WorkDate, Guid[]? ZoneIds);
-/// <summary>Change the person and/or replace the Zones of one assignment; omitted fields stay unchanged.</summary>
+/// <summary>Change the person and/or replace the single Zone of one assignment; omitted fields stay unchanged.</summary>
 public sealed record UpdateAssignmentRequest(Guid? UserId, Guid[]? ZoneIds);
 public sealed record CancelAssignmentRequest(string? Reason);
 public sealed record PublishScheduleRequest(DateOnly From, DateOnly To);
