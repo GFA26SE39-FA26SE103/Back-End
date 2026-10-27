@@ -1,9 +1,17 @@
 using Supermarket.Domain;
 namespace Supermarket.Application;
 
-/// <summary>Operator task board and manual assignment after escalation (BR-20, BR-22). Manual assignment enters at Accepted.</summary>
-public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, IClock clock, StaffRoster roster, TaskDispatch dispatch, TaskNotifier notifier, TaskViews views, ITaskSchema schema)
+public interface IOperatorTaskQueries
 {
+    Task<Guid[]> NeedingAssignmentIds(int limit, CancellationToken ct);
+}
+
+/// <summary>Operator task board and manual assignment after escalation (BR-20, BR-22). Manual assignment enters at Accepted.</summary>
+public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, IClock clock, StaffRoster roster, TaskDispatch dispatch, TaskNotifier notifier, TaskViews views,
+    ITaskSchema schema, IOperatorTaskQueries queries)
+{
+    private const int ResultLimit = 200;
+
     public async Task<StaffTaskView[]> List(string? status, bool needsAssignment, CancellationToken ct)
     {
         UseCase.Viewer(current);
@@ -11,9 +19,17 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
         var statuses = status is null ? [WorkTaskStatus.Offered, WorkTaskStatus.Accepted, WorkTaskStatus.InProgress, WorkTaskStatus.Submitted]
             : status.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
         foreach (var s in statuses) Rules.Status(s, WorkTaskStatus.Offered, WorkTaskStatus.Accepted, WorkTaskStatus.InProgress, WorkTaskStatus.Submitted, WorkTaskStatus.Verified, WorkTaskStatus.Cancelled);
-        var tasks = await store.List<WorkTask>(t => statuses.Contains(t.Status), ct);
-        var result = await views.Tasks(tasks.OrderByDescending(t => t.CreatedAt).Take(200).ToList(), ct);
-        return result.Where(t => !needsAssignment || t.NeedsAssignment).ToArray();
+        if (!needsAssignment)
+        {
+            var tasks = await store.List<WorkTask>(t => statuses.Contains(t.Status), ct);
+            return await views.Tasks(tasks.OrderByDescending(t => t.CreatedAt).Take(ResultLimit).ToList(), ct);
+        }
+
+        if (!statuses.Contains(WorkTaskStatus.Offered)) return [];
+        var ids = await queries.NeedingAssignmentIds(ResultLimit, ct);
+        if (ids.Length == 0) return [];
+        var byId = (await store.List<WorkTask>(t => ids.Contains(t.TaskId), ct)).ToDictionary(t => t.TaskId);
+        return await views.Tasks(ids.Where(byId.ContainsKey).Select(id => byId[id]).ToList(), ct);
     }
 
     public async Task<StaffTaskView> Get(Guid taskId, CancellationToken ct)

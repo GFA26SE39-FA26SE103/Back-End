@@ -41,6 +41,45 @@ public sealed class StaffTaskTests
         Assert.Empty(w.Tasks);
     }
 
+    [Theory]
+    [InlineData(false, "ACTIVE")]
+    [InlineData(true, "DRAFT")]
+    public async Task AutomaticPolicyDoesNotDispatchWhenItsRuleIsDisabledOrConfigurationInactive(bool ruleEnabled, string configurationStatus)
+    {
+        var w = new World(); w.Staff("An", checkedIn: true); w.Policy("WARNING");
+        Assert.Single(w.Store.Values.OfType<MonitoringRule>()).Enabled = ruleEnabled;
+        Assert.Single(w.Store.Values.OfType<MonitoringConfiguration>()).Status = configurationStatus;
+
+        await w.Raise("WARNING");
+
+        Assert.Empty(w.Tasks);
+    }
+
+    [Fact]
+    public async Task AmbiguousAutomaticTaskActionsDoNotDispatch()
+    {
+        var w = new World(); w.Staff("An", checkedIn: true); w.Policy("WARNING");
+        var policy = Assert.Single(w.Store.Values.OfType<ResponsePolicy>());
+        w.Store.Values.Add(new ResponsePolicyAction { ActionId = Guid.NewGuid(), PolicyId = policy.PolicyId, ActionType = ResponsePolicyRules.CreateOperationalTask,
+            ExecutionMode = ResponsePolicyRules.Automatic, ActionParametersJson = "{}", IsEnabled = true });
+
+        await w.Raise("WARNING");
+
+        Assert.Empty(w.Tasks);
+    }
+
+    [Fact]
+    public async Task PolicyAttachedToANonOperationalRuleDoesNotDispatch()
+    {
+        var w = new World(); w.Staff("An", checkedIn: true); w.Policy("WARNING");
+        var rule = Assert.Single(w.Store.Values.OfType<MonitoringRule>());
+        rule.OutcomeType = "INCIDENT"; rule.EventTypeId = null; rule.IncidentTypeId = Guid.NewGuid();
+
+        await w.Raise("WARNING");
+
+        Assert.Empty(w.Tasks);
+    }
+
     [Fact]
     public async Task EscalationUpdatesTheSameTaskInsteadOfCreatingAnother()
     {
@@ -276,6 +315,23 @@ public sealed class StaffTaskTests
     }
 
     [Fact]
+    public async Task NeedsAssignmentFilterIsAppliedBeforeTheTwoHundredTaskLimit()
+    {
+        var w = new World(); var assignee = w.Staff("An", checkedIn: true); var op = w.User("OPERATOR", "Olivia");
+        var oldestUnassigned = new WorkTask { TaskId = Guid.NewGuid(), ZoneId = w.Zone.ZoneId, Title = "Old task needing assignment",
+            Status = WorkTaskStatus.Offered, CreatedAt = Now.AddDays(-1) };
+        w.Store.Values.Add(oldestUnassigned);
+        for (var i = 0; i < 200; i++)
+            w.Store.Values.Add(new WorkTask { TaskId = Guid.NewGuid(), ZoneId = w.Zone.ZoneId, Title = $"Assigned {i}", Status = WorkTaskStatus.Offered,
+                CurrentAssigneeUserId = assignee, CreatedAt = Now.AddMinutes(i) });
+
+        var result = await w.Operator(op).List(null, true, default);
+
+        Assert.Equal(oldestUnassigned.TaskId, Assert.Single(result).TaskId);
+        Assert.True(result[0].NeedsAssignment);
+    }
+
+    [Fact]
     public async Task OperatorCannotReassignWorkAlreadyInProgressEvenWithTheCurrentVersion()
     {
         var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true);
@@ -301,11 +357,13 @@ public sealed class StaffTaskTests
     public async Task EpisodeWriterOpensOneTaskAndRaisesItsPriorityOnEscalation()
     {
         var w = new World(); var a = w.Staff("An", checkedIn: true);
-        var eventTypeId = Guid.NewGuid();
+        var eventTypeId = Guid.NewGuid(); var configId = Guid.NewGuid();
         var rule = new MonitoringRuleSnapshot(Guid.NewGuid(), Guid.NewGuid(), "LONG_QUEUE", "Queue", "QUEUE_LENGTH", "PEOPLE", 1, 2, 1, 10, eventTypeId, "LONG_QUEUE", 1);
+        w.Store.Values.Add(new MonitoringConfiguration { ConfigId = configId, ZoneId = w.Zone.ZoneId, Name = "Episode monitoring", Status = "ACTIVE" });
+        w.Store.Values.Add(new MonitoringRule { RuleId = rule.RuleId, ConfigId = configId, EventTypeId = eventTypeId, OutcomeType = "OPERATIONAL_EVENT", Enabled = true });
         w.Policy("WARNING", rule.RuleId); w.Policy("CRITICAL", rule.RuleId);
         var writer = new MonitoringIncidentWriter(w.Store, new Snapshots(), new Queries(), w.Clock, w.Dispatch);
-        var zone = new MonitoringZoneSnapshot(w.Zone.ZoneId, w.Zone.Name, Guid.NewGuid(), Now, [], .5m, [rule]);
+        var zone = new MonitoringZoneSnapshot(w.Zone.ZoneId, w.Zone.Name, configId, Now, [], .5m, [rule]);
         var snapshot = new MonitoringCameraSnapshot(w.Camera.CameraId, new(), "f", [zone]);
         var session = Guid.NewGuid();
         IncidentObservationCommand Command(long seq, int queue, string? severity, bool clear = false)
@@ -337,6 +395,7 @@ public sealed class StaffTaskTests
         public Camera OtherCamera { get; }
         public TaskDispatch Dispatch { get; }
         public TaskViews Views { get; }
+        public OperatorQueries TaskQueries { get; }
         private readonly Schema schema;
         private readonly StaffRoster roster;
         private readonly TaskNotifier notifier;
@@ -351,13 +410,16 @@ public sealed class StaffTaskTests
             Camera = new Camera { CameraId = Guid.NewGuid(), FloorId = floor, Code = "CAM-03", Name = "Checkout 3" };
             OtherCamera = new Camera { CameraId = Guid.NewGuid(), FloorId = floor, Code = "CAM-04", Name = "Checkout 4" };
             foreach (var role in new[] { "ADMIN", "OPERATOR", "MANAGER", "STAFF" }) Store.Values.Add(new Role { RoleId = Guid.NewGuid(), Name = role });
-            Store.Values.AddRange([Zone, OtherZone, Camera, OtherCamera,
+            var configuration = new MonitoringConfiguration { ConfigId = Guid.NewGuid(), ZoneId = Zone.ZoneId, Name = "Queue monitoring", Status = "ACTIVE" };
+            var rule = new MonitoringRule { RuleId = ruleId, ConfigId = configuration.ConfigId, EventTypeId = eventTypeId, OutcomeType = "OPERATIONAL_EVENT", Enabled = true };
+            Store.Values.AddRange([Zone, OtherZone, Camera, OtherCamera, configuration, rule,
                 new OperationalEventType { EventTypeId = eventTypeId, Code = "LONG_QUEUE", Name = "Long queue", MeasurementType = "QUEUE_LENGTH" },
                 new Shift { ShiftId = shiftId, Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
             roster = new StaffRoster(Store, Calendar);
             notifier = new TaskNotifier(Store, Clock);
             Dispatch = new TaskDispatch(Store, roster, notifier, Clock, schema);
             Views = new TaskViews(Store, Dispatch);
+            TaskQueries = new OperatorQueries(Store);
         }
         public IEnumerable<WorkTask> Tasks => Store.Values.OfType<WorkTask>().Where(t => t.EventId != null);
         public Guid User(string role, string name)
@@ -400,7 +462,7 @@ public sealed class StaffTaskTests
         public List<Notification> Notifications(WorkTask task, string type) => Store.Values.OfType<Notification>().Where(n => n.TaskId == task.TaskId && n.NotificationType == type).ToList();
         public Guid[] Recipients(Notification notification) => Store.Values.OfType<NotificationRecipient>().Where(r => r.NotificationId == notification.NotificationId).Select(r => r.UserId).ToArray();
         public StaffTasks StaffTasks(Guid user) => new(Store, Current(user), Clock, Calendar, roster, Dispatch, Views, schema);
-        public OperatorTasks Operator(Guid user) => new(Store, Current(user), Clock, roster, Dispatch, notifier, Views, schema);
+        public OperatorTasks Operator(Guid user) => new(Store, Current(user), Clock, roster, Dispatch, notifier, Views, schema, TaskQueries);
         private User Current(Guid id)
         {
             var user = Store.Values.OfType<UserAccount>().Single(u => u.UserId == id);
@@ -421,4 +483,14 @@ public sealed class StaffTaskTests
     }
     internal sealed class Clock : IClock { public DateTime UtcNow { get; set; } }
     private sealed class Schema : ITaskSchema { public bool IsReady; public Task<bool> Ready(CancellationToken ct) => Task.FromResult(IsReady); }
+    internal sealed class OperatorQueries(MonitoringSetupTests.MemoryStore store) : IOperatorTaskQueries
+    {
+        public async Task<Guid[]> NeedingAssignmentIds(int limit, CancellationToken ct)
+        {
+            var openOfferTaskIds = (await store.List<TaskAssignmentHistory>(a => a.Status == OfferStatus.Offered, ct)).Select(a => a.TaskId).ToHashSet();
+            return (await store.List<WorkTask>(t => t.Status == WorkTaskStatus.Offered && t.CurrentAssigneeUserId == null, ct))
+                .Where(t => !openOfferTaskIds.Contains(t.TaskId)).OrderByDescending(t => t.CreatedAt).ThenByDescending(t => t.TaskId)
+                .Take(limit).Select(t => t.TaskId).ToArray();
+        }
+    }
 }

@@ -100,6 +100,7 @@ builder.Services.AddScoped<MonitoringSetup>();
 builder.Services.AddScoped<IMonitoringSnapshotReader,MonitoringSnapshotReader>();
 builder.Services.AddScoped<IMonitoringIncidentQueries,EfMonitoringIncidentQueries>();
 builder.Services.AddScoped<ITaskSchema, EfTaskSchema>();
+builder.Services.AddScoped<IOperatorTaskQueries, EfOperatorTaskQueries>();
 builder.Services.AddScoped<StaffRoster>();
 builder.Services.AddScoped<TaskNotifier>();
 builder.Services.AddScoped<TaskDispatch>();
