@@ -28,6 +28,47 @@ var queries = new EfMonitoringIncidentQueries(db);
 await queries.EnsureSchema(default);
 
 var saved = await snapshots.ReadAll(default);
+var cameras = await db.Cameras.AsNoTracking()
+    .Select(camera => new
+    {
+        camera.CameraId,
+        camera.FloorId,
+        camera.Code,
+        camera.Name,
+        camera.Status,
+        camera.HealthStatus,
+        Connection = camera.CameraConnection == null ? null : new
+        {
+            camera.CameraConnection.SourceType,
+            camera.CameraConnection.Protocol,
+            camera.CameraConnection.IsEnabled,
+            camera.CameraConnection.LastTestedAt,
+            camera.CameraConnection.LastTestResult
+        },
+        ActiveMappings = camera.CameraZoneMappings.Count(mapping => mapping.Status == "ACTIVE")
+    })
+    .ToArrayAsync();
+var zones = await db.Zones.AsNoTracking()
+    .Select(zone => new
+    {
+        zone.ZoneId,
+        zone.FloorId,
+        zone.Code,
+        zone.Name,
+        zone.Status
+    })
+    .OrderBy(zone => zone.Code)
+    .ToArrayAsync();
+var mappings = await db.CameraZoneMappings.AsNoTracking()
+    .Select(mapping => new
+    {
+        mapping.CameraZoneId,
+        mapping.CameraId,
+        mapping.ZoneId,
+        mapping.Status
+    })
+    .OrderBy(mapping => mapping.ZoneId)
+    .ToArrayAsync();
 var readiness = saved.Select(snapshot => new
 {
     snapshot.CameraId,
@@ -40,28 +81,30 @@ var readiness = saved.Select(snapshot => new
 }).ToArray();
 if (readinessOnly)
 {
-    Console.WriteLine(JsonSerializer.Serialize(new { checkedAtUtc = clock.UtcNow, readiness },
+    Console.WriteLine(JsonSerializer.Serialize(new { checkedAtUtc = clock.UtcNow, cameras, zones, mappings, monitoringSnapshots = readiness },
         new JsonSerializerOptions { WriteIndented = true }));
     return;
 }
 
-var candidates = saved
-    .Where(snapshot => snapshot.Zones.Any()
-        && snapshot.Connection.LastTestResult == "SUCCESS")
-    .OrderBy(snapshot => snapshot.Connection.SourceType == "LIVE" ? 0 : 1)
-    .ToArray();
+var candidates = await db.Cameras.AsNoTracking()
+    .Include(camera => camera.CameraConnection)
+    .Include(camera => camera.CameraZoneMappings)
+    .Where(camera => camera.CameraConnection != null
+        && camera.CameraConnection.LastTestResult == "SUCCESS"
+        && camera.CameraZoneMappings.Any(mapping => mapping.Status == "ACTIVE"))
+    .OrderBy(camera => camera.CameraConnection!.SourceType == "LIVE" ? 0 : 1)
+    .ToArrayAsync();
 Require(candidates.Length > 0, "A mapped camera with a saved successful connection test exists.");
 var template = candidates[0];
 if (requireLive)
 {
-    if (template.Connection.SourceType != "LIVE")
+    if (template.CameraConnection!.SourceType != "LIVE")
         throw new InvalidOperationException("FAILED: --require-live was set, but only a RECORDED fallback is currently ready.");
     Console.WriteLine("PASS: A LIVE camera candidate is available for the required acceptance path.");
 }
-var templateZone = template.Zones.First();
+var templateMapping = template.CameraZoneMappings.First(mapping => mapping.Status == "ACTIVE");
 var longQueueType = await db.OperationalEventTypes.AsNoTracking()
     .SingleAsync(eventType => eventType.Code == "LONG_QUEUE" && eventType.Status == "ACTIVE");
-var camera = await db.Cameras.AsNoTracking().SingleAsync(row => row.CameraId == template.CameraId);
 var adminId = await db.UserAccounts.AsNoTracking()
     .Where(user => user.Status == "ACTIVE" && user.Role.Name == "ADMIN")
     .Select(user => user.UserId)
@@ -77,11 +120,11 @@ var proof = new Dictionary<string, object?>
 {
     ["checkedAtUtc"] = clock.UtcNow,
     ["database"] = db.Database.GetDbConnection().Database,
-    ["selectedSource"] = template.Connection.SourceType,
-    ["sourceFallbackUsed"] = template.Connection.SourceType != "LIVE",
+    ["selectedSource"] = template.CameraConnection!.SourceType,
+    ["sourceFallbackUsed"] = template.CameraConnection.SourceType != "LIVE",
     ["templateCameraId"] = template.CameraId,
-    ["templateZoneId"] = templateZone.ZoneId,
-    ["savedIssueCode"] = template.IssueCode,
+    ["templateZoneId"] = templateMapping.ZoneId,
+    ["savedIssueCode"] = saved.FirstOrDefault(snapshot => snapshot.CameraId == template.CameraId)?.IssueCode,
     ["contract"] = new
     {
         eventCode = "LONG_QUEUE", measurementMode = "QUEUE_LENGTH", unit = "PEOPLE",
@@ -105,7 +148,7 @@ await using (var transaction = await db.Database.BeginTransactionAsync(Isolation
 
         db.Zones.Add(new Db.Zone
         {
-            ZoneId = zoneId, FloorId = camera.FloorId, Code = "MF02-" + suffix, Name = "MF-02 SQL proof " + suffix,
+            ZoneId = zoneId, FloorId = template.FloorId, Code = "MF02-" + suffix, Name = "MF-02 SQL proof " + suffix,
             MapPolygon = "[{\"x\":0.1,\"y\":0.1},{\"x\":0.2,\"y\":0.1},{\"x\":0.2,\"y\":0.2}]",
             Status = "ACTIVE", MinStaff = 0, CreatedAt = clock.UtcNow, UpdatedAt = clock.UtcNow
         });
@@ -127,7 +170,7 @@ await using (var transaction = await db.Database.BeginTransactionAsync(Isolation
         db.CameraZoneMappings.Add(new Db.CameraZoneMapping
         {
             CameraZoneId = Guid.NewGuid(), CameraId = template.CameraId, ZoneId = zoneId,
-            RoiPolygon = JsonSerializer.Serialize(templateZone.Roi, new JsonSerializerOptions(JsonSerializerDefaults.Web)),
+            RoiPolygon = templateMapping.RoiPolygon,
             Status = "ACTIVE", CreatedAt = clock.UtcNow, UpdatedAt = clock.UtcNow
         });
         await db.SaveChangesAsync();
