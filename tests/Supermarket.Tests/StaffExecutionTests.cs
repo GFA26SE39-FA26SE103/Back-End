@@ -58,6 +58,52 @@ public sealed class StaffExecutionTests
         Assert.Equal(WorkTaskStatus.InProgress, (await w.StaffTasks(a).Start(task.TaskId, default)).Status);
     }
 
+    [Fact]
+    public async Task DemoRetrySettingsOfferThreeTimesTenSecondsApartThenAskTheOperatorOnce()
+    {
+        // MF-02 contract baseline: retry_interval_sec = 10, max_retry_count = 2 → three offers in total.
+        var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        w.Setting(TaskRules.RetryIntervalSetting, "10"); w.Setting(TaskRules.MaxRetryCountSetting, "2");
+        await w.Raise();
+        var task = Assert.Single(w.Store.Values.OfType<WorkTask>());
+
+        var first = Assert.Single(await w.StaffTasks(a).Offers(true, default));
+        Assert.Equal((1, 3, Now.AddSeconds(10)), (first.Attempt, first.MaxAttempts, first.NextAlertAt));
+        w.Clock.UtcNow = Now.AddSeconds(9); Assert.Equal(0, await w.Tick());
+        w.Clock.UtcNow = Now.AddSeconds(10); Assert.Equal(1, await w.Tick());
+        w.Clock.UtcNow = Now.AddSeconds(20); Assert.Equal(1, await w.Tick());
+        var last = Assert.Single(await w.StaffTasks(a).Offers(true, default));
+        Assert.Equal((3, (DateTime?)null), (last.Attempt, last.NextAlertAt));
+
+        w.Clock.UtcNow = Now.AddSeconds(30); await w.Tick();
+        w.Clock.UtcNow = Now.AddSeconds(40); await w.Tick();
+        Assert.Equal(3, w.Notifications(task, TaskNotifier.Offer).Count);
+        Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment))));
+        Assert.Equal((WorkTaskStatus.Offered, (Guid?)null), (task.Status, task.CurrentAssigneeUserId));
+        Assert.Equal((OfferStatus.Expired, "NO_ACCEPTANCE"), (w.OfferFor(a).Status, w.OfferFor(a).Reason));
+        Assert.Equal("OFFER_CLOSED", (await Assert.ThrowsAsync<AppError>(() => w.StaffTasks(a).Respond(w.OfferFor(a).TaskAssignmentId, new(TaskResponse.HandleNow, null, null), default))).Code);
+    }
+
+    [Fact]
+    public async Task WithNoEligibleStaffNobodyIsAssignedAndRetriesReachStaffWhoCheckInLater()
+    {
+        var w = new World(); var late = w.Staff("An", checkedIn: false); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        w.Setting(TaskRules.RetryIntervalSetting, "10"); w.Setting(TaskRules.MaxRetryCountSetting, "2");
+        await w.Raise();
+        var task = Assert.Single(w.Store.Values.OfType<WorkTask>());
+
+        Assert.Empty(w.Store.Values.OfType<TaskAssignmentHistory>());
+        Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment))));
+        Assert.Empty(await w.StaffTasks(late).Offers(true, default));
+
+        // The Staff member checks in before the next round and is offered the same Task.
+        w.Store.Values.OfType<ShiftAssignment>().Single(s => s.UserId == late).CheckInAt = Now.AddSeconds(5);
+        w.Clock.UtcNow = Now.AddSeconds(10); await w.Tick();
+        Assert.Equal(task.TaskId, Assert.Single(await w.StaffTasks(late).Offers(true, default)).TaskId);
+        Assert.Single(w.Store.Values.OfType<WorkTask>());
+        Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment));
+    }
+
     private sealed class World
     {
         public MonitoringSetupTests.MemoryStore Store { get; } = new();
@@ -85,14 +131,27 @@ public sealed class StaffExecutionTests
             views = new TaskViews(Store, dispatch);
         }
 
-        public Guid Staff(string name, bool checkedIn = true)
+        public Guid User(string role, string name)
         {
-            var user = new UserAccount { UserId = Guid.NewGuid(), RoleId = Store.Values.OfType<Role>().Single(r => r.Name == "STAFF").RoleId, FullName = name, Email = $"{name}@test", Status = "ACTIVE" };
+            var user = new UserAccount { UserId = Guid.NewGuid(), RoleId = Store.Values.OfType<Role>().Single(r => r.Name == role).RoleId, FullName = name, Email = $"{name}@test", Status = "ACTIVE" };
             Store.Values.Add(user);
-            var assignment = Assignment(user.UserId, ShiftAssignmentStatus.Scheduled, new(2026, 10, 11));
-            if (checkedIn) Store.Values.OfType<ShiftAssignment>().Single(s => s.ShiftAssignmentId == assignment).CheckInAt = Now.AddHours(-2);
             return user.UserId;
         }
+
+        public Guid Staff(string name, bool checkedIn = true)
+        {
+            var id = User("STAFF", name);
+            var assignment = Assignment(id, ShiftAssignmentStatus.Scheduled, new(2026, 10, 11));
+            if (checkedIn) Store.Values.OfType<ShiftAssignment>().Single(s => s.ShiftAssignmentId == assignment).CheckInAt = Now.AddHours(-2);
+            return id;
+        }
+
+        public void Setting(string key, string value) =>
+            Store.Values.Add(new SystemSetting { SettingId = Guid.NewGuid(), SettingKey = key, SettingValue = value, ValueType = "INTEGER", UpdatedAt = Now });
+
+        public Task<int> Tick() => dispatch.Tick(default);
+        public List<Notification> Notifications(WorkTask task, string type) => Store.Values.OfType<Notification>().Where(n => n.TaskId == task.TaskId && n.NotificationType == type).ToList();
+        public Guid[] Recipients(Notification notification) => Store.Values.OfType<NotificationRecipient>().Where(r => r.NotificationId == notification.NotificationId).Select(r => r.UserId).ToArray();
 
         public Guid Assignment(Guid user, string status, DateOnly day)
         {
