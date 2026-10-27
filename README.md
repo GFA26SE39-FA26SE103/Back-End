@@ -4,6 +4,10 @@ Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.
 
 ## MF-02 Task readiness — checked 25/10/2026
 
+**Monitoring/Event SQL proof — checked 27/10/2026:** `tools/Mf02MonitoringSqlProof` now provides a repeatable, opt-in V6 verification that creates its fixture inside one outer SERIALIZABLE transaction and always rolls back. It verifies sustained warning open, same-episode CRITICAL escalation, sustained recovery clear, and that an `OPERATIONAL_EVENT` rule never creates an Incident. The current shared Dev template is still `RECORDED` and reports `CAMERA_NOT_ACTIVE`; a LIVE camera remains required for the primary MF-02 acceptance path.
+
+The default disposable-database suite is still not a V6 gate: its historical `20261003_02_monitoring_runtime_erd_v3.sql` bootstrap is absent from the Database repository, and V0.1 + V2–V6 is not a valid fresh-install chain because V2 expects runtime tables that V0.1 does not create. Do not reconstruct those tables from EF or use a data-bearing backup just to make the fixture green.
+
 **Operator web integration:** controller/service ownership was split without route changes in commit `9f8488b`: StaffTasks/StaffMeController/TaskOffersController are separate from OperatorTasks/TaskViews/TasksController. Assignment now accepts optional `expectedUpdatedAt`, returns `TASK_CHANGED` on stale data, and requires a reason for reassignment/outside-Zone assignment. The latest validation is **343 non-SQL tests PASS**, 15 local HTTP/auth checks PASS, and real-SQL assignment/reassignment verified inside a rollback transaction. See API.md and the dated Owner A validation entry below.
 
 Đã sửa lệch domain `ResponsePolicyAction` so với scaffold V6 và kiểm chứng bằng SQL Dev thật trong transaction rollback: check-in → sustained Event → Task/offer/notification → nhận việc/bắt đầu → tăng priority → Event clear. Non-SQL suite: **340 passed**. Đây là kiểm chứng application/EF/SQL với measurement giả lập, chưa phải camera/AI hoặc HTTP/mobile acceptance; xem [bằng chứng và giới hạn](docs/VALIDATION.md#mf-02-v6-task-mapper-and-live-sql-rollback-proof--2026-10-25).
