@@ -8,6 +8,8 @@ using D = Supermarket.Domain;
 using Db = Supermarket.Infrastructure.Persistence.Scaffolded;
 
 var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../.."));
+var requireLive = args.Contains("--require-live", StringComparer.OrdinalIgnoreCase);
+var readinessOnly = args.Contains("--readiness-only", StringComparer.OrdinalIgnoreCase);
 var settingsPath = Environment.GetEnvironmentVariable("MF02_LOCAL_SETTINGS")
     ?? Path.Combine(root, "src/Supermarket.Api/appsettings.Local.json");
 Require(File.Exists(settingsPath), $"Local settings file exists ({settingsPath}).");
@@ -26,15 +28,39 @@ var queries = new EfMonitoringIncidentQueries(db);
 await queries.EnsureSchema(default);
 
 var saved = await snapshots.ReadAll(default);
+var readiness = saved.Select(snapshot => new
+{
+    snapshot.CameraId,
+    snapshot.Connection.SourceType,
+    snapshot.Connection.Protocol,
+    snapshot.Connection.IsEnabled,
+    snapshot.Connection.LastTestResult,
+    snapshot.IssueCode,
+    Zones = snapshot.Zones.Select(zone => new { zone.ZoneId, zone.IssueCode }).ToArray()
+}).ToArray();
+if (readinessOnly)
+{
+    Console.WriteLine(JsonSerializer.Serialize(new { checkedAtUtc = clock.UtcNow, readiness },
+        new JsonSerializerOptions { WriteIndented = true }));
+    return;
+}
+
 var candidates = saved
-    .Where(snapshot => snapshot.Zones.Any(zone => zone.Rules.Any(rule => rule.OutcomeType == "OPERATIONAL_EVENT")))
+    .Where(snapshot => snapshot.Zones.Any()
+        && snapshot.Connection.LastTestResult == "SUCCESS")
     .OrderBy(snapshot => snapshot.Connection.SourceType == "LIVE" ? 0 : 1)
     .ToArray();
-Require(candidates.Length > 0, "An OPERATIONAL_EVENT camera/rule template exists.");
+Require(candidates.Length > 0, "A mapped camera with a saved successful connection test exists.");
 var template = candidates[0];
-var templateZone = template.Zones.First(zone => zone.Rules.Any(rule => rule.OutcomeType == "OPERATIONAL_EVENT"));
-var templateRule = templateZone.Rules.First(rule => rule.OutcomeType == "OPERATIONAL_EVENT");
-var persistedRule = await db.MonitoringRules.AsNoTracking().SingleAsync(rule => rule.RuleId == templateRule.RuleId);
+if (requireLive)
+{
+    if (template.Connection.SourceType != "LIVE")
+        throw new InvalidOperationException("FAILED: --require-live was set, but only a RECORDED fallback is currently ready.");
+    Console.WriteLine("PASS: A LIVE camera candidate is available for the required acceptance path.");
+}
+var templateZone = template.Zones.First();
+var longQueueType = await db.OperationalEventTypes.AsNoTracking()
+    .SingleAsync(eventType => eventType.Code == "LONG_QUEUE" && eventType.Status == "ACTIVE");
 var camera = await db.Cameras.AsNoTracking().SingleAsync(row => row.CameraId == template.CameraId);
 var adminId = await db.UserAccounts.AsNoTracking()
     .Where(user => user.Status == "ACTIVE" && user.Role.Name == "ADMIN")
@@ -55,8 +81,13 @@ var proof = new Dictionary<string, object?>
     ["sourceFallbackUsed"] = template.Connection.SourceType != "LIVE",
     ["templateCameraId"] = template.CameraId,
     ["templateZoneId"] = templateZone.ZoneId,
-    ["templateRuleId"] = templateRule.RuleId,
     ["savedIssueCode"] = template.IssueCode,
+    ["contract"] = new
+    {
+        eventCode = "LONG_QUEUE", measurementMode = "QUEUE_LENGTH", unit = "PEOPLE",
+        confidenceThreshold = .5m, warningThreshold = 3m, criticalThreshold = 5m,
+        sustainSec = 5, recoverySec = 5, cooldownSec = 30
+    },
     ["measurementSource"] = "synthetic aggregate observations through production snapshot reader, evaluator, writer, EF store and SQL",
     ["transaction"] = "SERIALIZABLE outer transaction; always rolled back"
 };
@@ -86,11 +117,11 @@ await using (var transaction = await db.Database.BeginTransactionAsync(Isolation
         });
         db.MonitoringRules.Add(new Db.MonitoringRule
         {
-            RuleId = ruleId, ConfigId = configId, EventTypeId = templateRule.EventTypeId,
+            RuleId = ruleId, ConfigId = configId, EventTypeId = longQueueType.EventTypeId,
             OutcomeType = "OPERATIONAL_EVENT", Enabled = true,
-            WarningThreshold = persistedRule.WarningThreshold, CriticalThreshold = persistedRule.CriticalThreshold,
-            ThresholdUnit = persistedRule.ThresholdUnit, SustainSec = persistedRule.SustainSec,
-            CooldownSec = persistedRule.CooldownSec, ParametersJson = persistedRule.ParametersJson,
+            WarningThreshold = 3m, CriticalThreshold = 5m, ThresholdUnit = "PEOPLE",
+            SustainSec = 5, CooldownSec = 30,
+            ParametersJson = "{\"measurementMode\":\"QUEUE_LENGTH\",\"recoverySec\":5}",
             CreatedAt = clock.UtcNow, UpdatedAt = clock.UtcNow
         });
         db.CameraZoneMappings.Add(new Db.CameraZoneMapping

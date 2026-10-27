@@ -4,7 +4,7 @@ Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.
 
 ## MF-02 Task readiness — checked 25/10/2026
 
-**Monitoring/Event SQL proof — checked 27/10/2026:** `tools/Mf02MonitoringSqlProof` now provides a repeatable, opt-in V6 verification that creates its fixture inside one outer SERIALIZABLE transaction and always rolls back. It verifies sustained warning open, same-episode CRITICAL escalation, sustained recovery clear, and that an `OPERATIONAL_EVENT` rule never creates an Incident. The current shared Dev template is still `RECORDED` and reports `CAMERA_NOT_ACTIVE`; a LIVE camera remains required for the primary MF-02 acceptance path.
+**Monitoring/Event SQL proof — checked 27/10/2026:** `tools/Mf02MonitoringSqlProof` now provides a repeatable, opt-in V6 verification for the locked `LONG_QUEUE` 3/5–5s–5s–30s contract. It creates its fixture inside one outer SERIALIZABLE transaction and always rolls back. It verifies sustained warning open, same-episode CRITICAL escalation, sustained recovery clear, and that an `OPERATIONAL_EVENT` rule never creates an Incident. `--readiness-only` performs a read-only inventory; `--require-live` rejects RECORDED fallback for final main-path acceptance. The current shared Dev template is still `RECORDED` and reports `CAMERA_NOT_ACTIVE`; a LIVE camera remains required for the primary MF-02 acceptance path.
 
 The default disposable-database suite is still not a V6 gate: its historical `20261003_02_monitoring_runtime_erd_v3.sql` bootstrap is absent from the Database repository, and V0.1 + V2–V6 is not a valid fresh-install chain because V2 expects runtime tables that V0.1 does not create. Do not reconstruct those tables from EF or use a data-bearing backup just to make the fixture green.
 

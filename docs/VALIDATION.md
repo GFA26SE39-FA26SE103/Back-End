@@ -284,7 +284,7 @@ No shared schema change, permanent policy/shift/check-in update, deployment, cam
 
 ## MF-02 Monitoring/Event V6 rollback proof — 2026-10-27
 
-Branch `feature/mf02-monitoring-db`. Added the opt-in `tools/Mf02MonitoringSqlProof` console tool. It reads the local SQL connection configuration without printing credentials, prefers a LIVE camera template, creates a temporary Zone/configuration/rule/mapping in one outer SERIALIZABLE transaction, runs the production snapshot reader/evaluator/writer/EF path, and always rolls back.
+Branch `feature/mf02-monitoring-db`. Added the opt-in `tools/Mf02MonitoringSqlProof` console tool. It reads the local SQL connection configuration without printing credentials, uses the locked `LONG_QUEUE` 3/5–5s–5s–30s contract, prefers a LIVE camera template, creates a temporary Zone/configuration/rule/mapping in one outer SERIALIZABLE transaction, runs the production snapshot reader/evaluator/writer/EF path, and always rolls back. `--readiness-only` is read-only; `--require-live` fails closed when only RECORDED is available.
 
 - Focused `MonitoringIncidentWriterTests`, `MonitoringWorkerTests`, and `MonitoringEvaluationTests`: **14 passed, 0 failed, 0 skipped**. These include missing-data recovery protection, stale/idempotent writes, episode open/escalate/clear, and Event/Incident outcome separation.
 - Shared `FA26SE103_Dev` rollback proof: **PASS**. Sustained warning opened one OperationalEvent, the same episode escalated to CRITICAL, sustained valid recovery cleared it, Incident count did not change, and all fixture rows were absent after rollback.
