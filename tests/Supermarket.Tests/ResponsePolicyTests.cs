@@ -90,6 +90,24 @@ public sealed class ResponsePolicyTests
         Assert.Equal(["RULE_DISABLED", "CONFIGURATION_NOT_ACTIVE", "POLICY_DISABLED", "ACTION_DISABLED"], saved.Issues);
     }
 
+    [Fact]
+    public async Task ReadinessExplainsMissingNonAutomaticAndAmbiguousActions()
+    {
+        var h = World();
+        var rule = Assert.Single(h.Store.Values.OfType<MonitoringRule>());
+        var policy = new ResponsePolicy { PolicyId = Guid.NewGuid(), RuleId = rule.RuleId, EventPriority = "WARNING", IsEnabled = true };
+        h.Store.Values.Add(policy);
+        var policies = new OperationalResponsePolicies(h.Store, new MonitoringSetupTests.User("ADMIN"));
+
+        Assert.Equal(["ACTION_MISSING"], Assert.Single(await policies.List(rule.RuleId, default)).Issues);
+        h.Store.Values.Add(new ResponsePolicyAction { ActionId = Guid.NewGuid(), PolicyId = policy.PolicyId, ActionType = ResponsePolicyRules.CreateOperationalTask,
+            ExecutionMode = "APPROVAL_REQUIRED", IsEnabled = true });
+        Assert.Equal(["ACTION_NOT_AUTOMATIC"], Assert.Single(await policies.List(rule.RuleId, default)).Issues);
+        h.Store.Values.Add(new ResponsePolicyAction { ActionId = Guid.NewGuid(), PolicyId = policy.PolicyId, ActionType = ResponsePolicyRules.CreateOperationalTask,
+            ExecutionMode = ResponsePolicyRules.Automatic, IsEnabled = true });
+        Assert.Equal(["ACTION_AMBIGUOUS"], Assert.Single(await policies.List(rule.RuleId, default)).Issues);
+    }
+
     [Theory]
     [InlineData("OPERATOR")]
     [InlineData("MANAGER")]
@@ -120,19 +138,21 @@ public sealed class ResponsePolicyTests
     }
 
     [Fact]
-    public async Task DeleteRemovesTheManagedActionAndPolicyOnlyAtTheExpectedVersion()
+    public async Task DeleteRejectsAStaleVersionThenRemovesTheManagedActionAndPolicy()
     {
         var h = World();
         var rule = Assert.Single(h.Store.Values.OfType<MonitoringRule>());
         var policies = new OperationalResponsePolicies(h.Store, new MonitoringSetupTests.User("ADMIN"));
         var created = await policies.Save(rule.RuleId, "WARNING", new(true, null, new(true, "Task", null)), default);
 
+        Assert.Equal("POLICY_VERSION_CONFLICT",
+            (await Assert.ThrowsAsync<AppError>(() => policies.Delete(rule.RuleId, "WARNING", new(created.Version + 1), default))).Code);
+        Assert.Single(h.Store.Values.OfType<ResponsePolicy>());
+        Assert.Single(h.Store.Values.OfType<ResponsePolicyAction>());
         await policies.Delete(rule.RuleId, "WARNING", new(created.Version), default);
 
         Assert.Empty(h.Store.Values.OfType<ResponsePolicy>());
         Assert.Empty(h.Store.Values.OfType<ResponsePolicyAction>());
-        Assert.Equal("NOT_FOUND",
-            (await Assert.ThrowsAsync<AppError>(() => policies.Delete(rule.RuleId, "WARNING", new(created.Version), default))).Code);
     }
 
     [Theory]
@@ -156,6 +176,35 @@ public sealed class ResponsePolicyTests
         Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, h.Store.Values.OfType<ResponsePolicy>().Count());
         if (expected == HttpStatusCode.OK)
             Assert.True((await response.Content.ReadFromJsonAsync<ResponsePolicyView>())!.ReadyForAutomaticTask);
+    }
+
+    [Fact]
+    public async Task AdminHttpContractListsAndVersionChecksUpdatesAndDeletes()
+    {
+        var h = World();
+        var rule = Assert.Single(h.Store.Values.OfType<MonitoringRule>());
+        var policies = new OperationalResponsePolicies(h.Store, new MonitoringSetupTests.User("ADMIN"));
+        var created = await policies.Save(rule.RuleId, "WARNING", new(true, null, new(true, "Task", null)), default);
+        await using var factory = new SetupOverviewTests.Factory(h.Store);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-Role", "ADMIN");
+        var route = $"/api/monitoring-rules/{rule.RuleId}/response-policies";
+
+        var listed = await (await client.GetAsync(route)).Content.ReadFromJsonAsync<List<ResponsePolicyView>>();
+        Assert.Equal(created.PolicyId, Assert.Single(listed!).PolicyId);
+
+        var staleUpdate = await client.PutAsJsonAsync($"{route}/WARNING", new ResponsePolicySaveRequest(true, created.Version + 1, new(true, "Changed", null)));
+        Assert.Equal(HttpStatusCode.Conflict, staleUpdate.StatusCode);
+        Assert.Contains("POLICY_VERSION_CONFLICT", await staleUpdate.Content.ReadAsStringAsync());
+
+        using (var staleDelete = new HttpRequestMessage(HttpMethod.Delete, $"{route}/WARNING") { Content = JsonContent.Create(new ResponsePolicyDeleteRequest(created.Version + 1)) })
+        {
+            var response = await client.SendAsync(staleDelete);
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            Assert.Contains("POLICY_VERSION_CONFLICT", await response.Content.ReadAsStringAsync());
+        }
+        using var delete = new HttpRequestMessage(HttpMethod.Delete, $"{route}/WARNING") { Content = JsonContent.Create(new ResponsePolicyDeleteRequest(created.Version)) };
+        Assert.Equal(HttpStatusCode.NoContent, (await client.SendAsync(delete)).StatusCode);
     }
 
     private static MonitoringSetupTests.Harness World()
