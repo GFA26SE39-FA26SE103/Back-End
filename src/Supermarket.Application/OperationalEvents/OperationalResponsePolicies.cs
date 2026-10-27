@@ -115,18 +115,8 @@ public sealed class OperationalResponsePolicies(ISetupStore store, ICurrentUser 
 
     private static ResponsePolicyView BuildView(MonitoringRule rule, MonitoringConfiguration configuration, ResponsePolicy policy, IReadOnlyList<ResponsePolicyAction> actions)
     {
-        var issues = new List<string>();
-        if (!rule.Enabled) issues.Add("RULE_DISABLED");
-        if (configuration.Status != "ACTIVE") issues.Add("CONFIGURATION_NOT_ACTIVE");
-        if (!policy.IsEnabled) issues.Add("POLICY_DISABLED");
-        if (actions.Count == 0) issues.Add("ACTION_MISSING");
-        if (actions.Count > 1) issues.Add("ACTION_AMBIGUOUS");
+        var issues = ResponsePolicyRules.ReadinessIssues(rule, configuration, policy, actions);
         var action = actions.Count == 1 ? actions[0] : null;
-        if (action is not null)
-        {
-            if (!action.IsEnabled) issues.Add("ACTION_DISABLED");
-            if (action.ExecutionMode != ResponsePolicyRules.Automatic) issues.Add("ACTION_NOT_AUTOMATIC");
-        }
         var parameters = Parameters(action?.ActionParametersJson);
         return new(policy.PolicyId, policy.RuleId, policy.EventPriority, policy.IsEnabled, policy.Version, policy.UpdatedAt,
             action is null ? null : new(action.ActionId, action.IsEnabled, action.ActionType, action.ExecutionMode, parameters?.Title, parameters?.Instructions),

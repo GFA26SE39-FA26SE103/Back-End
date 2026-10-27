@@ -279,11 +279,16 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
     private async Task<ResponsePolicyAction?> TaskAction(OperationalEvent ev, CancellationToken ct)
     {
         if (ev.RuleId is not { } ruleId) return null;
-        var policy = (await store.List<ResponsePolicy>(p => p.RuleId == ruleId && p.EventPriority == ev.Priority && p.IsEnabled, ct)).SingleOrDefault();
-        if (policy is null) return null;
-        // APPROVAL_REQUIRED actions wait for the Operator approval flow, which is not implemented yet.
-        return (await store.List<ResponsePolicyAction>(a => a.PolicyId == policy.PolicyId && a.IsEnabled && a.ActionType == "CREATE_OPERATIONAL_TASK" && a.ExecutionMode == "AUTOMATIC", ct))
-            .OrderBy(a => a.CreatedAt).FirstOrDefault();
+        var rule = await store.Find<MonitoringRule>(ruleId, ct);
+        if (rule is null) return null;
+        var configuration = await store.Find<MonitoringConfiguration>(rule.ConfigId, ct);
+        if (configuration is null) return null;
+        var policies = await store.List<ResponsePolicy>(p => p.RuleId == ruleId && p.EventPriority == ev.Priority, ct);
+        if (policies.Count != 1) return null;
+        var policy = policies[0];
+        var actions = await store.List<ResponsePolicyAction>(a => a.PolicyId == policy.PolicyId && a.ActionType == ResponsePolicyRules.CreateOperationalTask, ct);
+        // Disabled, ambiguous and APPROVAL_REQUIRED policies are not executable by the automatic path.
+        return ResponsePolicyRules.ReadyAutomaticTaskAction(rule, configuration, policy, actions);
     }
 
     private static TaskParameters? Parameters(string? json)
