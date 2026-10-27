@@ -12,7 +12,7 @@ From the backend repository root:
 dotnet run --project tools/Mf02MonitoringSqlProof/Mf02MonitoringSqlProof.csproj -c Release
 ```
 
-Read current camera/configuration readiness without writing any fixture rows:
+Read the current camera, zone, active mapping, configuration/rule, runtime snapshot and recent metric/event evidence without writing any fixture rows:
 
 ```powershell
 dotnet run --project tools/Mf02MonitoringSqlProof/Mf02MonitoringSqlProof.csproj -c Release -- --readiness-only

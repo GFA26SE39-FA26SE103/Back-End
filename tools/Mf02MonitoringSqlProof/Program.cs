@@ -69,6 +69,67 @@ var mappings = await db.CameraZoneMappings.AsNoTracking()
     })
     .OrderBy(mapping => mapping.ZoneId)
     .ToArrayAsync();
+var configurations = await db.MonitoringConfigurations.AsNoTracking()
+    .Select(configuration => new
+    {
+        configuration.ConfigId,
+        configuration.ZoneId,
+        configuration.Name,
+        configuration.ConfidenceThreshold,
+        configuration.Status,
+        Rules = configuration.MonitoringRules.Select(rule => new
+        {
+            rule.RuleId,
+            rule.OutcomeType,
+            EventTypeCode = rule.EventType == null ? null : rule.EventType.Code,
+            EventTypeStatus = rule.EventType == null ? null : rule.EventType.Status,
+            rule.WarningThreshold,
+            rule.CriticalThreshold,
+            rule.ThresholdUnit,
+            rule.SustainSec,
+            rule.CooldownSec,
+            rule.ParametersJson,
+            rule.Enabled
+        }).ToArray()
+    })
+    .OrderBy(configuration => configuration.ZoneId)
+    .ToArrayAsync();
+var recentMetrics = await db.ZoneMetrics.AsNoTracking()
+    .OrderByDescending(metric => metric.CreatedAt)
+    .Take(20)
+    .Select(metric => new
+    {
+        metric.MetricId,
+        metric.ZoneId,
+        metric.CameraId,
+        metric.MetricType,
+        metric.MetricValue,
+        metric.Unit,
+        metric.PeriodStart,
+        metric.PeriodEnd,
+        metric.CreatedAt,
+        metric.ConfigVersion
+    })
+    .ToArrayAsync();
+var recentOperationalEvents = await db.OperationalEvents.AsNoTracking()
+    .OrderByDescending(operationalEvent => operationalEvent.UpdatedAt)
+    .Take(20)
+    .Select(operationalEvent => new
+    {
+        operationalEvent.EventId,
+        operationalEvent.ZoneId,
+        operationalEvent.CameraId,
+        operationalEvent.RuleId,
+        EventTypeCode = operationalEvent.EventType.Code,
+        operationalEvent.MetricValue,
+        operationalEvent.Priority,
+        operationalEvent.Status,
+        operationalEvent.DetectedAt,
+        operationalEvent.LastObservedAt,
+        operationalEvent.ClearedAt,
+        operationalEvent.UpdatedAt
+    })
+    .ToArrayAsync();
 var readiness = saved.Select(snapshot => new
 {
     snapshot.CameraId,
@@ -81,7 +142,8 @@ var readiness = saved.Select(snapshot => new
 }).ToArray();
 if (readinessOnly)
 {
-    Console.WriteLine(JsonSerializer.Serialize(new { checkedAtUtc = clock.UtcNow, cameras, zones, mappings, monitoringSnapshots = readiness },
+    Console.WriteLine(JsonSerializer.Serialize(new
+        { checkedAtUtc = clock.UtcNow, cameras, zones, mappings, configurations, monitoringSnapshots = readiness, recentMetrics, recentOperationalEvents },
         new JsonSerializerOptions { WriteIndented = true }));
     return;
 }
