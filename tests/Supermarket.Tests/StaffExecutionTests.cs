@@ -77,7 +77,16 @@ public sealed class StaffExecutionTests
             zone = new Zone { ZoneId = Guid.NewGuid(), FloorId = floor, Code = "B", Name = "Zone B · Checkout" };
             camera = new Camera { CameraId = Guid.NewGuid(), FloorId = floor, Code = "CAM-03", Name = "Checkout 3" };
             foreach (var role in new[] { "ADMIN", "OPERATOR", "MANAGER", "STAFF" }) Store.Values.Add(new Role { RoleId = Guid.NewGuid(), Name = role });
-            Store.Values.AddRange([zone, camera,
+            var configuration = new MonitoringConfiguration
+            {
+                ConfigId = Guid.NewGuid(), ZoneId = zone.ZoneId, Name = "Queue monitoring", Status = "ACTIVE"
+            };
+            var rule = new MonitoringRule
+            {
+                RuleId = ruleId, ConfigId = configuration.ConfigId, EventTypeId = eventTypeId,
+                OutcomeType = "OPERATIONAL_EVENT", Enabled = true
+            };
+            Store.Values.AddRange([zone, camera, configuration, rule,
                 new OperationalEventType { EventTypeId = eventTypeId, Code = "LONG_QUEUE", Name = "Long queue", MeasurementType = "QUEUE_LENGTH" },
                 new Shift { ShiftId = shiftId, Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
             roster = new StaffRoster(Store, calendar);
