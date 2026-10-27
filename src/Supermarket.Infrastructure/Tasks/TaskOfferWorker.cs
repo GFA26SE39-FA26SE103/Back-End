@@ -11,8 +11,12 @@ namespace Supermarket.Infrastructure.Tasks;
 public sealed class TaskOfferWorkerOptions
 {
     public bool Enabled { get; set; } = true;
-    /// <summary>How often pending offers are checked; retry overrides come from ERD V6 SystemSetting.</summary>
-    public int PollSeconds { get; set; } = 10;
+    /// <summary>
+    /// How often pending offers are checked; retry overrides come from ERD V6 SystemSetting. A round is
+    /// re-offered on the first check after its interval, so keep this well below the shortest interval
+    /// in use (the MF-02 demo uses 10 s).
+    /// </summary>
+    public int PollSeconds { get; set; } = 2;
 }
 
 /// <summary>Detects the post-cleanup ERD V6 tables required by the scoped Staff-task workflow. A positive result is cached for the process.</summary>
