@@ -18,7 +18,7 @@ Controller và use case cùng kiểm tra quyền; STAFF không đọc được d
 | Accounts | GET/POST /users; PATCH /users/{id}; POST /users/{id}/enable hoặc disable; GET /roles |
 | Supermarket | GET/POST /supermarkets; GET/PATCH /supermarkets/{id} |
 | Floors | GET/POST /supermarkets/{id}/floors; GET/PATCH /floors/{id}; PATCH /floors/{id}/details; POST/GET /floors/{id}/map |
-| Zones | GET/POST /floors/{id}/zones; GET/PATCH /zones/{id}; normalized polygon, optional `colorHex` and `areaM2` |
+| Zones | GET/POST /floors/{id}/zones; GET/PATCH /zones/{id}; normalized polygon, optional `colorHex`/`areaM2`, and Zone-level `minStaff >= 0` configured by Admin for Manager coverage planning |
 | Cameras | GET/POST /floors/{id}/cameras; GET/PATCH /cameras/{id} |
 | Connection | GET/PUT /cameras/{id}/connection; POST .../test, .../enable, .../disable |
 | Preview | GET /cameras/{id}/preview: image/svg+xml cho demo, image/jpeg cho FFmpeg |
