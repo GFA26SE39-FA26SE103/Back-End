@@ -55,13 +55,15 @@ public sealed partial class ApiFlowTests(SqlApiFixture fixture)
         using var client = await Admin();
         var floor = await Floor(client);
         var created = await Read<ZoneView>(await client.PostAsJsonAsync($"/api/floors/{floor}/zones", new ZoneRequest(
-            Guid.NewGuid().ToString("N"), "Produce", "SALES", Triangle, ColorHex: "#22C55E", AreaM2: 125.50m)));
+            Guid.NewGuid().ToString("N"), "Produce", "SALES", Triangle, ColorHex: "#22C55E", AreaM2: 125.50m, MinStaff: 2)));
 
         Assert.Equal("#22C55E", created.ColorHex);
         Assert.Equal(125.50m, created.AreaM2);
+        Assert.Equal(2, created.MinStaff);
         var reload = (await client.GetFromJsonAsync<ZoneView>($"/api/zones/{created.ZoneId}"))!;
         Assert.Equal("#22C55E", reload.ColorHex);
         Assert.Equal(125.50m, reload.AreaM2);
+        Assert.Equal(2, reload.MinStaff);
 
         var invalidColor = await client.PostAsJsonAsync($"/api/floors/{floor}/zones", new ZoneRequest(
             Guid.NewGuid().ToString("N"), "Invalid color", null, Triangle, ColorHex: "green"));
@@ -69,6 +71,9 @@ public sealed partial class ApiFlowTests(SqlApiFixture fixture)
         var invalidArea = await client.PostAsJsonAsync($"/api/floors/{floor}/zones", new ZoneRequest(
             Guid.NewGuid().ToString("N"), "Invalid area", null, Triangle, AreaM2: 0));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, invalidArea.StatusCode);
+        var invalidMinimum = await client.PostAsJsonAsync($"/api/floors/{floor}/zones", new ZoneRequest(
+            Guid.NewGuid().ToString("N"), "Invalid minimum", null, Triangle, MinStaff: -1));
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, invalidMinimum.StatusCode);
     }
     [Fact]
     public async Task ConnectionTestPreviewEnableReloadAndReset()

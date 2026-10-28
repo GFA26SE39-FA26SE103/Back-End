@@ -35,6 +35,8 @@ public sealed class DomainTests
     [InlineData("#GGGGGG")]
     public void RejectsInvalidZoneColors(string color) => Assert.Throws<DomainException>(() => Rules.ZoneColor(color));
     [Fact] public void AcceptsOptionalPositiveZoneArea() { Rules.ZoneArea(null); Rules.ZoneArea(125.50m); }
+    [Fact] public void AcceptsOptionalNonNegativeMinimumStaff() { Rules.MinimumStaff(null); Rules.MinimumStaff(0); Rules.MinimumStaff(3); }
+    [Fact] public void RejectsNegativeMinimumStaff() => Assert.Throws<DomainException>(() => Rules.MinimumStaff(-1));
     [Theory]
     [InlineData("0")]
     [InlineData("-1")]

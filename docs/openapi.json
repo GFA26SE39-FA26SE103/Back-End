@@ -7852,6 +7852,11 @@
             "type": "number",
             "format": "double",
             "nullable": true
+          },
+          "minStaff": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -7894,6 +7899,10 @@
             "type": "number",
             "format": "double",
             "nullable": true
+          },
+          "minStaff": {
+            "type": "integer",
+            "format": "int32"
           },
           "status": {
             "type": "string",
