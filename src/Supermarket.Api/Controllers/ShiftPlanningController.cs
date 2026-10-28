@@ -28,6 +28,15 @@ public sealed class ScheduleController(ShiftPlanning planning) : ControllerBase
     [HttpPost("publish"), Authorize(Roles = AccessRoles.Manager)] public Task<PublishScheduleResult> Publish(PublishScheduleRequest request, CancellationToken ct) => planning.Publish(request, ct);
 }
 
+/// <summary>Manager-owned Zone staffing baselines used by weekly schedule coverage.</summary>
+[ApiController, Authorize(Roles = AccessRoles.Manager), Route("api/zones")]
+public sealed class ZoneStaffingController(ShiftPlanning planning) : ControllerBase
+{
+    [HttpPatch("{id:guid}/minimum-staff")]
+    public Task<ZoneView> SetMinimumStaff(Guid id, ZoneMinimumStaffRequest request, CancellationToken ct)
+        => planning.SetZoneMinimumStaff(id, request, ct);
+}
+
 /// <summary>Approved Staff leave (StaffUnavailability), maintained by the Manager.</summary>
 [ApiController, Authorize(Roles = AccessRoles.Manager), Route("api/staff-unavailability")]
 public sealed class StaffUnavailabilityController(ShiftPlanning planning) : ControllerBase

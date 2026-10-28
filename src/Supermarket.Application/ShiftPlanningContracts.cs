@@ -10,6 +10,8 @@ public sealed record ScheduledShiftView(Guid ShiftAssignmentId, Guid UserId, str
     DateTime StartsAt, DateTime EndsAt, string Status, DateTime? CheckInAt, ShiftZoneView[] Zones, bool Editable, Guid? PendingSwapRequestId, DateTime UpdatedAt);
 /// <summary>BR-02 coverage of one Zone in one shift on one day. Planned counts DRAFT and SCHEDULED rows; Published counts SCHEDULED only.</summary>
 public sealed record ZoneCoverageView(DateOnly WorkDate, Guid ShiftId, string ShiftName, Guid ZoneId, string ZoneName, int MinStaff, int Planned, int Published, bool BelowMinimum);
+/// <summary>Manager-owned staffing baseline. It applies to this Zone in every active Work Shift.</summary>
+public sealed record ZoneMinimumStaffRequest(int MinStaff, DateTime? ExpectedUpdatedAt = null);
 public sealed record ScheduleView(DateOnly From, DateOnly To, ScheduledShiftView[] Assignments, ZoneCoverageView[] Coverage, int DraftCount, int GapCount);
 
 public sealed record StaffOptionView(Guid UserId, string FullName, bool Eligible, double WeeklyHoursAfter, string[] Problems);

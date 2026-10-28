@@ -3955,6 +3955,65 @@
         }
       }
     },
+    "/api/zones/{id}/minimum-staff": {
+      "patch": {
+        "tags": [
+          "ZoneStaffing"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZoneMinimumStaffRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZoneMinimumStaffRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZoneMinimumStaffRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZoneView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZoneView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZoneView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health/live": {
       "get": {
         "tags": [
@@ -7818,6 +7877,21 @@
         },
         "additionalProperties": false
       },
+      "ZoneMinimumStaffRequest": {
+        "type": "object",
+        "properties": {
+          "minStaff": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "expectedUpdatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "ZoneRequest": {
         "type": "object",
         "properties": {
@@ -7851,11 +7925,6 @@
           "areaM2": {
             "type": "number",
             "format": "double",
-            "nullable": true
-          },
-          "minStaff": {
-            "type": "integer",
-            "format": "int32",
             "nullable": true
           }
         },

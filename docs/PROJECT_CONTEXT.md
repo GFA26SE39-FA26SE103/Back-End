@@ -480,7 +480,7 @@ Notify eligible checked-in/on-shift Staff assigned to the target Zone **and any 
 
 ### Shift/Zone eligibility
 
-`Zone.min_staff` sets one minimum per Zone; BR-02 does not prescribe one universal number. The Admin records the approved Zone baseline during Store layout setup, while the Manager plans and publishes `ShiftAssignment` + `StaffZoneAssignment` coverage against it. A value of zero explicitly means no minimum coverage gate is configured for that Zone. `StaffUnavailability` and working-time constraints must be evaluated when assigning or approving scheduling changes. No shift-specific staffing-requirement table.
+`Zone.min_staff` sets one minimum per Zone; BR-02 does not prescribe one universal number. The Admin creates the Zone and maintains its map/physical setup. The Manager owns the staffing baseline and plans/publishes `ShiftAssignment` + `StaffZoneAssignment` coverage against it. The baseline applies to every active Work Shift; a value of zero explicitly means no minimum coverage gate is configured for that Zone. `StaffUnavailability` and working-time constraints must be evaluated when assigning or approving scheduling changes. No shift-specific staffing-requirement table.
 
 ### SWAP/COVER
 

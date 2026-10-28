@@ -11,6 +11,22 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
 {
     public const string Published = "SHIFT_PUBLISHED", Changed = "SHIFT_CHANGED", Removed = "SHIFT_CANCELLED";
 
+    /// <summary>Sets the Manager-owned Zone staffing baseline used by coverage checks for every active Work Shift.</summary>
+    public Task<ZoneView> SetZoneMinimumStaff(Guid zoneId, ZoneMinimumStaffRequest request, CancellationToken ct)
+    {
+        UseCase.Manager(current);
+        Rules.MinimumStaff(request.MinStaff);
+        return store.Transaction(async () =>
+        {
+            var zone = UseCase.Found(await store.Find<Zone>(zoneId, ct));
+            if (request.ExpectedUpdatedAt is { } expected && expected != zone.UpdatedAt)
+                throw new ApplicationException("ZONE_CHANGED", "Zone staffing changed; reload before saving.");
+            zone.MinStaff = request.MinStaff;
+            await store.Update(zone, ct);
+            return StoreSetup.View(zone);
+        }, ct);
+    }
+
     public async Task<WorkShiftView[]> WorkShifts(DateOnly? weekStart, CancellationToken ct)
     {
         UseCase.Viewer(current);

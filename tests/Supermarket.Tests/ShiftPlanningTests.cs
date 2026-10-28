@@ -48,6 +48,22 @@ public sealed class ShiftPlanningTests
     }
 
     [Fact]
+    public async Task ManagerOwnsTheZoneMinimumStaffingBaseline()
+    {
+        var w = new World(); var manager = w.User("MANAGER", "Lan");
+
+        var updated = await w.Planning(manager).SetZoneMinimumStaff(w.Checkout.ZoneId, new(3, w.Checkout.UpdatedAt), default);
+
+        Assert.Equal(3, updated.MinStaff);
+        Assert.Equal(3, w.Checkout.MinStaff);
+        Assert.Equal("INVALID_MIN_STAFF", (await Assert.ThrowsAsync<DomainException>(() =>
+            w.Planning(manager).SetZoneMinimumStaff(w.Checkout.ZoneId, new(-1), default))).Code);
+        var admin = w.User("ADMIN", "Ad");
+        Assert.Equal(403, (await Assert.ThrowsAsync<AppError>(() =>
+            w.Planning(admin).SetZoneMinimumStaff(w.Checkout.ZoneId, new(1), default))).Status);
+    }
+
+    [Fact]
     public async Task DraftsStayHiddenUntilPublishAndPublishIsBlockedWhileAZoneIsShort()
     {
         var w = new World(); var manager = w.User("MANAGER", "Lan"); var plan = w.Planning(manager);

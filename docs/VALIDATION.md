@@ -319,7 +319,7 @@ This increment does not auto-copy Staff assignments or publish a target week. Ma
 
 ## Zone minimum staffing setup — 2026-10-29
 
-Branch `feature/zone-min-staff` exposes the existing V6 `Zone.min_staff` through the Admin Zone setup contract without changing schema or generated scaffold. BR-02 defines a configured per-Zone minimum rather than one universal number: Admin records the approved Zone baseline; Manager schedules and publishes coverage against it. Older clients may omit `minStaff`; create keeps the database-aligned zero default and edit preserves the existing value.
+The original `feature/zone-min-staff` increment exposed `Zone.min_staff` through Admin setup. The ownership was corrected on `dev`: Admin setup now only creates/maps the Zone, while Manager updates the per-Zone baseline through `PATCH /api/zones/{id}/minimum-staff` from Zone staffing. No schema or generated scaffold changed. The baseline applies to every active Work Shift; create keeps the database-aligned zero default and Admin edits preserve the Manager-owned value.
 
 - Backend focused domain/configuration suite: **81 passed, 0 failed, 0 skipped**.
 - Exact non-SQL CI suite (`Category!=SqlIntegration` with coverage): **419 passed, 0 failed, 0 skipped**.
@@ -327,7 +327,7 @@ Branch `feature/zone-min-staff` exposes the existing V6 `Zone.min_staff` through
 - Frontend focused Zone editor/layout/schedule/API suite: **39 passed, 0 failed**.
 - Full frontend suite: **235 passed, 0 failed**. Production build: **PASS**.
 
-Existing Zone rows are deliberately not rewritten. Their current `min_staff=0` continues to mean that no minimum coverage gate is configured until an Admin edits the Zone and records the approved baseline.
+Existing Zone rows are deliberately not rewritten. Their current `min_staff=0` continues to mean that no minimum coverage gate is configured until a Manager records the approved baseline in Zone staffing.
 
 ## MF-03 Task Evidence integrated with dev — 2026-10-29
 
