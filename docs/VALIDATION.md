@@ -282,6 +282,20 @@ No permanent shared-data/schema changes, deployment, live-camera/AI inference, H
 
 No shared schema change, permanent policy/shift/check-in update, deployment, camera/model capture, concurrent-load SQL acceptance, mobile evidence submission or Operator verification implementation was performed in this continuation. Those remain the B/C/integration workstreams. Local scratch evidence is outside the backend repository; only intended source/tests/contracts/docs belong in the patch.
 
+## Global notification settings and role web inboxes — 2026-10-28
+
+Branches `feature/notification-settings` from Back-End `dev` (`286c477`) and Front-End `main` (`7d59de3`). No worktree, push, deployment, shared-database write, migration, generated scaffold edit or static OpenAPI regeneration was performed.
+
+- Back-End adds Admin-only typed GET/PUT for the four approved `notification.*` FCM policy keys using existing `SystemSetting`, aggregate optimistic concurrency, `PUSH_NOT_CONFIGURED` fail-closed enablement and one sanitized `AuditLog` per save.
+- Existing `/api/me/notifications` and `/read-all` are now backed by one bounded recipient-scoped query/update service for Staff, Operator and Manager. SQL query takes at most 100 newest `IN_APP` rows; read-all updates only the authenticated recipient.
+- Back-End non-SQL Release suite: **402 passed, 0 failed, 0 skipped**. Focused coverage includes safe defaults, upsert/audit, stale writes, non-Admin denial, provider-unavailable denial, V6 EF mapping, controller role metadata, three recipient roles, ownership/read boundaries, the 100-row ceiling, Staff-only device registration, idempotency, token rotation/transfer, own-device revocation and raw-token response exclusion.
+- Front-End notification/API focused suite: **6 passed, 0 failed**. Production build: **PASS**. Lint: **PASS with 3 existing warnings in `ZoneStaffing.tsx`**, none in notification files.
+- Full Front-End suite: **225 passed, 3 failed**. The three repeatable failures are existing Camera preview tests waiting for `Stop preview`; notification-focused tests remain green. This increment did not change Camera/preview code, but the full suite is therefore not claimed green.
+
+Database V8 notification seed: `FA26SE103_Database_V8_Notification_Settings.sql` was added on Database branch `feature/notification-settings`, applied to the configured `FA26SE103_Dev` database and rerun successfully. Verification returned exactly four distinct valid `BOOLEAN` `notification.*` rows; the migration preserves valid Admin values and does not create or change `task_offer.*` settings.
+
+Deferred deliberately: FCM provider/credentials, durable push dispatch/retry/TTL, Staff Mobile integration and Gate B staging/device acceptance. The backend device registration/token rotation/revocation lifecycle is implemented, but `pushConfigured=false`; FCM cannot be enabled or sent in this increment. Existing durable in-app notification creation and Task/Offer/Swap state machines are unchanged.
+
 ## MF-02 Monitoring/Event V6 rollback proof — 2026-10-27
 
 Branch `feature/mf02-monitoring-db`. Added the opt-in `tools/Mf02MonitoringSqlProof` console tool. It reads the local SQL connection configuration without printing credentials, uses the locked `LONG_QUEUE` 3/5–5s–5s–30s contract, prefers a LIVE camera template, creates a temporary Zone/configuration/rule/mapping in one outer SERIALIZABLE transaction, runs the production snapshot reader/evaluator/writer/EF path, and always rolls back. `--readiness-only` is read-only; `--require-live` fails closed when only RECORDED is available.
@@ -302,3 +316,15 @@ Branch `feature/weekly-work-shifts`. Applied `FA26SE103_Database_V7_Weekly_Work_
 - Runtime Swagger export: **PASS** from an owned temporary Development API with Bootstrap, CameraHealth, Monitoring, TaskOffers and ShiftSwaps disabled; `docs/openapi.json` now includes weekly Work Shift DTOs, `weekStart` query/input and `/api/shifts/copy-week`. The temporary process was stopped.
 
 This increment does not auto-copy Staff assignments or publish a target week. Manager copy creates only ACTIVE Work Shift definitions, then Staff assignment and publication remain deliberate weekly actions. No deployment, commit, push or merge was performed.
+
+## MF-03 Task Evidence integrated with dev — 2026-10-29
+
+Branch `feature/mf03-task-evidence` was updated from `origin/dev` at `d0a3b24`. The two content conflicts were resolved by retaining both Task Evidence and Notification registrations in `Program.cs`, and by documenting both notification/device behavior and the MF-03 evidence API in `docs/API.md`.
+
+- Release build: **PASS**, 0 warnings and 0 errors.
+- Focused `TaskEvidenceTests` and `CloudinaryTaskEvidenceTests`: **9 passed, 0 failed, 0 skipped**.
+- Exact non-SQL CI suite (`Category!=SqlIntegration` with coverage): **417 passed, 0 failed, 0 skipped**.
+- Release publish: **PASS**.
+- `git diff --check`: **PASS** after conflict resolution.
+
+No shared SQL data/schema, deployment, credential, push-provider configuration or generated scaffold was changed. The implementation uses the existing V6 `TaskEvidence` table and `Task.rejection_count`. SQL/API acceptance with the deployed database and real Cloudinary credentials remains a pre-deployment smoke check; StaffReport and independent Incident closure remain outside this increment.

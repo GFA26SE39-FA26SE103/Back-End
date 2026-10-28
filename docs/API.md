@@ -186,6 +186,21 @@ Các code thường gặp: `CROSS_FLOOR_MAPPING`, `INVALID_POLYGON`, `CONNECTION
 
 Camera connection test giữ `lastTestResult` ở mức `SUCCESS`/`FAILED` và trả nguyên nhân đã chuẩn hóa trong `lastTestMessage`: RTSP 401/auth failure → `AUTHENTICATION_FAILED`, timeout → `TIMEOUT`, TCP refusal → `CONNECTION_REFUSED`, còn lại → `STREAM_UNAVAILABLE`. FFmpeg stderr chỉ được đọc có giới hạn để phân loại trong bộ nhớ; URI có credential và stderr thô không được trả về hoặc ghi log.
 
+### Global notification settings và web inbox
+
+ERD V6 đã có `SystemSetting`, `Notification`, `NotificationRecipient`, `UserDevice` và `AuditLog`; increment này không đổi schema và không tạo lại `NotificationConfig`.
+
+| Quyền | Route | Ghi chú |
+|---|---|---|
+| ADMIN | `GET /admin/settings/notifications` | Trả bốn policy FCM hiệu lực, `pushConfigured` và aggregate `updatedAt`. Nếu các row chưa được seed, effective defaults là master `false`, ba category `true`. Không trả credential/token. |
+| ADMIN | `PUT /admin/settings/notifications` | Body `{pushEnabled, taskOfferPushEnabled, taskUpdatePushEnabled, shiftSwapPushEnabled, expectedUpdatedAt}`. Upsert nguyên tử bốn key `notification.*`, ghi một `AuditLog`; stale version trả 409 `SETTINGS_CHANGED`. Bật master trước khi provider được cấu hình trả 422 `PUSH_NOT_CONFIGURED`. |
+| STAFF, OPERATOR, MANAGER | `GET /me/notifications` | Tối đa 100 `IN_APP` notification mới nhất của chính caller; không nhận `userId` từ client. |
+| STAFF, OPERATOR, MANAGER | `POST /me/notifications/read-all` | Đánh dấu read chỉ các `IN_APP` recipient row của caller; không đổi Task/Shift/Swap state. |
+| STAFF | `POST /me/devices` | Body `{fcmToken, platform, appVersion?, deviceId?}`; platform `ANDROID`/`IOS`. Idempotent theo token; `deviceId` hỗ trợ rotation. Response không trả raw token. |
+| STAFF | `DELETE /me/devices/{deviceId}` | Soft-revoke đúng device của caller, idempotent; device của user khác trả 404. |
+
+V1 Admin chỉ quản lý `notification.push_enabled`, `notification.task_offer_push_enabled`, `notification.task_update_push_enabled`, `notification.shift_swap_push_enabled`. In-app records và web inbox luôn hoạt động; không có switch tắt persistence. Staff device lifecycle đã có trên `UserDevice`, nhưng `pushConfigured` vẫn `false` vì FCM sender, credential, Mobile integration và Gate B staging chưa được implement/enable. Vì vậy lưu policy, web inbox và device registration đã có, nhưng **chưa có FCM delivery**. `FA26SE103_Database_V8_Notification_Settings.sql` seed bốn default row idempotently; API không tự mutate DB khi startup.
+
 ### MF-02 staff tasks (đã tích hợp vào scaffold ERD V6)
 
 Cần database đúng post-cleanup ERD V6, gồm các bảng Task/Shift/Notification/ResponsePolicy, `Task.planned_start_at` và `SystemSetting`. Nếu thiếu, các route dưới đây trả 503 `TASK_SCHEMA_NOT_READY`; monitoring vẫn chạy, chỉ không tạo task.
@@ -206,13 +221,13 @@ Event `CLEARED` (tạm theo open point 5): task chưa ai nhận → offer `WITHD
 | STAFF | `POST /task-offers/{offerId}/respond` | Body `{response, plannedStartAt?, reason?}`. `HANDLE_NOW` → `IN_PROGRESS`; `HANDLE_LATER` → `ACCEPTED` + `plannedStartAt` (sau hiện tại, không quá giờ hết ca); `CANNOT_HANDLE` cần `reason`, trả `task: null`. Lỗi: 409 `TASK_ALREADY_TAKEN` (detail có tên + giờ người nhận), 409 `OFFER_CLOSED`, 409 `NOT_ON_SHIFT`, 409 `WORKLOAD_LIMIT`, 422 `REASON_REQUIRED`, 422 `INVALID_PLANNED_START`. Ai nhận hợp lệ trước thì được (transaction serializable + concurrency token). |
 | STAFF | `GET /me/tasks?status=ACCEPTED,IN_PROGRESS` | Mặc định ACCEPTED, IN_PROGRESS, SUBMITTED. |
 | STAFF | `POST /tasks/{taskId}/start` | `ACCEPTED` → `IN_PROGRESS`; 409 `TASK_NOT_ACCEPTED`. |
-| STAFF | `GET /me/notifications`, `POST /me/notifications/read-all` | 100 thông báo in-app gần nhất. |
+| STAFF, OPERATOR, MANAGER | `GET /me/notifications`, `POST /me/notifications/read-all` | 100 thông báo in-app gần nhất của caller; xem Global notification settings ở trên. |
 | STAFF (người liên quan), ADMIN, OPERATOR, MANAGER | `GET /tasks/{taskId}` | Staff chỉ đọc task mình được offer hoặc được giao. |
 | ADMIN, OPERATOR, MANAGER | `GET /tasks?status=&needsAssignment=true` | Mặc định OFFERED, ACCEPTED, IN_PROGRESS, SUBMITTED; tối đa 200. |
 | OPERATOR | `GET /tasks/{taskId}/assignable-staff` | Staff đang trong ca, còn dưới giới hạn task; `assignedToZone` đứng trước. |
 | OPERATOR | `POST /tasks/{taskId}/assign` | Body `{staffUserId, reason?, expectedUpdatedAt?}`. Giao tay vào thẳng `ACCEPTED`, chỉ khi Task còn `OFFERED/ACCEPTED`; rút offer đang mở (`MANUALLY_ASSIGNED`). Web gửi `updatedAt` đã đọc vào `expectedUpdatedAt`; 409 `TASK_CHANGED` nếu dữ liệu đã đổi. Reassign hoặc giao ngoài Zone bắt buộc reason (422 `REASON_REQUIRED`). 409 `TASK_NOT_ASSIGNABLE`, `STAFF_NOT_ON_SHIFT`, `WORKLOAD_LIMIT`. |
 
-Notification types: `TASK_OFFER`, `TASK_OFFER_WITHDRAWN`, `TASK_ASSIGNED`, `TASK_NEEDS_ASSIGNMENT`, `TASK_PRIORITY_RAISED`, `EVENT_CLEARED`, cùng các loại MF-03 bên dưới. Chỉ có kênh `IN_APP`; chưa có FCM/SignalR, mobile poll. `sourceCode` (`EVT-xxxxxxxx`) là mã hiển thị suy từ ID, không phải cột DB. Chưa làm: StaffReport, device token. Đổi ca: xem mục MF-04 bên dưới.
+Notification types: `TASK_OFFER`, `TASK_OFFER_WITHDRAWN`, `TASK_ASSIGNED`, `TASK_NEEDS_ASSIGNMENT`, `TASK_PRIORITY_RAISED`, `EVENT_CLEARED`, cùng các loại MF-03 bên dưới. Web inbox dùng kênh `IN_APP`; device-token API và optional Firebase delivery worker đã có, nhưng external push chỉ hoạt động khi provider/credentials được cấu hình và policy được bật. `sourceCode` (`EVT-xxxxxxxx`) là mã hiển thị suy từ ID, không phải cột DB. Chưa làm: StaffReport. Đổi ca: xem mục MF-04 bên dưới.
 
 ### MF-03 evidence, submit và Operator verify
 
