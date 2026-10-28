@@ -15,7 +15,7 @@ public sealed class ShiftSwapWorkerOptions
     public int PollSeconds { get; set; } = 60;
 }
 
-/// <summary>Detects the ERD V6 SWAP/COVER structures (V4 ShiftSwapRequest plus V5 expiry/cancellation columns). A positive result is cached for the process.</summary>
+/// <summary>Detects the V7 weekly Work Shift and SWAP/COVER structures. A positive result is cached for the process.</summary>
 public sealed class EfShiftSwapSchema(AppDbContext db) : IShiftSwapSchema
 {
     private static volatile bool ready;
@@ -31,6 +31,7 @@ public sealed class EfShiftSwapSchema(AppDbContext db) : IShiftSwapSchema
                 AND COL_LENGTH(N'dbo.ShiftSwapRequest',N'expires_at') IS NOT NULL
                 AND COL_LENGTH(N'dbo.ShiftSwapRequest',N'cancelled_by_user_id') IS NOT NULL
                 AND COL_LENGTH(N'dbo.Zone',N'min_staff') IS NOT NULL
+                AND COL_LENGTH(N'dbo.Shift',N'week_start') IS NOT NULL
                 THEN 1 ELSE 0 END AS Value
             """).SingleAsync(ct);
         ready = value == 1;

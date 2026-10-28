@@ -414,7 +414,7 @@ public sealed class StaffTaskTests
             var rule = new MonitoringRule { RuleId = ruleId, ConfigId = configuration.ConfigId, EventTypeId = eventTypeId, OutcomeType = "OPERATIONAL_EVENT", Enabled = true };
             Store.Values.AddRange([Zone, OtherZone, Camera, OtherCamera, configuration, rule,
                 new OperationalEventType { EventTypeId = eventTypeId, Code = "LONG_QUEUE", Name = "Long queue", MeasurementType = "QUEUE_LENGTH" },
-                new Shift { ShiftId = shiftId, Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
+                new Shift { ShiftId = shiftId, WeekStart = new(2026, 10, 5), Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
             roster = new StaffRoster(Store, Calendar);
             notifier = new TaskNotifier(Store, Clock);
             Dispatch = new TaskDispatch(Store, roster, notifier, Clock, schema);

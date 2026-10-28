@@ -3,7 +3,7 @@ using Store = Supermarket.Domain.Supermarket;
 namespace Supermarket.Application;
 
 /// <summary>
-/// Manager shift planning (MF-04, BR-02/33/34/35): shift templates, DRAFT assignments of active Staff to a shift and one Zone,
+/// Manager shift planning (MF-04, BR-02/33/34/35): weekly Work Shifts, DRAFT assignments of active Staff to a shift and one Zone,
 /// publishing a date range (blocked while any Zone is below Zone.min_staff), edits and cancellation before a shift starts,
 /// and Staff leave (StaffUnavailability). Staff only see SCHEDULED (published) assignments.
 /// </summary>
@@ -11,52 +11,75 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
 {
     public const string Published = "SHIFT_PUBLISHED", Changed = "SHIFT_CHANGED", Removed = "SHIFT_CANCELLED";
 
-    public async Task<ShiftTemplateView[]> Templates(CancellationToken ct)
+    public async Task<WorkShiftView[]> WorkShifts(DateOnly? weekStart, CancellationToken ct)
     {
         UseCase.Viewer(current);
         await schema.Require(ct);
-        var shifts = await store.List<Shift>(null, ct);
+        var week = weekStart ?? ShiftRules.WeekStart(calendar.Today(clock.UtcNow));
+        ShiftRules.Monday(week);
+        var shifts = await store.List<Shift>(s => s.WeekStart == week, ct);
         var live = (await store.List<ShiftAssignment>(a => a.Status != ShiftAssignmentStatus.Cancelled, ct)).Select(a => a.ShiftId).ToHashSet();
-        return shifts.OrderBy(s => s.StartTime).ThenBy(s => s.Name).Select(s => Template(s, live.Contains(s.ShiftId))).ToArray();
+        return shifts.OrderBy(s => s.StartTime).ThenBy(s => s.Name).Select(s => WorkShift(s, live.Contains(s.ShiftId))).ToArray();
     }
 
-    public async Task<ShiftTemplateView> CreateTemplate(ShiftTemplateRequest request, CancellationToken ct)
+    public async Task<WorkShiftView> CreateWorkShift(CreateWorkShiftRequest request, CancellationToken ct)
     {
         UseCase.Manager(current);
         await schema.Require(ct);
-        var name = ShiftRules.Template(request.Name, request.StartTime, request.EndTime);
+        ShiftRules.Monday(request.WeekStart);
+        var name = ShiftRules.WorkShift(request.Name, request.StartTime, request.EndTime);
         var shift = await store.Transaction(async () =>
         {
             var market = (await store.List<Store>(null, ct)).OrderBy(s => s.CreatedAt).FirstOrDefault()
-                ?? throw new ApplicationException("SUPERMARKET_REQUIRED", "Create the supermarket before shift templates.", 422);
-            UseCase.Unique((await store.List<Shift>(s => s.Name == name, ct)).Count > 0);
+                ?? throw new ApplicationException("SUPERMARKET_REQUIRED", "Create the supermarket before Work Shifts.", 422);
+            UseCase.Unique((await store.List<Shift>(s => s.SupermarketId == market.SupermarketId && s.WeekStart == request.WeekStart && s.Name == name, ct)).Count > 0);
             var row = new Shift { ShiftId = Guid.NewGuid(), SupermarketId = market.SupermarketId, Name = name, StartTime = request.StartTime, EndTime = request.EndTime,
-                Status = ShiftTemplateStatus.Active };
+                WeekStart = request.WeekStart, Status = WorkShiftStatus.Active };
             await store.Add(row, ct);
             return row;
         }, ct);
-        return Template(UseCase.Found(await store.Find<Shift>(shift.ShiftId, ct)), false);
+        return WorkShift(UseCase.Found(await store.Find<Shift>(shift.ShiftId, ct)), false);
     }
 
-    public async Task<ShiftTemplateView> UpdateTemplate(Guid id, ShiftTemplateUpdate request, CancellationToken ct)
+    public async Task<WorkShiftView[]> CopyWorkShiftWeek(CopyWorkShiftWeekRequest request, CancellationToken ct)
     {
         UseCase.Manager(current);
         await schema.Require(ct);
-        if (request.Status is not null) Rules.Status(request.Status, ShiftTemplateStatus.Active, ShiftTemplateStatus.Inactive);
+        ShiftRules.Monday(request.SourceWeekStart); ShiftRules.Monday(request.TargetWeekStart);
+        Rules.Require(request.SourceWeekStart != request.TargetWeekStart, "INVALID_WEEK_RANGE", "Source and target weeks must be different.");
+        await store.Transaction(async () =>
+        {
+            var source = await store.List<Shift>(s => s.WeekStart == request.SourceWeekStart && s.Status == WorkShiftStatus.Active, ct);
+            if (source.Count == 0) throw new ApplicationException("SOURCE_WEEK_EMPTY", "The source week has no active Work Shifts to copy.", 422);
+            if ((await store.List<Shift>(s => s.WeekStart == request.TargetWeekStart, ct)).Count > 0)
+                throw new ApplicationException("TARGET_WEEK_NOT_EMPTY", "The target week already has Work Shifts.");
+            foreach (var shift in source)
+                await store.Add(new Shift { ShiftId = Guid.NewGuid(), SupermarketId = shift.SupermarketId, WeekStart = request.TargetWeekStart,
+                    Name = shift.Name, StartTime = shift.StartTime, EndTime = shift.EndTime, Status = WorkShiftStatus.Active }, ct);
+            return 0;
+        }, ct);
+        return await WorkShifts(request.TargetWeekStart, ct);
+    }
+
+    public async Task<WorkShiftView> UpdateWorkShift(Guid id, UpdateWorkShiftRequest request, CancellationToken ct)
+    {
+        UseCase.Manager(current);
+        await schema.Require(ct);
+        if (request.Status is not null) Rules.Status(request.Status, WorkShiftStatus.Active, WorkShiftStatus.Inactive);
         var inUse = await store.Transaction(async () =>
         {
             var shift = UseCase.Found(await store.Find<Shift>(id, ct));
             var used = (await store.List<ShiftAssignment>(a => a.ShiftId == id && a.Status != ShiftAssignmentStatus.Cancelled, ct)).Count > 0;
             var start = request.StartTime ?? shift.StartTime; var end = request.EndTime ?? shift.EndTime;
             if (used && (start != shift.StartTime || end != shift.EndTime))
-                throw new ApplicationException("SHIFT_IN_USE", "Shift times cannot change while assignments use this template; create a new template instead.");
-            var name = ShiftRules.Template(request.Name ?? shift.Name, start, end);
-            UseCase.Unique((await store.List<Shift>(s => s.Name == name && s.ShiftId != id, ct)).Count > 0);
+                throw new ApplicationException("SHIFT_IN_USE", "Work Shift times cannot change after assignments use it in this week.");
+            var name = ShiftRules.WorkShift(request.Name ?? shift.Name, start, end);
+            UseCase.Unique((await store.List<Shift>(s => s.SupermarketId == shift.SupermarketId && s.WeekStart == shift.WeekStart && s.Name == name && s.ShiftId != id, ct)).Count > 0);
             shift.Name = name; shift.StartTime = start; shift.EndTime = end; shift.Status = request.Status ?? shift.Status;
             await store.Update(shift, ct);
             return used;
         }, ct);
-        return Template(UseCase.Found(await store.Find<Shift>(id, ct)), inUse);
+        return WorkShift(UseCase.Found(await store.Find<Shift>(id, ct)), inUse);
     }
 
     /// <summary>Assignments and BR-02 coverage for a date range; defaults to the current local Monday–Sunday week.</summary>
@@ -94,6 +117,7 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
         await schema.Require(ct);
         var context = await planner.Load(workDate, workDate, ct);
         var shift = context.Shifts.GetValueOrDefault(shiftId) ?? throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
+        RequireWorkShiftWeek(shift, workDate);
         var slot = planner.Slot(context, new ShiftAssignment { ShiftAssignmentId = replacingAssignmentId ?? Guid.NewGuid(), ShiftId = shift.ShiftId, WorkDate = workDate })!;
         return context.Staff.Values.Select(user =>
         {
@@ -113,8 +137,9 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
         var id = await store.Transaction(async () =>
         {
             var context = await planner.Load(request.WorkDate, request.WorkDate, ct);
-            var shift = context.Shifts.GetValueOrDefault(request.ShiftId) ?? throw new ApplicationException("NOT_FOUND", "The shift template was not found.", 404);
-            if (shift.Status != ShiftTemplateStatus.Active) throw new ApplicationException("SHIFT_INACTIVE", "Activate the shift template before assigning Staff.");
+            var shift = context.Shifts.GetValueOrDefault(request.ShiftId) ?? throw new ApplicationException("NOT_FOUND", "The Work Shift was not found.", 404);
+            RequireWorkShiftWeek(shift, request.WorkDate);
+            if (shift.Status != WorkShiftStatus.Active) throw new ApplicationException("SHIFT_INACTIVE", "Activate the Work Shift before assigning Staff.");
             var user = context.Staff.GetValueOrDefault(request.UserId) ?? throw new ApplicationException("NOT_STAFF", "Only active Staff accounts can be scheduled.", 422);
             await RequireZones(zoneIds, ct);
             var existing = (await store.List<ShiftAssignment>(a => a.UserId == request.UserId && a.ShiftId == request.ShiftId && a.WorkDate == request.WorkDate, ct)).SingleOrDefault();
@@ -294,7 +319,7 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
         }, ct);
     }
 
-    private static ShiftTemplateView Template(Shift s, bool inUse) => new(s.ShiftId, s.Name, s.StartTime, s.EndTime, ShiftRules.Hours(s.StartTime, s.EndTime), s.Status, inUse);
+    private static WorkShiftView WorkShift(Shift s, bool inUse) => new(s.ShiftId, s.WeekStart, s.Name, s.StartTime, s.EndTime, ShiftRules.Hours(s.StartTime, s.EndTime), s.Status, inUse);
     private async Task<ScheduledShiftView> View(Guid id, CancellationToken ct)
     {
         var row = UseCase.Found(await store.Find<ShiftAssignment>(id, ct));
@@ -333,6 +358,11 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
         var failed = checks.Where(c => !c.Passed).ToList();
         if (failed.Count > 0) throw new ApplicationException("SCHEDULE_CONFLICT", string.Join(" ", failed.Select(c => c.Message)));
     }
+    private static void RequireWorkShiftWeek(Shift shift, DateOnly workDate)
+    {
+        if (shift.WeekStart != ShiftRules.WeekStart(workDate))
+            throw new ApplicationException("WORK_SHIFT_WEEK_MISMATCH", "Choose a Work Shift configured for the assignment week.", 422);
+    }
     private static Guid[] ZoneList(Guid[]? zoneIds)
     {
         var ids = (zoneIds ?? []).Where(z => z != Guid.Empty).Distinct().ToArray();
@@ -369,10 +399,11 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
     {
         var rows = context.Assignments.Where(a => a.WorkDate >= from && a.WorkDate <= to).ToList();
         var used = rows.Select(a => a.ShiftId).ToHashSet();
-        var templates = context.Shifts.Values.Where(s => s.Status == ShiftTemplateStatus.Active || used.Contains(s.ShiftId)).OrderBy(s => s.StartTime).ToList();
         var result = new List<ZoneCoverageView>();
         for (var day = from; day <= to; day = day.AddDays(1))
-            foreach (var shift in templates)
+            foreach (var shift in context.Shifts.Values
+                .Where(s => s.WeekStart == ShiftRules.WeekStart(day) && (s.Status == WorkShiftStatus.Active || used.Contains(s.ShiftId)))
+                .OrderBy(s => s.StartTime))
                 foreach (var zone in zones.Values.Where(z => z.Status == "ACTIVE").OrderBy(z => z.Code))
                 {
                     var here = rows.Where(a => a.ShiftId == shift.ShiftId && a.WorkDate == day && SwapPlanner.ZoneIds(context, a.ShiftAssignmentId).Contains(zone.ZoneId)).ToList();

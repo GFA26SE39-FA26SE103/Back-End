@@ -1017,6 +1017,8 @@ public partial class AppDbContext : DbContext
         {
             entity.ToTable("Shift");
 
+            entity.HasIndex(e => new { e.SupermarketId, e.WeekStart, e.Name }, "UQ_Shift_Supermarket_Week_Name").IsUnique();
+
             entity.Property(e => e.ShiftId)
                 .HasDefaultValueSql("(newsequentialid())", "DF_Shift_Id")
                 .HasColumnName("shift_id");
@@ -1041,6 +1043,7 @@ public partial class AppDbContext : DbContext
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())", "DF_Shift_UpdatedAt")
                 .HasColumnName("updated_at");
+            entity.Property(e => e.WeekStart).HasColumnName("week_start");
 
             entity.HasOne(d => d.Supermarket).WithMany(p => p.Shifts)
                 .HasForeignKey(d => d.SupermarketId)

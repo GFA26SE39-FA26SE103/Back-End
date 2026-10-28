@@ -43,6 +43,7 @@ public sealed class Shift : TrackedEntity
     public string Name { get; set; } = "";
     public TimeOnly StartTime { get; set; }
     public TimeOnly EndTime { get; set; }
+    public DateOnly WeekStart { get; set; }
     public string Status { get; set; } = "ACTIVE";
 }
 public sealed class ShiftAssignment : TrackedEntity

@@ -3,13 +3,14 @@ using Microsoft.AspNetCore.Mvc;
 using Supermarket.Application;
 namespace Supermarket.Api.Controllers;
 
-/// <summary>Shift templates: operational roles read them, the Manager maintains them.</summary>
+/// <summary>Weekly Work Shifts: operational roles read them, the Manager maintains them.</summary>
 [ApiController, Authorize, Route("api/shifts")]
-public sealed class ShiftTemplatesController(ShiftPlanning planning) : ControllerBase
+public sealed class WorkShiftsController(ShiftPlanning planning) : ControllerBase
 {
-    [HttpGet, Authorize(Roles = AccessRoles.Viewer)] public Task<ShiftTemplateView[]> List(CancellationToken ct) => planning.Templates(ct);
-    [HttpPost, Authorize(Roles = AccessRoles.Manager)] public Task<ShiftTemplateView> Create(ShiftTemplateRequest request, CancellationToken ct) => planning.CreateTemplate(request, ct);
-    [HttpPatch("{id:guid}"), Authorize(Roles = AccessRoles.Manager)] public Task<ShiftTemplateView> Update(Guid id, ShiftTemplateUpdate request, CancellationToken ct) => planning.UpdateTemplate(id, request, ct);
+    [HttpGet, Authorize(Roles = AccessRoles.Viewer)] public Task<WorkShiftView[]> List([FromQuery] DateOnly? weekStart, CancellationToken ct) => planning.WorkShifts(weekStart, ct);
+    [HttpPost, Authorize(Roles = AccessRoles.Manager)] public Task<WorkShiftView> Create(CreateWorkShiftRequest request, CancellationToken ct) => planning.CreateWorkShift(request, ct);
+    [HttpPost("copy-week"), Authorize(Roles = AccessRoles.Manager)] public Task<WorkShiftView[]> CopyWeek(CopyWorkShiftWeekRequest request, CancellationToken ct) => planning.CopyWorkShiftWeek(request, ct);
+    [HttpPatch("{id:guid}"), Authorize(Roles = AccessRoles.Manager)] public Task<WorkShiftView> Update(Guid id, UpdateWorkShiftRequest request, CancellationToken ct) => planning.UpdateWorkShift(id, request, ct);
 }
 
 /// <summary>Manager schedule: DRAFT assignments, publishing with Zone coverage, edits and cancellation before a shift starts.</summary>

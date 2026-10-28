@@ -21,6 +21,8 @@ public partial class Shift
 
     public DateTime UpdatedAt { get; set; }
 
+    public DateOnly WeekStart { get; set; }
+
     public virtual ICollection<ShiftAssignment> ShiftAssignments { get; set; } = new List<ShiftAssignment>();
 
     public virtual Supermarket Supermarket { get; set; } = null!;

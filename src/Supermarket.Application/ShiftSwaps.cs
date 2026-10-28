@@ -11,7 +11,7 @@ public static class ShiftSwapSchemaCheck
     public static async Task Require(this IShiftSwapSchema schema, CancellationToken ct)
     {
         if (!await schema.Ready(ct))
-            throw new ApplicationException("SWAP_SCHEMA_NOT_READY", "Apply the approved FA26SE103 ERD V6 database migration before using shift swaps.", 503);
+            throw new ApplicationException("SWAP_SCHEMA_NOT_READY", "Apply the approved FA26SE103 database migrations through V7 before using workforce scheduling.", 503);
     }
 }
 
