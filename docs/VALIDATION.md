@@ -316,3 +316,15 @@ Branch `feature/weekly-work-shifts`. Applied `FA26SE103_Database_V7_Weekly_Work_
 - Runtime Swagger export: **PASS** from an owned temporary Development API with Bootstrap, CameraHealth, Monitoring, TaskOffers and ShiftSwaps disabled; `docs/openapi.json` now includes weekly Work Shift DTOs, `weekStart` query/input and `/api/shifts/copy-week`. The temporary process was stopped.
 
 This increment does not auto-copy Staff assignments or publish a target week. Manager copy creates only ACTIVE Work Shift definitions, then Staff assignment and publication remain deliberate weekly actions. No deployment, commit, push or merge was performed.
+
+## MF-03 Task Evidence integrated with dev — 2026-10-29
+
+Branch `feature/mf03-task-evidence` was updated from `origin/dev` at `d0a3b24`. The two content conflicts were resolved by retaining both Task Evidence and Notification registrations in `Program.cs`, and by documenting both notification/device behavior and the MF-03 evidence API in `docs/API.md`.
+
+- Release build: **PASS**, 0 warnings and 0 errors.
+- Focused `TaskEvidenceTests` and `CloudinaryTaskEvidenceTests`: **9 passed, 0 failed, 0 skipped**.
+- Exact non-SQL CI suite (`Category!=SqlIntegration` with coverage): **417 passed, 0 failed, 0 skipped**.
+- Release publish: **PASS**.
+- `git diff --check`: **PASS** after conflict resolution.
+
+No shared SQL data/schema, deployment, credential, push-provider configuration or generated scaffold was changed. The implementation uses the existing V6 `TaskEvidence` table and `Task.rejection_count`. SQL/API acceptance with the deployed database and real Cloudinary credentials remains a pre-deployment smoke check; StaffReport and independent Incident closure remain outside this increment.
