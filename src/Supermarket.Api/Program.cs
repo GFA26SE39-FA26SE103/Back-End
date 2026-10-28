@@ -4,6 +4,7 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.SwaggerGen;
@@ -32,6 +33,7 @@ builder.Services.AddOptions<PushDeliveryOptions>().Bind(builder.Configuration.Ge
     .Validate(o => o.PollSeconds is >= 1 and <= 300 && o.BatchSize is >= 1 and <= 200 && o.MaxAttempts is >= 1 and <= 10
         && o.MaxDevicesPerRecipient is >= 1 and <= 50 && o.TaskOfferTtlSeconds is >= 30 and <= 3600 && o.DefaultTtlHours is >= 1 and <= 168,
         "Notifications:Push limits are invalid.").ValidateOnStart();
+builder.Services.AddSingleton(services => services.GetRequiredService<IOptions<PushDeliveryOptions>>().Value);
 builder.Services.AddOptions<FirebaseOptions>().Bind(builder.Configuration.GetSection("Notifications:Firebase"))
     .Validate(o => !o.Enabled || !string.IsNullOrWhiteSpace(o.ProjectId), "Notifications:Firebase:ProjectId is required when Firebase is enabled.")
     .ValidateOnStart();
