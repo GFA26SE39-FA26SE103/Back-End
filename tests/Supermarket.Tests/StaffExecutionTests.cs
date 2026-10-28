@@ -134,7 +134,7 @@ public sealed class StaffExecutionTests
             };
             Store.Values.AddRange([zone, camera, configuration, rule,
                 new OperationalEventType { EventTypeId = eventTypeId, Code = "LONG_QUEUE", Name = "Long queue", MeasurementType = "QUEUE_LENGTH" },
-                new Shift { ShiftId = shiftId, Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
+                new Shift { ShiftId = shiftId, WeekStart = new(2026, 10, 5), Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
             roster = new StaffRoster(Store, calendar);
             dispatch = new TaskDispatch(Store, roster, new TaskNotifier(Store, Clock), Clock, schema);
             views = new TaskViews(Store, dispatch);

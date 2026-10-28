@@ -1,9 +1,10 @@
 namespace Supermarket.Application;
 
-public sealed record ShiftTemplateView(Guid ShiftId, string Name, TimeOnly StartTime, TimeOnly EndTime, double Hours, string Status, bool InUse);
-public sealed record ShiftTemplateRequest(string Name, TimeOnly StartTime, TimeOnly EndTime);
-/// <summary>Times can change only while no live assignment uses the template.</summary>
-public sealed record ShiftTemplateUpdate(string? Name, TimeOnly? StartTime, TimeOnly? EndTime, string? Status);
+public sealed record WorkShiftView(Guid ShiftId, DateOnly WeekStart, string Name, TimeOnly StartTime, TimeOnly EndTime, double Hours, string Status, bool InUse);
+public sealed record CreateWorkShiftRequest(DateOnly WeekStart, string Name, TimeOnly StartTime, TimeOnly EndTime);
+/// <summary>Times can change only while no live assignment uses this weekly Work Shift.</summary>
+public sealed record UpdateWorkShiftRequest(string? Name, TimeOnly? StartTime, TimeOnly? EndTime, string? Status);
+public sealed record CopyWorkShiftWeekRequest(DateOnly SourceWeekStart, DateOnly TargetWeekStart);
 
 public sealed record ScheduledShiftView(Guid ShiftAssignmentId, Guid UserId, string FullName, Guid ShiftId, string ShiftName, DateOnly WorkDate,
     DateTime StartsAt, DateTime EndsAt, string Status, DateTime? CheckInAt, ShiftZoneView[] Zones, bool Editable, Guid? PendingSwapRequestId, DateTime UpdatedAt);

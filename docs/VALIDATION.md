@@ -290,3 +290,15 @@ Branch `feature/mf02-monitoring-db`. Added the opt-in `tools/Mf02MonitoringSqlPr
 - Shared `FA26SE103_Dev` rollback proof: **PASS**. Sustained warning opened one OperationalEvent, the same episode escalated to CRITICAL, sustained valid recovery cleared it, Incident count did not change, and all fixture rows were absent after rollback.
 - Saved template observed during the proof: camera `304ff686-593e-486b-942a-470bb74489c6`, Zone `4f90b3d3-6608-4770-bc25-05b826364290`, rule `6288c2c2-1bda-40fb-9e63-72e94c8d8167`; source `RECORDED`, readiness `CAMERA_NOT_ACTIVE`. This is backend/SQL evidence with synthetic aggregate observations, not live-camera/AI acceptance.
 - Full backend suite: **369 passed, 20 failed**. All 20 SQL-fixture tests share the missing historical bootstrap problem. Database V0.1 + V2–V6 is not a valid clean-install chain: V2 expects runtime tables such as OperationalEvent that V0.1 does not create, while the previously documented `20261003_02_monitoring_runtime_erd_v3.sql` is absent from the current Database repository. No replacement schema was invented and no data-bearing backup was used as a test installer.
+
+## MF-04 Weekly Work Shifts — 2026-10-28
+
+Branch `feature/weekly-work-shifts`. Applied `FA26SE103_Database_V7_Weekly_Work_Shifts.sql` to the configured `FA26SE103_Dev` database and re-scaffolded EF from that database. The migration added `Shift.week_start`, preserved all existing assignments by cloning/relinking Work Shifts per historical Monday–Sunday week, and added Monday and supermarket/week/name uniqueness enforcement.
+
+- Dev data verification: **7 Work Shifts across 3 weeks**, all **17 assignments** linked to the matching week; zero duplicate names per supermarket/week and zero non-Monday `week_start` values.
+- Focused `ShiftPlanningTests`: **8 passed, 0 failed, 0 skipped**, including copy-to-empty-week and no assignment copying.
+- Full non-SQL backend regression: **379 passed, 0 failed, 0 skipped**.
+- Frontend production build: **PASS**. Focused Manager Work Shifts/Schedule/Zone Staffing tests: **11 passed, 0 failed**.
+- Runtime Swagger export: **PASS** from an owned temporary Development API with Bootstrap, CameraHealth, Monitoring, TaskOffers and ShiftSwaps disabled; `docs/openapi.json` now includes weekly Work Shift DTOs, `weekStart` query/input and `/api/shifts/copy-week`. The temporary process was stopped.
+
+This increment does not auto-copy Staff assignments or publish a target week. Manager copy creates only ACTIVE Work Shift definitions, then Staff assignment and publication remain deliberate weekly actions. No deployment, commit, push or merge was performed.

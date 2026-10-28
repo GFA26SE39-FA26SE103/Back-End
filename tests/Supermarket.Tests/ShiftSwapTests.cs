@@ -232,8 +232,8 @@ public sealed class ShiftSwapTests
         public MonitoringSetupTests.MemoryStore Store { get; } = new();
         public StaffTaskTests.Clock Clock { get; } = new() { UtcNow = Now };
         public StoreCalendar Calendar { get; } = new(StoreCalendar.Zone(null));
-        public Shift Morning { get; } = new() { ShiftId = Guid.NewGuid(), Name = "Morning", StartTime = new(6, 0), EndTime = new(14, 0) };
-        public Shift Evening { get; } = new() { ShiftId = Guid.NewGuid(), Name = "Evening", StartTime = new(14, 0), EndTime = new(22, 0) };
+        public Shift Morning { get; } = new() { ShiftId = Guid.NewGuid(), WeekStart = new(2026, 10, 19), Name = "Morning", StartTime = new(6, 0), EndTime = new(14, 0) };
+        public Shift Evening { get; } = new() { ShiftId = Guid.NewGuid(), WeekStart = new(2026, 10, 19), Name = "Evening", StartTime = new(14, 0), EndTime = new(22, 0) };
         private readonly Zone zone = new() { ZoneId = Guid.NewGuid(), Code = "B", Name = "Zone B · Checkout", MinStaff = 1 };
         private readonly SwapPlanner planner;
         private readonly TaskNotifier notifier;

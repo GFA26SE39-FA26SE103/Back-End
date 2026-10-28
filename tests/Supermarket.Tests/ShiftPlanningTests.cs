@@ -8,25 +8,43 @@ public sealed class ShiftPlanningTests
 {
     // Monday 19/10/2026 10:00 store time (UTC+7).
     private static readonly DateTime Now = new(2026, 10, 19, 3, 0, 0, DateTimeKind.Utc);
-    private static readonly DateOnly Wed = new(2026, 10, 21), Thu = new(2026, 10, 22);
+    private static readonly DateOnly Monday = new(2026, 10, 19), Wed = new(2026, 10, 21), Thu = new(2026, 10, 22);
 
     [Fact]
-    public async Task TemplatesMustBe4To8HoursAndKeepTheirTimesWhileInUse()
+    public async Task WorkShiftsAreWeeklyAndKeepTheirTimesWhileInUse()
     {
         var w = new World(); var manager = w.User("MANAGER", "Lan");
         var plan = w.Planning(manager);
 
-        Assert.Equal("INVALID_SHIFT_LENGTH", (await Assert.ThrowsAsync<DomainException>(() => plan.CreateTemplate(new("Odd", new(6, 0), new(11, 0)), default))).Code);
-        var night = await plan.CreateTemplate(new("Night", new(22, 0), new(6, 0)), default);
-        Assert.Equal((8.0, ShiftTemplateStatus.Active, false), (night.Hours, night.Status, night.InUse));
-        Assert.Equal("DUPLICATE", (await Assert.ThrowsAsync<AppError>(() => plan.CreateTemplate(new("Night", new(18, 0), new(22, 0)), default))).Code);
+        Assert.Equal("INVALID_SHIFT_LENGTH", (await Assert.ThrowsAsync<DomainException>(() => plan.CreateWorkShift(new(Monday, "Odd", new(6, 0), new(11, 0)), default))).Code);
+        var night = await plan.CreateWorkShift(new(Monday, "Night", new(22, 0), new(6, 0)), default);
+        Assert.Equal((Monday, 8.0, WorkShiftStatus.Active, false), (night.WeekStart, night.Hours, night.Status, night.InUse));
+        Assert.Equal("DUPLICATE", (await Assert.ThrowsAsync<AppError>(() => plan.CreateWorkShift(new(Monday, "Night", new(18, 0), new(22, 0)), default))).Code);
+        Assert.Equal("INVALID_WEEK_START", (await Assert.ThrowsAsync<DomainException>(() => plan.CreateWorkShift(new(Wed, "Wrong week", new(6, 0), new(14, 0)), default))).Code);
 
         var an = w.Staff("An");
+        var wrongWeek = await Assert.ThrowsAsync<AppError>(() => plan.Assign(new(an, w.Morning.ShiftId, Monday.AddDays(7), [w.Checkout.ZoneId]), default));
+        Assert.Equal(("WORK_SHIFT_WEEK_MISMATCH", 422), (wrongWeek.Code, wrongWeek.Status));
         await plan.Assign(new(an, w.Morning.ShiftId, Wed, [w.Checkout.ZoneId]), default);
-        Assert.Equal("SHIFT_IN_USE", (await Assert.ThrowsAsync<AppError>(() => plan.UpdateTemplate(w.Morning.ShiftId, new(null, new(7, 0), new(15, 0), null), default))).Code);
-        var renamed = await plan.UpdateTemplate(w.Morning.ShiftId, new("Morning A", null, null, ShiftTemplateStatus.Inactive), default);
-        Assert.Equal(("Morning A", ShiftTemplateStatus.Inactive, true), (renamed.Name, renamed.Status, renamed.InUse));
+        Assert.Equal("SHIFT_IN_USE", (await Assert.ThrowsAsync<AppError>(() => plan.UpdateWorkShift(w.Morning.ShiftId, new(null, new(7, 0), new(15, 0), null), default))).Code);
+        var renamed = await plan.UpdateWorkShift(w.Morning.ShiftId, new("Morning A", null, null, WorkShiftStatus.Inactive), default);
+        Assert.Equal(("Morning A", WorkShiftStatus.Inactive, true), (renamed.Name, renamed.Status, renamed.InUse));
         Assert.Equal("SHIFT_INACTIVE", (await Assert.ThrowsAsync<AppError>(() => plan.Assign(new(w.Staff("Binh"), w.Morning.ShiftId, Thu, [w.Checkout.ZoneId]), default))).Code);
+    }
+
+    [Fact]
+    public async Task ActiveWorkShiftsCanBeCopiedToAnEmptyWeekWithoutAssignments()
+    {
+        var w = new World(); var manager = w.User("MANAGER", "Lan"); var plan = w.Planning(manager);
+        var nextMonday = Monday.AddDays(7);
+
+        var copied = await plan.CopyWorkShiftWeek(new(Monday, nextMonday), default);
+
+        Assert.Equal(2, copied.Length);
+        Assert.All(copied, shift => Assert.Equal(nextMonday, shift.WeekStart));
+        Assert.All(copied, shift => Assert.False(shift.InUse));
+        Assert.Equal(new[] { "Evening", "Morning" }, copied.Select(s => s.Name).Order());
+        Assert.Equal("TARGET_WEEK_NOT_EMPTY", (await Assert.ThrowsAsync<AppError>(() => plan.CopyWorkShiftWeek(new(Monday, nextMonday), default))).Code);
     }
 
     [Fact]
@@ -166,7 +184,7 @@ public sealed class ShiftPlanningTests
         Assert.Equal(403, (await Assert.ThrowsAsync<AppError>(() => w.Planning(an).Schedule(null, null, default))).Status);
         var week = await w.Planning(op).Schedule(null, null, default);
         Assert.Equal((new DateOnly(2026, 10, 19), new DateOnly(2026, 10, 25)), (week.From, week.To));
-        Assert.Equal(2, (await w.Planning(admin).Templates(default)).Length);
+        Assert.Equal(2, (await w.Planning(admin).WorkShifts(null, default)).Length);
     }
 
     private sealed class World
@@ -174,9 +192,9 @@ public sealed class ShiftPlanningTests
         public MonitoringSetupTests.MemoryStore Store { get; } = new();
         public StaffTaskTests.Clock Clock { get; } = new() { UtcNow = Now };
         public StoreCalendar Calendar { get; } = new(StoreCalendar.Zone(null));
-        public Shift Morning { get; } = new() { ShiftId = Guid.NewGuid(), Name = "Morning", StartTime = new(6, 0), EndTime = new(14, 0), Status = "ACTIVE" };
-        public Shift Evening { get; } = new() { ShiftId = Guid.NewGuid(), Name = "Evening", StartTime = new(14, 0), EndTime = new(22, 0), Status = "ACTIVE" };
-        public Shift Mid { get; } = new() { ShiftId = Guid.NewGuid(), Name = "Mid", StartTime = new(10, 0), EndTime = new(16, 0), Status = "ACTIVE" };
+        public Shift Morning { get; } = new() { ShiftId = Guid.NewGuid(), WeekStart = Monday, Name = "Morning", StartTime = new(6, 0), EndTime = new(14, 0), Status = "ACTIVE" };
+        public Shift Evening { get; } = new() { ShiftId = Guid.NewGuid(), WeekStart = Monday, Name = "Evening", StartTime = new(14, 0), EndTime = new(22, 0), Status = "ACTIVE" };
+        public Shift Mid { get; } = new() { ShiftId = Guid.NewGuid(), WeekStart = Monday, Name = "Mid", StartTime = new(10, 0), EndTime = new(16, 0), Status = "ACTIVE" };
         public Zone Checkout { get; } = new() { ZoneId = Guid.NewGuid(), Code = "B", Name = "Zone B · Checkout", MinStaff = 1 };
         public Zone Produce { get; } = new() { ZoneId = Guid.NewGuid(), Code = "C", Name = "Zone C · Produce", MinStaff = 0 };
         private readonly SwapPlanner planner;
