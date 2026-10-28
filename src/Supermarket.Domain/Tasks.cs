@@ -22,6 +22,8 @@ public sealed class WorkTask : TrackedEntity
     public Guid? EventId { get; set; }
     public Guid? StaffReportId { get; set; }
     public DateTime? PlannedStartAt { get; set; }
+    /// <summary>Rejected submissions of this Task across all performers (BR-28).</summary>
+    public int RejectionCount { get; set; }
 }
 public sealed class TaskAssignmentHistory : Entity
 {

@@ -53,6 +53,16 @@ builder.Services.AddOptions<HealthWorkerOptions>().Bind(builder.Configuration.Ge
     .ValidateOnStart();
 builder.Services.Configure<MonitoringWorkerOptions>(builder.Configuration.GetSection("Monitoring"));
 builder.Services.Configure<TaskOfferWorkerOptions>(builder.Configuration.GetSection("TaskOffers"));
+builder.Services.AddOptions<TaskEvidenceOptions>().Bind(builder.Configuration.GetSection("TaskEvidence"))
+    .Validate(o => o.MaxBytes is > 0 and <= 10485760, "TaskEvidence:MaxBytes must be between 1 and 10485760.")
+    .Validate(o => string.IsNullOrWhiteSpace(o.Provider) || o.Provider.Equals("Local", StringComparison.OrdinalIgnoreCase) || o.Provider.Equals("Cloudinary", StringComparison.OrdinalIgnoreCase), "TaskEvidence:Provider must be Local or Cloudinary.")
+    .ValidateOnStart();
+builder.Services.PostConfigure<TaskEvidenceOptions>(options =>
+{
+    options.Root = Path.GetFullPath(options.Root, builder.Environment.ContentRootPath);
+    // Keep evidence where floor plans are kept unless TaskEvidence:Provider says otherwise.
+    if (string.IsNullOrWhiteSpace(options.Provider)) options.Provider = builder.Configuration["FloorPlan:Provider"] ?? "Local";
+});
 builder.Services.Configure<ShiftSwapWorkerOptions>(builder.Configuration.GetSection("ShiftSwaps"));
 // Shift times are local store times; the default is the store's Vietnam time zone.
 builder.Services.AddSingleton(new StoreCalendar(StoreCalendar.Zone(builder.Configuration["Store:TimeZone"])));
@@ -108,6 +118,11 @@ builder.Services.AddScoped<IOperationalEventResponder>(s => s.GetRequiredService
 builder.Services.AddScoped<TaskViews>();
 builder.Services.AddScoped<StaffTasks>();
 builder.Services.AddScoped<OperatorTasks>();
+builder.Services.AddScoped<LocalTaskEvidenceStorage>();
+builder.Services.AddHttpClient<CloudinaryTaskEvidenceStorage>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<ITaskEvidenceStorage, TaskEvidenceStorage>();
+builder.Services.AddScoped<TaskEvidenceWork>();
 builder.Services.AddResponsePolicyManagement();
 builder.Services.AddHostedService<TaskOfferWorker>();
 builder.Services.AddScoped<IShiftSwapSchema, EfShiftSwapSchema>();

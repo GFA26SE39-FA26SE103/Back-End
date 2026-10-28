@@ -196,6 +196,8 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
         var now = clock.UtcNow; var (interval, maxAttempts) = await Retry(ct); var changed = 0;
         foreach (var task in await store.List<WorkTask>(t => t.Status == WorkTaskStatus.Offered && t.CurrentAssigneeUserId == null, ct))
         {
+            // A Task rejected twice waits for the Operator to reassign it (BR-28); it is not re-offered.
+            if ((await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId && a.Reason == TaskEvidenceRules.RejectedTwiceReason, ct)).Count > 0) continue;
             var rounds = await store.List<Notification>(n => n.TaskId == task.TaskId && n.NotificationType == TaskNotifier.Offer, ct);
             if (rounds.Count == 0 || now < rounds.Max(n => n.CreatedAt).AddSeconds(interval)) continue;
             if (rounds.Count < maxAttempts)
@@ -240,7 +242,7 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
         var offers = await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId, ct);
         foreach (var staff in await roster.Eligible(task.ZoneId, now, ct))
         {
-            if (offers.Any(o => o.StaffUserId == staff.User.UserId && o.Status is OfferStatus.Offered or OfferStatus.Declined)) continue;
+            if (offers.Any(o => o.StaffUserId == staff.User.UserId && (o.Status is OfferStatus.Offered or OfferStatus.Declined || o.Reason == TaskEvidenceRules.RejectedTwiceReason))) continue;
             var offer = new TaskAssignmentHistory { TaskAssignmentId = Guid.NewGuid(), TaskId = task.TaskId, StaffUserId = staff.User.UserId,
                 AssignmentType = TaskAssignmentType.Offer, Status = OfferStatus.Offered, AssignedAt = now };
             await store.Add(offer, ct);
