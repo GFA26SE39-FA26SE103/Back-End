@@ -1,3 +1,13 @@
+# MF-04 Manager-assisted COVER and direct shift changes — 2026-10-29
+
+Added the mentor-approved exception paths without a schema migration: Staff can ask a Manager to select cover (`PENDING_MANAGER` with no target), and Manager can directly COVER/SWAP future unchecked-in slots with a mandatory reason, persisted request audit and notifications. The existing peer A → B → Manager flow remains unchanged. Candidate responses expose a 40 h planning recommendation while preserving the 48 h hard weekly limit.
+
+- Backend Release build: PASS; focused `ShiftSwapTests`: **13 passed, 0 failed**.
+- Frontend Manager test/build/lint: PASS; lint retains only the three pre-existing `ZoneStaffing.tsx` warnings.
+- Mobile static analysis: PASS; focused HTTP/demo repository tests: **39 passed, 0 failed**.
+- Runtime Development Swagger export: PASS; `docs/openapi.json` regenerated from the compiled API and the temporary local process stopped.
+- No shared database mutation, deployment, push, or schema/generated-scaffold change was performed.
+
 # MF-01 validation 2026-10-01
 
 Verified locally with .NET SDK 10.0.300, runtime 10.0.8 and SQL Server Express. Build and Release publish succeeded with 0 warnings and 0 errors.

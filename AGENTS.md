@@ -54,7 +54,7 @@ Account administration supports MF-01 but is not a required diagram step. Later 
 - Model confidence filters detections; it does not decide incident routing. No cross-camera identity matching, face recognition, or customer identity storage.
 - Only Admin creates accounts; protect the last active Admin. User passwords are hashed; recoverable camera credentials are encrypted and never returned/logged as secrets.
 - For task offers, preserve the distinction between accepting responsibility, starting work, deferred start, active work, and overdue/escalated work. Staff responses are Handle Now, Accept and Handle Later, or Cannot Handle; `Cannot Handle` is not evidence rejection.
-- Shift swaps follow Staff A request → eligible Staff B accept/decline → Manager approval. Candidate eligibility checks availability, overlap, zone coverage, workload, and working-hour constraints. Do not implement speculative optimization.
+- Normal shift swaps follow Staff A request → eligible Staff B accept/decline → Manager approval. If Staff cannot find cover, they may ask the Manager to select an eligible replacement; the Manager may also directly COVER/SWAP future unchecked-in slots with a mandatory reason, persisted audit and notifications. Candidate eligibility checks availability, overlap, zone coverage, workload, and working-hour constraints. The 48 h weekly limit is hard; 40 h is a planning recommendation. Do not implement speculative optimization or automatic assignment without an explicit Manager decision.
 
 ## Architecture and database changes
 

@@ -26,6 +26,7 @@ public sealed class ShiftSwapTests
         Assert.Equal(binh, candidate.Colleague.UserId);
         Assert.Null(candidate.Shift);
         Assert.Equal(16, candidate.WeeklyHoursAfter);
+        Assert.True(candidate.Recommended);
         Assert.Equal(3, result.HiddenCount);
         Assert.Equal(w.Local(Fri, 14) - TimeSpan.FromHours(24), result.Deadline);
         _ = chi; _ = em;
@@ -106,6 +107,50 @@ public sealed class ShiftSwapTests
         Assert.Equal(binh, mine.UserId);
         Assert.Equal(SwapStatus.Approved, (await w.Swaps(an).Get(id, default)).Status);
         Assert.Empty(await w.Swaps(an).Mine("received", default));
+    }
+
+    [Fact]
+    public async Task StaffCanAskManagerForHelpAndManagerAssignsCoverWithoutPeerAcceptance()
+    {
+        var w = new World();
+        var an = w.Staff("An"); var mine = w.Assign(an, w.Evening, Fri);
+        var binh = w.Staff("Binh"); var manager = w.User("MANAGER", "Lan");
+
+        var help = await w.Swaps(an).RequestManagerHelp(new(mine.ShiftAssignmentId, SwapReason.Health, "Need help"), default);
+
+        Assert.Equal(SwapStatus.PendingManager, help.Status);
+        Assert.Null(help.Target);
+        Assert.Equal(new[] { manager }, w.Recipients(ShiftSwaps.ManagerHelp));
+        Assert.Equal(help.SwapRequestId, Assert.Single(await w.Swaps(manager).ForManager(null, default)).SwapRequestId);
+        var candidate = Assert.Single((await w.Swaps(manager).ManagerCandidates(help.SwapRequestId, default)).Candidates);
+        Assert.Equal(binh, candidate.Colleague.UserId);
+
+        var assigned = await w.Swaps(manager).AssignCover(help.SwapRequestId, new(binh, "Manager coverage decision"), default);
+
+        Assert.Equal(SwapStatus.Approved, assigned.Status);
+        Assert.Equal(binh, mine.UserId);
+        Assert.Equal(manager, assigned.DecidedBy!.UserId);
+        Assert.Equal(new[] { an, binh }.Order(), w.Recipients(ShiftSwaps.Approved).Order());
+    }
+
+    [Fact]
+    public async Task ManagerCanDirectlyCoverOrSwapUntilTheShiftStarts()
+    {
+        var w = new World();
+        var manager = w.User("MANAGER", "Lan");
+        var an = w.Staff("An"); var urgent = w.Assign(an, w.Morning, new(2026, 10, 20));
+        var binh = w.Staff("Binh");
+
+        var covered = await w.Swaps(manager).Direct(new(SwapType.Cover, urgent.ShiftAssignmentId, binh, null, "Urgent absence"), default);
+        Assert.Equal((SwapStatus.Approved, binh), (covered.Status, urgent.UserId));
+
+        var chi = w.Staff("Chi"); var first = w.Assign(chi, w.Evening, Fri);
+        var dung = w.Staff("Dung"); var second = w.Assign(dung, w.Morning, Sat);
+        var swapped = await w.Swaps(manager).Direct(new(SwapType.Swap, first.ShiftAssignmentId, dung, second.ShiftAssignmentId, "Balance coverage"), default);
+
+        Assert.Equal(SwapStatus.Approved, swapped.Status);
+        Assert.Equal((dung, chi), (first.UserId, second.UserId));
+        Assert.Equal("Balance coverage", swapped.DecisionNote);
     }
 
     [Fact]

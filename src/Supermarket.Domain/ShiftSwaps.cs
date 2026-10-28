@@ -53,6 +53,8 @@ public static class SwapRules
     public static readonly TimeSpan DecisionLead = TimeSpan.FromHours(24);
     /// <summary>BR weekly working-hour limit per Staff member.</summary>
     public const double MaxWeeklyHours = 48;
+    /// <summary>Planning target that leaves capacity for covers; this is a warning, not a hard rejection.</summary>
+    public const double RecommendedWeeklyHours = 40;
 
     /// <summary>The absolute deadline: 24 hours before the earlier of the two shifts (A's shift for COVER).</summary>
     public static DateTime Deadline(DateTime requesterStartsAt, DateTime? targetStartsAt)

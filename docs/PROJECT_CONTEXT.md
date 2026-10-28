@@ -173,6 +173,14 @@ Staff A submits SWAP/COVER on future ShiftAssignment
    → PENDING_MANAGER (if B accepts)
    → Manager APPROVES / REJECTS (records reason as applicable)
    → atomic shift-assignment update ONLY on approval
+
+Staff A cannot find cover
+   → asks Manager for assistance (PENDING_MANAGER with no target Staff)
+   → Manager selects one eligible Staff member and assigns COVER directly
+
+Manager operational intervention
+   → directly COVER one future slot or SWAP two future slots
+   → mandatory reason + persisted approved request/audit + notifications
 ```
 
 - SWAP exchanges affected A/B assignments; COVER transfers coverage for A's shift using an eligible B.
@@ -180,6 +188,7 @@ Staff A submits SWAP/COVER on future ShiftAssignment
 - Unresolved requests **expire exactly when 24 hours remain before the earliest affected shift begins**. For SWAP use the earlier of both shifts; for COVER use A's shift. This is **not** 24h after request creation.
 - Recheck future start, overlap, availability, weekly hours, relevant zone coverage and permissions **at approval time**; preserve original assignments on rejection, cancellation or expiry.
 - Preserve actor/time/reason for peer/Manager/cancellation outcomes as allowed by the schema.
+- The 48 h weekly limit remains a hard rule. 40 h is the planning target shown as recommended; 40–48 h is allowed but flagged as high workload to preserve capacity for cover.
 
 ---
 
@@ -484,7 +493,7 @@ Notify eligible checked-in/on-shift Staff assigned to the target Zone **and any 
 
 ### SWAP/COVER
 
-Peer accepts first; Manager makes final decision; pending requests can cancel or expire; assignments update transactionally on approval. Keep expiry exactly 24h before earliest affected shift begins.
+Normal peer flow still requires peer acceptance before the Manager's final decision. If Staff cannot find a colleague, Staff can ask the Manager to select cover without peer acceptance. The Manager may also directly COVER/SWAP future, unchecked-in slots with a mandatory reason. Pending requests can cancel or expire; assignments update transactionally only on the Manager action. Peer-request expiry stays exactly 24 h before the earliest affected shift; Manager assistance/direct intervention is allowed only before shift start.
 
 ---
 
@@ -646,7 +655,7 @@ A reviewer sees: authorized Admin prepares floor/zone/camera/ROI and monitoring 
 
 - `OperationalEvent → Incident` conversion or `QUALIFY_INCIDENT` as an OperationalEvent ResponsePolicyAction; `OperationalEvent.incident_id` as a target relationship.
 - One mixed MonitoringRule simultaneously requiring both an Event and Incident type.
-- Operator final approval of Staff SWAP/COVER; direct automatic swap without peer acceptance and Manager decision.
+- Operator final approval of Staff SWAP/COVER; automatic assignment without an explicit Manager decision.
 - `ZoneShiftRequirement` and shift-specific `min_staff` requirements; `Zone.min_staff` is the current design.
 - `NotificationConfig` as a separate table; retry config is in `SystemSetting`.
 - `NotificationDeliveryAttempt` / `TaskVerification` as new persistence entities; use the agreed existing summary and evidence fields.
@@ -658,7 +667,7 @@ A reviewer sees: authorized Admin prepares floor/zone/camera/ROI and monitoring 
 
 - Separate `OPERATIONAL_EVENT` and `INCIDENT` MonitoringRule outcomes; direct staff-confirmed Incidents.
 - Exactly four Task origins, explicit first-eligible acceptance and independent verification.
-- Staff A → B → Manager SWAP/COVER; 24h-before-shift expiry and cancellation data in V6.
+- Staff A → B → Manager remains the normal SWAP/COVER flow; Staff may escalate missing cover to Manager, and Manager may directly adjust future slots with mandatory reason/audit. Peer requests keep the 24h-before-shift expiry and V6 cancellation data.
 - Per-zone minimum staffing in `Zone.min_staff`, not per-shift requirement records.
 - V6 37-table simplified ERD including non-secret `SystemSetting` and service-level `ServiceHealthEvent`.
 - Dismissed-Incident KPI exclusions; continuous video storage excluded by default; privacy numbers provisional.
@@ -733,9 +742,11 @@ Staff A: SWAP (exchange with one of B's shifts) or COVER (B takes A's shift) on 
 → only approval updates ShiftAssignment.user_id, atomically for both rows
 ```
 
+The 29/10 mentor clarification adds two Manager-owned exception paths without a schema change. A Staff member who cannot secure a peer can create a COVER request directly in `PENDING_MANAGER` with no target; the Manager then selects an eligible Staff member. A Manager can also directly COVER one future slot or SWAP two future slots. Direct actions require a reason, re-check hard eligibility, cancel conflicting pending requests, persist an APPROVED `ShiftSwapRequest` as audit, and notify affected Staff. They are explicit Manager decisions, not automatic optimization.
+
 - A cancels while pending; B withdraws only while awaiting the Manager; actor, time and reason use the V5 cancellation columns.
 - `expires_at` is the earliest affected local shift start minus 24 hours, stored in UTC. A background worker sets EXPIRED; reads and actions already treat past-deadline requests as expired.
-- Rules are re-checked on request, peer acceptance and approval: active Staff, future and not checked-in shifts, decision deadline, different shifts for SWAP, one pending request per shift (application check, no DB unique index), no overlap, `StaffUnavailability`, 48 h per local Monday–Sunday week, and Zone coverage (informational, because zone rows move with the assignment).
+- Rules are re-checked on request, peer acceptance and Manager action: active Staff, future and not checked-in shifts, decision deadline for peer flow, different shifts for SWAP, one pending request per shift (application check, no DB unique index), no overlap, `StaffUnavailability`, hard limit 48 h per local Monday–Sunday week, and Zone coverage (informational, because zone rows move with the assignment). Candidate DTOs flag `recommended=true` through 40 h; 40–48 h remains eligible but is shown as high workload.
 - Notifications are in-app only. `Notification` has no swap-request reference column, so clients open the caller's request list.
 
 Manager shift planning has subsequently been extended by Database V7 Weekly Work Shifts:

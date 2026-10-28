@@ -67,7 +67,8 @@ public sealed class SwapPlanner(ISetupStore store, StoreCalendar calendar)
 
     public static DateTime Deadline(SwapPlan plan) => SwapRules.Deadline(plan.RequesterSlot.StartsAt, plan.TargetSlot?.StartsAt);
 
-    public List<SwapCheckView> Checks(SwapContext context, SwapPlan plan, DateTime now, Guid? ignoreRequestId = null)
+    public List<SwapCheckView> Checks(SwapContext context, SwapPlan plan, DateTime now, Guid? ignoreRequestId = null,
+        bool enforceDecisionDeadline = true, bool enforceOneOpenRequest = true)
     {
         var checks = new List<SwapCheckView>();
         void Add(string code, bool passed, string message) => checks.Add(new(code, passed, message));
@@ -79,12 +80,14 @@ public sealed class SwapPlanner(ISetupStore store, StoreCalendar calendar)
         Add("FUTURE_SHIFT", slots.All(s => s.StartsAt > now && s.Assignment.CheckInAt is null && s.Assignment.Status == ShiftAssignmentStatus.Scheduled),
             "Every affected shift must be published, still in the future and not checked in.");
         var deadline = Deadline(plan);
-        Add("DECISION_DEADLINE", now < deadline, $"Requests must be settled 24 hours before the earliest affected shift ({deadline:O}).");
+        Add("DECISION_DEADLINE", !enforceDecisionDeadline || now < deadline,
+            enforceDecisionDeadline ? $"Requests must be settled 24 hours before the earliest affected shift ({deadline:O})."
+                : "A Manager may intervene until the affected shift starts.");
         if (plan.TargetSlot is { } same)
             Add("DIFFERENT_SHIFT", same.Assignment.ShiftId != plan.RequesterSlot.Assignment.ShiftId || same.Assignment.WorkDate != plan.RequesterSlot.Assignment.WorkDate,
                 "A swap must exchange two different shifts.");
         var touched = slots.Select(s => s.Assignment.ShiftAssignmentId).ToHashSet();
-        Add("ONE_OPEN_REQUEST", !context.Pending.Any(r => r.SwapRequestId != ignoreRequestId && (r.ExpiresAt is null || r.ExpiresAt > now)
+        Add("ONE_OPEN_REQUEST", !enforceOneOpenRequest || !context.Pending.Any(r => r.SwapRequestId != ignoreRequestId && (r.ExpiresAt is null || r.ExpiresAt > now)
                 && (touched.Contains(r.RequesterShiftAssignmentId) || r.TargetShiftAssignmentId is { } t && touched.Contains(t))),
             "Each shift can have only one pending swap or cover request.");
 
@@ -143,7 +146,8 @@ public sealed class SwapPlanner(ISetupStore store, StoreCalendar calendar)
 public sealed class ShiftSwaps(ISetupStore store, ICurrentUser current, IClock clock, StoreCalendar calendar, SwapPlanner planner, TaskNotifier notifier, IShiftSwapSchema schema)
 {
     public const string Received = "SWAP_REQUEST_RECEIVED", PeerAccepted = "SWAP_PEER_ACCEPTED", PeerDeclined = "SWAP_PEER_DECLINED",
-        PendingApproval = "SWAP_PENDING_APPROVAL", Cancelled = "SWAP_CANCELLED", Approved = "SWAP_APPROVED", Rejected = "SWAP_REJECTED", Expired = "SWAP_EXPIRED";
+        PendingApproval = "SWAP_PENDING_APPROVAL", ManagerHelp = "SWAP_MANAGER_HELP", Cancelled = "SWAP_CANCELLED",
+        Approved = "SWAP_APPROVED", Rejected = "SWAP_REJECTED", Expired = "SWAP_EXPIRED";
 
     /// <summary>Colleagues who could take the caller's shift (COVER) or exchange one of their shifts within a week of it (SWAP).</summary>
     public async Task<SwapCandidatesView> Candidates(Guid shiftAssignmentId, string? type, CancellationToken ct)
@@ -169,8 +173,9 @@ public sealed class ShiftSwaps(ISetupStore store, ICurrentUser current, IClock c
                 var plan = new SwapPlan(kind, current.UserId, mySlot, colleague.UserId, option);
                 if (planner.Checks(context, plan, now).Any(c => !c.Passed)) continue;
                 found = true;
+                var hours = planner.WeeklyHours(context, colleague.UserId, mySlot, option);
                 candidates.Add(new(new(colleague.UserId, colleague.FullName), option is null ? null : ShiftView(context, option),
-                    planner.WeeklyHours(context, colleague.UserId, mySlot, option)));
+                    hours, hours <= SwapRules.RecommendedWeeklyHours));
             }
             if (!found) hidden++;
         }
@@ -208,6 +213,42 @@ public sealed class ShiftSwaps(ISetupStore store, ICurrentUser current, IClock c
         return await View(id, ct);
     }
 
+    /// <summary>Staff asks a Manager to find a cover when selecting a colleague is not practical.</summary>
+    public async Task<SwapRequestView> RequestManagerHelp(ManagerHelpRequest request, CancellationToken ct)
+    {
+        UseCase.Staff(current);
+        await schema.Require(ct);
+        Rules.Require(request.ReasonCode is null or SwapReason.Personal or SwapReason.Health or SwapReason.Study or SwapReason.Other,
+            "INVALID_REASON", "The reason must be PERSONAL, HEALTH, STUDY or OTHER.");
+        Rules.Optional(request.Note, 1000, "Note");
+        var id = Guid.NewGuid();
+        await store.Transaction(async () =>
+        {
+            var mine = await store.Find<ShiftAssignment>(request.RequesterShiftAssignmentId, ct);
+            if (mine is null || mine.UserId != current.UserId) throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
+            var context = await planner.Load(mine.WorkDate, mine.WorkDate, ct);
+            var slot = UseCase.Found(planner.Slot(context, mine));
+            var now = clock.UtcNow;
+            Rules.Require(slot.StartsAt > now && mine.CheckInAt is null && mine.Status == ShiftAssignmentStatus.Scheduled,
+                "SHIFT_LOCKED", "Only a published future shift that has not checked in can request Manager help.");
+            Rules.Require(!context.Pending.Any(r => (r.ExpiresAt is null || r.ExpiresAt > now)
+                    && (r.RequesterShiftAssignmentId == mine.ShiftAssignmentId || r.TargetShiftAssignmentId == mine.ShiftAssignmentId)),
+                "SWAP_NOT_ALLOWED", "This shift already has a pending swap or cover request.");
+            var row = new ShiftSwapRequest
+            {
+                SwapRequestId = id, RequestType = SwapType.Cover, RequestedByUserId = current.UserId,
+                RequesterShiftAssignmentId = mine.ShiftAssignmentId, ReasonCode = request.ReasonCode, Note = Clean(request.Note),
+                // PENDING_MANAGER + no target means that the Manager must choose the cover.
+                Status = SwapStatus.PendingManager, ExpiresAt = slot.StartsAt
+            };
+            await store.Add(row, ct);
+            await Send(ManagerHelp, "Staff needs cover assistance", $"{Name(context, current.UserId)} needs a Manager to assign cover for {Describe(slot)}.",
+                await notifier.RoleUsers("MANAGER", ct), "MANAGER", ct);
+            return 0;
+        }, ct);
+        return await View(id, ct);
+    }
+
     /// <summary>box = sent | received; both when omitted.</summary>
     public async Task<SwapRequestView[]> Mine(string? box, CancellationToken ct)
     {
@@ -230,6 +271,96 @@ public sealed class ShiftSwaps(ISetupStore store, ICurrentUser current, IClock c
         foreach (var s in statuses) Rules.Status(s, all);
         var rows = await store.List<ShiftSwapRequest>(r => statuses.Contains(r.Status), ct);
         return await Views(rows.OrderBy(r => r.ExpiresAt ?? r.CreatedAt).Take(200).ToList(), ct);
+    }
+
+    public async Task<SwapCandidatesView> ManagerCandidates(Guid id, CancellationToken ct)
+    {
+        UseCase.Manager(current);
+        await schema.Require(ct);
+        var request = UseCase.Found(await store.Find<ShiftSwapRequest>(id, ct));
+        if (request.Status != SwapStatus.PendingManager || request.TargetUserId is not null)
+            throw new ApplicationException("SWAP_NOT_PENDING", "Only a request waiting for Manager assignment can choose a cover.");
+        var source = UseCase.Found(await store.Find<ShiftAssignment>(request.RequesterShiftAssignmentId, ct));
+        var context = await planner.Load(source.WorkDate, source.WorkDate, ct);
+        var slot = UseCase.Found(planner.Slot(context, source));
+        var now = clock.UtcNow;
+        var candidates = new List<SwapCandidateView>(); var hidden = 0;
+        foreach (var colleague in context.Staff.Values.Where(u => u.UserId != request.RequestedByUserId).OrderBy(u => u.FullName))
+        {
+            var plan = new SwapPlan(SwapType.Cover, request.RequestedByUserId, slot, colleague.UserId, null);
+            if (planner.Checks(context, plan, now, request.SwapRequestId, enforceDecisionDeadline: false).Any(c => !c.Passed)) { hidden++; continue; }
+            var hours = planner.WeeklyHours(context, colleague.UserId, slot, null);
+            candidates.Add(new(new(colleague.UserId, colleague.FullName), null, hours, hours <= SwapRules.RecommendedWeeklyHours));
+        }
+        return new(source.ShiftAssignmentId, SwapType.Cover, slot.StartsAt, candidates.ToArray(), hidden);
+    }
+
+    public async Task<SwapRequestView> AssignCover(Guid id, ManagerAssignCoverRequest request, CancellationToken ct)
+    {
+        UseCase.Manager(current);
+        await schema.Require(ct);
+        var note = Rules.Text(request.Note, 1000, "Manager reason");
+        await Change(id, async (swap, now) =>
+        {
+            Pending(swap, now, SwapStatus.PendingManager);
+            if (swap.TargetUserId is not null)
+                throw new ApplicationException("SWAP_NOT_PENDING", "This request already has a colleague and only needs approval.");
+            var source = UseCase.Found(await store.Find<ShiftAssignment>(swap.RequesterShiftAssignmentId, ct));
+            var context = await planner.Load(source.WorkDate, source.WorkDate, ct);
+            if (!context.Staff.ContainsKey(request.TargetUserId) || request.TargetUserId == swap.RequestedByUserId)
+                throw new ApplicationException("TARGET_NOT_STAFF", "Choose another active Staff member.", 422);
+            var plan = new SwapPlan(SwapType.Cover, swap.RequestedByUserId, UseCase.Found(planner.Slot(context, source)), request.TargetUserId, null);
+            Allowed(planner.Checks(context, plan, now, swap.SwapRequestId, enforceDecisionDeadline: false));
+            await Apply(plan, ct);
+            swap.TargetUserId = request.TargetUserId;
+            swap.Status = SwapStatus.Approved; swap.DecidedByUserId = current.UserId; swap.DecidedAt = now; swap.DecisionNote = note;
+            await store.Update(swap, ct);
+            await Send(Approved, "Manager assigned shift cover", $"{Name(context, plan.TargetId)} now covers {Describe(plan.RequesterSlot)}. Reason: {note}",
+                [plan.RequesterId, plan.TargetId], "SWAP_PARTICIPANT", ct);
+        }, ct);
+        return await View(id, ct);
+    }
+
+    /// <summary>Manager directly covers one shift or exchanges two shifts. No peer acceptance is required.</summary>
+    public async Task<SwapRequestView> Direct(ManagerDirectChangeRequest request, CancellationToken ct)
+    {
+        UseCase.Manager(current);
+        await schema.Require(ct);
+        Rules.Require(request.Type is SwapType.Swap or SwapType.Cover, "INVALID_SWAP_TYPE", "The change type must be SWAP or COVER.");
+        if (request.Type == SwapType.Swap) Rules.Require(request.TargetShiftAssignmentId is not null, "TARGET_SHIFT_REQUIRED", "Choose the second shift.");
+        else Rules.Require(request.TargetShiftAssignmentId is null, "TARGET_SHIFT_NOT_ALLOWED", "A cover only moves the selected shift.");
+        var note = Rules.Text(request.Note, 1000, "Manager reason");
+        var id = Guid.NewGuid();
+        await store.Transaction(async () =>
+        {
+            var source = UseCase.Found(await store.Find<ShiftAssignment>(request.RequesterShiftAssignmentId, ct));
+            var targetAssignment = request.TargetShiftAssignmentId is { } targetId ? await store.Find<ShiftAssignment>(targetId, ct) : null;
+            if (request.TargetShiftAssignmentId is not null && (targetAssignment is null || targetAssignment.UserId != request.TargetUserId))
+                throw new ApplicationException("NOT_FOUND", "The selected Staff shift was not found.", 404);
+            var dates = new[] { source.WorkDate, targetAssignment?.WorkDate ?? source.WorkDate };
+            var context = await planner.Load(dates.Min(), dates.Max(), ct);
+            if (!context.Staff.ContainsKey(request.TargetUserId) || request.TargetUserId == source.UserId)
+                throw new ApplicationException("TARGET_NOT_STAFF", "Choose another active Staff member.", 422);
+            var plan = new SwapPlan(request.Type, source.UserId, UseCase.Found(planner.Slot(context, source)), request.TargetUserId, planner.Slot(context, targetAssignment));
+            var now = clock.UtcNow;
+            Allowed(planner.Checks(context, plan, now, enforceDecisionDeadline: false, enforceOneOpenRequest: false));
+            await CancelPendingForManager(plan, note, now, ct);
+            await Apply(plan, ct);
+            var row = new ShiftSwapRequest
+            {
+                SwapRequestId = id, RequestType = request.Type, RequestedByUserId = plan.RequesterId,
+                RequesterShiftAssignmentId = source.ShiftAssignmentId, TargetUserId = plan.TargetId,
+                TargetShiftAssignmentId = targetAssignment?.ShiftAssignmentId, ReasonCode = SwapReason.Other, Note = note,
+                Status = SwapStatus.Approved, DecidedByUserId = current.UserId, DecidedAt = now, DecisionNote = note
+            };
+            await store.Add(row, ct);
+            var change = plan.TargetSlot is { } given
+                ? $"The Manager assigned {Name(context, plan.RequesterId)} to {Describe(given)} and {Name(context, plan.TargetId)} to {Describe(plan.RequesterSlot)}."
+                : $"The Manager assigned {Name(context, plan.TargetId)} to cover {Describe(plan.RequesterSlot)}.";
+            await Send(Approved, "Manager changed shift assignment", $"{change} Reason: {note}", [plan.RequesterId, plan.TargetId], "SWAP_PARTICIPANT", ct);
+            return 0;
+        }, ct);
+        return await View(id, ct);
     }
 
     public async Task<SwapRequestView> Get(Guid id, CancellationToken ct)
@@ -286,9 +417,10 @@ public sealed class ShiftSwaps(ISetupStore store, ICurrentUser current, IClock c
             var (context, plan) = await Plan(swap, ct);
             swap.Status = SwapStatus.Cancelled; swap.CancelledByUserId = me; swap.CancelledAt = now; swap.CancellationReason = Clean(request.Reason);
             await store.Update(swap, ct);
-            var other = swap.RequestedByUserId == me ? swap.TargetUserId!.Value : swap.RequestedByUserId;
-            var recipients = new List<Guid> { other };
-            if (wasWithManager) recipients.AddRange(await notifier.RoleUsers("MANAGER", ct));
+            var recipients = new List<Guid>();
+            if (swap.RequestedByUserId == me && swap.TargetUserId is { } target) recipients.Add(target);
+            else if (swap.RequestedByUserId != me) recipients.Add(swap.RequestedByUserId);
+            if (wasWithManager || swap.TargetUserId is null) recipients.AddRange(await notifier.RoleUsers("MANAGER", ct));
             await Send(Cancelled, "Shift swap cancelled", $"{Name(context, me)} cancelled the request for {Describe(plan.RequesterSlot)}. Shifts stay as scheduled.", recipients, "SWAP_PARTICIPANT", ct);
         }, ct);
         return await View(id, ct);
@@ -302,16 +434,11 @@ public sealed class ShiftSwaps(ISetupStore store, ICurrentUser current, IClock c
         await Change(id, async (swap, now) =>
         {
             Pending(swap, now, SwapStatus.PendingManager);
+            if (swap.TargetUserId is null)
+                throw new ApplicationException("COVER_ASSIGNMENT_REQUIRED", "Choose an eligible Staff member and assign cover instead of approving an unassigned request.", 422);
             var (context, plan) = await Plan(swap, ct);
             Allowed(planner.Checks(context, plan, now, swap.SwapRequestId));
-            var requesterShift = plan.RequesterSlot.Assignment;
-            requesterShift.UserId = plan.TargetId;
-            await store.Update(requesterShift, ct);
-            if (plan.TargetSlot is { } targetSlot)
-            {
-                targetSlot.Assignment.UserId = plan.RequesterId;
-                await store.Update(targetSlot.Assignment, ct);
-            }
+            await Apply(plan, ct);
             swap.Status = SwapStatus.Approved; swap.DecidedByUserId = current.UserId; swap.DecidedAt = now; swap.DecisionNote = Clean(request.Note);
             await store.Update(swap, ct);
             var change = plan.TargetSlot is { } given
@@ -330,6 +457,17 @@ public sealed class ShiftSwaps(ISetupStore store, ICurrentUser current, IClock c
         await Change(id, async (swap, now) =>
         {
             Pending(swap, now, SwapStatus.PendingManager);
+            if (swap.TargetUserId is null)
+            {
+                var source = UseCase.Found(await store.Find<ShiftAssignment>(swap.RequesterShiftAssignmentId, ct));
+                var helpContext = await planner.Load(source.WorkDate, source.WorkDate, ct);
+                var slot = UseCase.Found(planner.Slot(helpContext, source));
+                swap.Status = SwapStatus.Rejected; swap.DecidedByUserId = current.UserId; swap.DecidedAt = now; swap.DecisionNote = note;
+                await store.Update(swap, ct);
+                await Send(Rejected, "Cover assistance declined", $"Manager could not assign cover for {Describe(slot)}: {note}. The shift stays with you.",
+                    [swap.RequestedByUserId], "SWAP_REQUESTER", ct);
+                return;
+            }
             var (context, plan) = await Plan(swap, ct);
             swap.Status = SwapStatus.Rejected; swap.DecidedByUserId = current.UserId; swap.DecidedAt = now; swap.DecisionNote = note;
             await store.Update(swap, ct);
@@ -355,7 +493,10 @@ public sealed class ShiftSwaps(ISetupStore store, ICurrentUser current, IClock c
                 var recipients = new List<Guid> { swap.RequestedByUserId };
                 if (swap.TargetUserId is { } target) recipients.Add(target);
                 if (wasWithManager) recipients.AddRange(await notifier.RoleUsers("MANAGER", ct));
-                await Send(Expired, "Shift swap expired", "The request was not settled 24 hours before the shift. Shifts stay as scheduled.", recipients, "SWAP_PARTICIPANT", ct);
+                var message = swap.TargetUserId is null
+                    ? "No cover was assigned before the shift started. The schedule stays unchanged."
+                    : "The request was not settled by its deadline. The schedule stays unchanged.";
+                await Send(Expired, "Shift request expired", message, recipients, "SWAP_PARTICIPANT", ct);
             }
             return due.Count;
         }, ct);
@@ -369,10 +510,36 @@ public sealed class ShiftSwaps(ISetupStore store, ICurrentUser current, IClock c
             return 0;
         }, ct);
 
+    private async Task Apply(SwapPlan plan, CancellationToken ct)
+    {
+        plan.RequesterSlot.Assignment.UserId = plan.TargetId;
+        await store.Update(plan.RequesterSlot.Assignment, ct);
+        if (plan.TargetSlot is { } targetSlot)
+        {
+            targetSlot.Assignment.UserId = plan.RequesterId;
+            await store.Update(targetSlot.Assignment, ct);
+        }
+    }
+
+    private async Task CancelPendingForManager(SwapPlan plan, string reason, DateTime now, CancellationToken ct)
+    {
+        var touched = new[] { plan.RequesterSlot.Assignment.ShiftAssignmentId, plan.TargetSlot?.Assignment.ShiftAssignmentId }.OfType<Guid>().ToHashSet();
+        foreach (var pending in await store.List<ShiftSwapRequest>(r => SwapStatus.Pending.Contains(r.Status)
+                     && (touched.Contains(r.RequesterShiftAssignmentId)
+                         || (r.TargetShiftAssignmentId.HasValue && touched.Contains(r.TargetShiftAssignmentId.Value))), ct))
+        {
+            pending.Status = SwapStatus.Cancelled; pending.CancelledByUserId = current.UserId; pending.CancelledAt = now;
+            pending.CancellationReason = $"Manager direct assignment: {reason}";
+            await store.Update(pending, ct);
+            await Send(Cancelled, "Shift request replaced by Manager", pending.CancellationReason,
+                new[] { pending.RequestedByUserId, pending.TargetUserId }.OfType<Guid>(), "SWAP_PARTICIPANT", ct);
+        }
+    }
+
     private static void Pending(ShiftSwapRequest swap, DateTime now, params string[] allowed)
     {
         if (SwapStatus.Pending.Contains(swap.Status) && swap.ExpiresAt is { } expires && now >= expires)
-            throw new ApplicationException("SWAP_EXPIRED", "The request expired 24 hours before the shift and can no longer change.");
+            throw new ApplicationException("SWAP_EXPIRED", "The request deadline passed and it can no longer change.");
         if (!allowed.Contains(swap.Status))
             throw new ApplicationException("SWAP_NOT_PENDING", $"The request is {swap.Status} and cannot be changed this way.");
     }
@@ -437,7 +604,7 @@ public sealed class ShiftSwaps(ISetupStore store, ICurrentUser current, IClock c
             var status = expired ? SwapStatus.Expired : r.Status;
             var role = r.RequestedByUserId == current.UserId ? "REQUESTER" : r.TargetUserId == current.UserId ? "TARGET" : current.Role;
             var checks = Array.Empty<SwapCheckView>();
-            if (!expired && context is not null && SwapStatus.Pending.Contains(r.Status))
+            if (!expired && context is not null && SwapStatus.Pending.Contains(r.Status) && r.TargetUserId is not null)
             {
                 var requesterSlot = planner.Slot(context, r.RequesterShiftAssignmentId);
                 var targetSlot = r.TargetShiftAssignmentId is { } t ? planner.Slot(context, t) : null;

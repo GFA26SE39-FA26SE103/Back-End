@@ -15,6 +15,9 @@ public sealed class ShiftSwapsController(ShiftSwaps swaps) : ControllerBase
     [HttpPost("{id:guid}/cancel"), Authorize(Roles = AccessRoles.Staff)] public Task<SwapRequestView> Cancel(Guid id, SwapCancelRequest request, CancellationToken ct) => swaps.Cancel(id, request, ct);
     [HttpPost("{id:guid}/approve"), Authorize(Roles = AccessRoles.Manager)] public Task<SwapRequestView> Approve(Guid id, SwapDecisionRequest request, CancellationToken ct) => swaps.Approve(id, request, ct);
     [HttpPost("{id:guid}/reject"), Authorize(Roles = AccessRoles.Manager)] public Task<SwapRequestView> Reject(Guid id, SwapDecisionRequest request, CancellationToken ct) => swaps.Reject(id, request, ct);
+    [HttpGet("{id:guid}/manager-candidates"), Authorize(Roles = AccessRoles.Manager)] public Task<SwapCandidatesView> ManagerCandidates(Guid id, CancellationToken ct) => swaps.ManagerCandidates(id, ct);
+    [HttpPost("{id:guid}/assign-cover"), Authorize(Roles = AccessRoles.Manager)] public Task<SwapRequestView> AssignCover(Guid id, ManagerAssignCoverRequest request, CancellationToken ct) => swaps.AssignCover(id, request, ct);
+    [HttpPost("manager-direct"), Authorize(Roles = AccessRoles.Manager)] public Task<SwapRequestView> Direct(ManagerDirectChangeRequest request, CancellationToken ct) => swaps.Direct(request, ct);
 }
 
 /// <summary>The caller's own SWAP/COVER requests and eligible colleagues.</summary>
@@ -26,4 +29,5 @@ public sealed class StaffSwapsController(ShiftSwaps swaps) : ControllerBase
     /// <summary>Eligible colleagues for one of the caller's shifts; type = SWAP (default) or COVER.</summary>
     [HttpGet("shifts/{shiftAssignmentId:guid}/swap-candidates")] public Task<SwapCandidatesView> Candidates(Guid shiftAssignmentId, [FromQuery] string? type, CancellationToken ct)
         => swaps.Candidates(shiftAssignmentId, type, ct);
+    [HttpPost("swap-requests/manager-help")] public Task<SwapRequestView> ManagerHelp(ManagerHelpRequest request, CancellationToken ct) => swaps.RequestManagerHelp(request, ct);
 }
