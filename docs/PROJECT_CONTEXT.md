@@ -283,7 +283,7 @@ The schema supports many camera-zone mappings. **Current ROI runtime does not ye
 
 At inspected `dev` commit `4df2864fa670fad64b37c93d1a705a9c9f2a3f56`, the generated scaffold has nullable Event/Incident targets plus `MonitoringRule.outcome_type`; `OperationalEvent` no longer links to Incident; `Incident.monitoring_rule_id` supports direct rule provenance. `MonitoringIncidentWriter` writes exactly the configured outcome and its tests assert that an OPERATIONAL_EVENT rule never creates an Incident.
 
-The scaffold covers V6 persistence, but a generated entity is not proof that its workflow is implemented. `SystemSetting` is currently consumed for the two MF-02 retry keys documented in §41; ShiftSwapRequest and Manager shift planning have application/API/test coverage (§42), while Admin global-settings management, `ServiceHealthEvent`, StaffReport/evidence, FCM delivery and full analytics are not established. The canonical Database repo and applied SQL Server version must still be checked before migrations or deployment claims.
+The scaffold covers V6 persistence, but a generated entity is not proof that its workflow is implemented. `SystemSetting` is consumed for the two MF-02 retry keys documented in §41, and the notification-settings increment provides typed Admin GET/PUT for the four approved `notification.*` FCM policy keys with audit/concurrency handling plus Staff-owned `UserDevice` registration lifecycle. ShiftSwapRequest and Manager shift planning have application/API/test coverage (§42). `ServiceHealthEvent`, StaffReport/evidence, FCM delivery and full analytics are not established. The canonical Database repo and applied SQL Server version must still be checked before migrations or deployment claims.
 
 ---
 
@@ -371,7 +371,7 @@ Account/RBAC; floor-plan/zone geometry; camera metadata, stream credentials and 
 
 The `dev` baseline contains controllers for accounts, store/floor setup, cameras, monitoring config/review/activation, monitoring live/health, recorded-video upload and AI preview, plus an IncidentType controller. This integration branch additionally contains the scoped MF-02 Staff-work endpoints described in §41. For precise route/response status, inspect [`docs/API.md`](API.md), [`docs/openapi.json`](openapi.json) and actual controller source.
 
-**Do not assume** the scoped MF-02 offer/response implementation also provides final evidence verification, StaffReport confirmation, SWAP/COVER approval, SystemSetting administration, ServiceHealthEvent handling, FCM delivery or complete analytics. Direct rule-target Incident persistence is implemented independently of OperationalEvents, but its activation contract remains fail-closed where measurement/model semantics are unresolved.
+**Do not assume** the scoped MF-02 offer/response implementation itself provides final evidence verification, StaffReport confirmation, SWAP/COVER approval, arbitrary SystemSetting administration, ServiceHealthEvent handling, FCM delivery or complete analytics. A separate notification-settings increment manages only the four approved `notification.*` policy keys; MF-02 continues to read its two retry keys. Direct rule-target Incident persistence is implemented independently of OperationalEvents, but its activation contract remains fail-closed where measurement/model semantics are unresolved.
 
 ---
 
@@ -464,7 +464,7 @@ Coordinate interface contracts first; do not allow separate teams to define conf
 
 Later feature tables (`Shift*`, `StaffReport*`, `Task*`, `Notification*`, `ResponsePolicy*`, `ZoneMetric`, `Recommendation`, `AuditLog`, `SystemSetting`, `ServiceHealthEvent`) exist in the V6 scaffold, but workflow availability differs by feature. Only claim the subsets verified in §§36 and 41–43; SQL first, then scaffold, code, tests and docs for further changes.
 
-`ServiceHealthEvent` covers backend/AI/database/cache/notification service history. It is intentionally separate from `CameraHealthEvent`. `SystemSetting` stores admin-editable *non-secret* global settings and notification retry parameters.
+`ServiceHealthEvent` covers backend/AI/database/cache/notification service history. It is intentionally separate from `CameraHealthEvent`. `SystemSetting` stores admin-editable *non-secret* global settings and notification retry parameters. The notification-settings increment adds typed Admin management for the four approved FCM policy keys, a shared recipient-scoped Staff/Operator/Manager web inbox, and Staff-owned `UserDevice` register/rotation/revoke without changing the V6 schema. Database V8 provides the idempotent four-row default seed. FCM transport and mobile acceptance remain pending; push stays unavailable/off until Gate B.
 
 ---
 
@@ -626,7 +626,7 @@ Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a 
 | MF-04 SWAP/COVER and shift planning | `ShiftSwaps`, `ShiftPlanning`, controllers, workers and tests | **Merged to `dev`** with the bounded behavior in §42. |
 | Camera playback/editing | `CameraPlayback`, `MediaMtxGateway`, `CameraSetup`, camera tests | Dynamic MediaMTX playback paths, sanitized WHEP URLs and preserve-password editing are present; see §43. |
 | Evidence verification, confirmed StaffReport, FCM delivery, complete analytics | No complete application flow established | **Do not claim implemented**. |
-| `SystemSetting`, `ServiceHealthEvent`, V6 zone staffing fields | V6 scaffold plus focused application reads | MF-02 consumes two retry settings; broader Admin settings and service-health workflows remain unimplemented unless separately verified. |
+| `SystemSetting`, `ServiceHealthEvent`, V6 zone staffing fields | V6 scaffold plus focused application reads | MF-02 consumes two retry settings; Admin manages the four approved notification policy keys. Other settings and service-health workflows remain unimplemented unless separately verified. |
 | Deployment health / CI results | Historical README, workflow and VALIDATION docs | **Dated evidence only**, no live deployment check performed for this synchronization. |
 
 Do not present a passing test score, deploy availability, complete SQL V6 migration or shipped features without running/verifying them.

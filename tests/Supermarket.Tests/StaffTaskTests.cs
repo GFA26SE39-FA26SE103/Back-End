@@ -272,9 +272,9 @@ public sealed class StaffTaskTests
         Assert.Equal((WorkTaskStatus.Accepted, b, TaskAssignmentType.Manual, (DateTime?)null), (assigned.Status, assigned.AssigneeUserId, assigned.AssignmentType, assigned.PlannedStartAt));
         Assert.Equal((OfferStatus.Withdrawn, "MANUALLY_ASSIGNED"), (w.OfferFor(a).Status, w.OfferFor(a).Reason));
         Assert.Equal([b], w.Recipients(Assert.Single(w.Notifications(task, TaskNotifier.Assigned))));
-        Assert.Single(await w.StaffTasks(b).Notifications(default), n => n.Type == TaskNotifier.Assigned);
-        Assert.Equal(1, await w.StaffTasks(b).ReadAll(default));
-        Assert.All(await w.StaffTasks(b).Notifications(default), n => Assert.NotNull(n.ReadAt));
+        Assert.Single(await w.Inbox(b).List(default), n => n.Type == TaskNotifier.Assigned);
+        Assert.Equal(1, await w.Inbox(b).ReadAll(default));
+        Assert.All(await w.Inbox(b).List(default), n => Assert.NotNull(n.ReadAt));
 
         // An offered Staff member may still read the task; an uninvolved one may not.
         Assert.Equal(task.TaskId, (await w.Operator(a).Get(task.TaskId, default)).TaskId);
@@ -462,6 +462,7 @@ public sealed class StaffTaskTests
         public List<Notification> Notifications(WorkTask task, string type) => Store.Values.OfType<Notification>().Where(n => n.TaskId == task.TaskId && n.NotificationType == type).ToList();
         public Guid[] Recipients(Notification notification) => Store.Values.OfType<NotificationRecipient>().Where(r => r.NotificationId == notification.NotificationId).Select(r => r.UserId).ToArray();
         public StaffTasks StaffTasks(Guid user) => new(Store, Current(user), Clock, Calendar, roster, Dispatch, Views, schema);
+        public NotificationInbox Inbox(Guid user) => new(new NotificationInboxTests.StoreAdapter(Store), Current(user), Clock);
         public OperatorTasks Operator(Guid user) => new(Store, Current(user), Clock, roster, Dispatch, notifier, Views, schema, TaskQueries);
         private User Current(Guid id)
         {

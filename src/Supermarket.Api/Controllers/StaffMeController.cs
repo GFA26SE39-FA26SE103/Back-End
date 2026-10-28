@@ -13,10 +13,4 @@ public sealed class StaffMeController(StaffTasks staff) : ControllerBase
     /// <summary>Open offers by default; status=ALL also returns offers from the last 24 hours with their outcome.</summary>
     [HttpGet("task-offers")] public Task<TaskOfferView[]> Offers([FromQuery] string? status, CancellationToken ct) => staff.Offers(!string.Equals(status, "ALL", StringComparison.OrdinalIgnoreCase), ct);
     [HttpGet("tasks")] public Task<StaffTaskView[]> Tasks([FromQuery] string? status, CancellationToken ct) => staff.Tasks(status, ct);
-    [HttpGet("notifications")] public Task<NotificationView[]> Notifications(CancellationToken ct) => staff.Notifications(ct);
-    [HttpPost("notifications/read-all"), ProducesResponseType(StatusCodes.Status204NoContent)] public async Task<IActionResult> ReadAll(CancellationToken ct)
-    {
-        await staff.ReadAll(ct);
-        return NoContent();
-    }
 }

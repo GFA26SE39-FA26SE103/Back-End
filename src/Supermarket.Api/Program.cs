@@ -18,6 +18,7 @@ using Supermarket.Infrastructure.Persistence;
 using Supermarket.Infrastructure.Persistence.Scaffolded;
 using Supermarket.Infrastructure.Video;
 using Supermarket.Infrastructure.Monitoring;
+using Supermarket.Infrastructure.Notifications;
 using Supermarket.Infrastructure.Tasks;
 using UserAccount = Supermarket.Domain.UserAccount;
 using Role = Supermarket.Domain.Role;
@@ -27,6 +28,13 @@ builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, relo
 builder.Services.AddBackendReverseProxy(builder.Configuration);
 builder.Services.AddOptions<JwtOptions>().Bind(builder.Configuration.GetSection("Jwt")).Validate(o => Encoding.UTF8.GetByteCount(o.Key) >= 32, "Set Jwt:Key to a secret containing at least 32 UTF-8 bytes.").Validate(o => o.LifetimeMinutes is > 0 and <= 1440, "JWT lifetime must be 1 to 1440 minutes.").ValidateOnStart();
 builder.Services.Configure<VideoOptions>(builder.Configuration.GetSection("Video"));
+builder.Services.AddOptions<PushDeliveryOptions>().Bind(builder.Configuration.GetSection("Notifications:Push"))
+    .Validate(o => o.PollSeconds is >= 1 and <= 300 && o.BatchSize is >= 1 and <= 200 && o.MaxAttempts is >= 1 and <= 10
+        && o.MaxDevicesPerRecipient is >= 1 and <= 50 && o.TaskOfferTtlSeconds is >= 30 and <= 3600 && o.DefaultTtlHours is >= 1 and <= 168,
+        "Notifications:Push limits are invalid.").ValidateOnStart();
+builder.Services.AddOptions<FirebaseOptions>().Bind(builder.Configuration.GetSection("Notifications:Firebase"))
+    .Validate(o => !o.Enabled || !string.IsNullOrWhiteSpace(o.ProjectId), "Notifications:Firebase:ProjectId is required when Firebase is enabled.")
+    .ValidateOnStart();
 builder.Services.PostConfigure<VideoOptions>(options =>
     options.RecordedRoot = Path.GetFullPath(options.RecordedRoot, builder.Environment.ContentRootPath));
 builder.Services.AddOptions<MediaGatewayOptions>().Bind(builder.Configuration.GetSection("MediaGateway"))
@@ -90,6 +98,7 @@ builder.Services.AddHttpClient<CloudinaryFloorPlanStorage>(client => client.Time
 builder.Services.AddScoped<IFloorPlanStorage, FloorPlanStorage>();
 builder.Services.AddScoped<FloorPlanUpload>();
 builder.Services.AddScoped<ISetupStore, EfSetupStore>();
+builder.Services.AddScoped<INotificationInboxStore, EfNotificationInboxStore>();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<ITokenIssuer, TokenIssuer>();
 builder.Services.AddScoped<Accounts>();
@@ -108,6 +117,16 @@ builder.Services.AddScoped<IOperationalEventResponder>(s => s.GetRequiredService
 builder.Services.AddScoped<TaskViews>();
 builder.Services.AddScoped<StaffTasks>();
 builder.Services.AddScoped<OperatorTasks>();
+builder.Services.AddScoped<NotificationInbox>();
+builder.Services.AddScoped<NotificationSettings>();
+builder.Services.AddScoped<UserDevices>();
+builder.Services.AddScoped<IPushDispatchStore, EfPushDispatchStore>();
+builder.Services.AddScoped<PushDispatch>();
+builder.Services.AddSingleton<IPushSender>(services => FirebasePushSender.Create(
+    services.GetRequiredService<Microsoft.Extensions.Options.IOptions<FirebaseOptions>>().Value,
+    services.GetRequiredService<ILogger<FirebasePushSender>>()));
+builder.Services.AddSingleton(services => new NotificationCapabilities(services.GetRequiredService<IPushSender>().Configured));
+builder.Services.AddHostedService<PushDeliveryWorker>();
 builder.Services.AddResponsePolicyManagement();
 builder.Services.AddHostedService<TaskOfferWorker>();
 builder.Services.AddScoped<IShiftSwapSchema, EfShiftSwapSchema>();
