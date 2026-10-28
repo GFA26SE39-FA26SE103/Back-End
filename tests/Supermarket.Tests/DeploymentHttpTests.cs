@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Supermarket.Application;
 using Supermarket.Infrastructure.Ai;
 using Xunit;
 
@@ -12,6 +13,15 @@ namespace Supermarket.Tests;
 
 public sealed class DeploymentHttpTests
 {
+    [Fact]
+    public void PushDeliveryServicesResolveFromTheWebHost()
+    {
+        using var factory = new DeploymentFactory();
+        using var scope = factory.Services.CreateScope();
+
+        Assert.NotNull(scope.ServiceProvider.GetRequiredService<PushDispatch>());
+    }
+
     [Fact]
     public void AiMonitoringBindsThePersonClassOnce()
     {
@@ -128,6 +138,7 @@ public sealed class DeploymentHttpTests
                 ["Bootstrap:Enabled"] = "false",
                 ["CameraHealth:Enabled"] = "false",
                 ["Monitoring:Enabled"] = "false",
+                ["Notifications:Push:Enabled"] = "false",
                 ["FloorPlan:Provider"] = "Local",
                 ["ReverseProxy:Enabled"] = enabled.ToString(),
                 ["ReverseProxy:KnownProxies:0"] = knownProxy,

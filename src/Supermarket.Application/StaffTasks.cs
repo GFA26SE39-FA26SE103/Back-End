@@ -157,36 +157,6 @@ public sealed class StaffTasks(ISetupStore store, ICurrentUser current, IClock c
         return await View(taskId, ct);
     }
 
-    public async Task<NotificationView[]> Notifications(CancellationToken ct)
-    {
-        UseCase.Staff(current);
-        await schema.Require(ct);
-        var me = current.UserId;
-        var recipients = await store.List<NotificationRecipient>(r => r.UserId == me, ct);
-        var ids = recipients.Select(r => r.NotificationId).ToList();
-        var notifications = (await store.List<Notification>(n => ids.Contains(n.NotificationId), ct)).ToDictionary(n => n.NotificationId);
-        return recipients.Where(r => notifications.ContainsKey(r.NotificationId)).Select(r => (Row: r, N: notifications[r.NotificationId]))
-            .OrderByDescending(x => x.N.CreatedAt).Take(100)
-            .Select(x => new NotificationView(x.N.NotificationId, x.N.NotificationType, x.N.Title, x.N.Message, x.N.Severity, x.N.TaskId, x.N.EventId, x.N.CreatedAt, x.Row.ReadAt)).ToArray();
-    }
-
-    public async Task<int> ReadAll(CancellationToken ct)
-    {
-        UseCase.Staff(current);
-        await schema.Require(ct);
-        return await store.Transaction(async () =>
-        {
-            var me = current.UserId; var now = clock.UtcNow;
-            var unread = await store.List<NotificationRecipient>(r => r.UserId == me && r.ReadAt == null, ct);
-            foreach (var row in unread)
-            {
-                row.ReadAt = row.DeliveredAt is { } delivered && delivered > now ? delivered : now;
-                await store.Update(row, ct);
-            }
-            return unread.Count;
-        }, ct);
-    }
-
     // Views are built after commit so they include rows written by the transaction.
     private async Task<StaffTaskView> View(Guid taskId, CancellationToken ct) => (await views.Tasks([UseCase.Found(await store.Find<WorkTask>(taskId, ct))], ct)).Single();
     private async Task<TaskAssignmentHistory> MyOffer(Guid offerId, CancellationToken ct)
