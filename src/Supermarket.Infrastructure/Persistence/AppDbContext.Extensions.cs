@@ -17,6 +17,7 @@ public partial class AppDbContext
         // Zero is a valid explicit timing value, not a request for SQL's 30/300 defaults.
         modelBuilder.Entity<MonitoringRule>().Property(r => r.SustainSec).ValueGeneratedNever();
         modelBuilder.Entity<MonitoringRule>().Property(r => r.CooldownSec).ValueGeneratedNever();
+        modelBuilder.Entity<MonitoringRule>().Property(r => r.ClearDurationSec).ValueGeneratedNever();
         modelBuilder.Entity<MonitoringConfiguration>().Property(c => c.ConfidenceThreshold).ValueGeneratedNever();
     }
 }

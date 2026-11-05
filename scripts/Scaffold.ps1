@@ -10,10 +10,10 @@ try {
         'Camera','CameraConnection','CameraZoneMapping','CameraHealthEvent',
         'MonitoringConfiguration','MonitoringRule','OperationalEventType','OperationalEvent','ZoneMetric',
         'IncidentType','Incident','IncidentMedia','StaffReport','StaffReportMedia',
-        'Task','TaskAssignmentHistory','TaskEvidence',
+        'StaffSpecialty','TaskType','Task','TaskOffer','TaskAssignmentHistory','TaskEvidence',
         'Shift','ShiftAssignment','StaffZoneAssignment','StaffUnavailability','ShiftSwapRequest','ZoneAdjacency',
         'Notification','NotificationRecipient','UserDevice','ResponsePolicy','ResponsePolicyAction',
-        'Recommendation','AuditLog','ServiceHealthEvent','SystemSetting'
+        'SLAPolicy','SLAPolicyAction','Recommendation','AuditLog','ServiceHealthEvent','SystemSetting'
     )
     $tableArguments = $tables | ForEach-Object { '--table'; $_ }
     & dotnet ef dbcontext scaffold $Connection Microsoft.EntityFrameworkCore.SqlServer --project src/Supermarket.Infrastructure --configuration $Configuration --output-dir Persistence/Scaffolded --context AppDbContext --no-onconfiguring --force @tableArguments

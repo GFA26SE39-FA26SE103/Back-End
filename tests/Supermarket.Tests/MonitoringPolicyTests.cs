@@ -39,6 +39,7 @@ public sealed class MonitoringPolicyTests
     [InlineData("overflow", "INVALID_THRESHOLDS")]
     [InlineData("unit", "INVALID_RULE_UNIT")]
     [InlineData("timing", "INVALID_RULE_TIMING")]
+    [InlineData("clear", "INVALID_RULE_TIMING")]
     [InlineData("json", "INVALID_RULE_PARAMETERS")]
     [InlineData("primitive", "INVALID_RULE_PARAMETERS")]
     [InlineData("inactive", "OPERATIONAL_EVENT_TYPE_INACTIVE")]
@@ -55,6 +56,7 @@ public sealed class MonitoringPolicyTests
             case "overflow": rule.CriticalThreshold = 100000000000000m; break;
             case "unit": rule.ThresholdUnit = "MINUTES"; break;
             case "timing": rule.CooldownSec = -1; break;
+            case "clear": rule.ClearDurationSec = 0; break;
             case "json": rule.ParametersJson = "{invalid"; break;
             case "primitive": rule.ParametersJson = "true"; break;
             case "inactive": type.Status = "INACTIVE"; break;

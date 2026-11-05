@@ -69,7 +69,7 @@ public sealed class MonitoringWorkerTests
     public async Task HighFrameRateMaintainsOperationalEventEpisodeTransitions()
     {
         var h=new MonitoringSetupTests.Harness(); h.AddRule("OVERCROWDING_CONGESTION","CROWD_DENSITY","PEOPLE");
-        var r=h.Store.Values.OfType<MonitoringRule>().Single(); r.ParametersJson="{\"measurementMode\":\"PEOPLE_COUNT\"}"; r.SustainSec=0; r.WarningThreshold=1; r.CriticalThreshold=4; h.Configuration.Status="ACTIVE";
+        var r=h.Store.Values.OfType<MonitoringRule>().Single(); r.ParametersJson="{\"measurementMode\":\"PEOPLE_COUNT\"}"; r.SustainSec=0; r.ClearDurationSec=1; r.WarningThreshold=1; r.CriticalThreshold=4; h.Configuration.Status="ACTIVE";
         var counted=new CountingStore(h.Store); var clock=new Clock(); var ai=new AiFake();
         using var provider=Services(counted,clock,ai,new Queries()).BuildServiceProvider();
         var coordinator=new MonitoringCameraCoordinator(provider.GetRequiredService<IServiceScopeFactory>(),Options.Create(new MonitoringWorkerOptions()),clock);
@@ -78,9 +78,11 @@ public sealed class MonitoringWorkerTests
         ai.Batches=[Batch(1,0,3),Batch(2,16,3),Batch(3,33,3)]; await coordinator.Tick(default);
         Assert.Equal(1,counted.Transactions); Assert.Empty(h.Store.Values.OfType<Incident>());
         ai.Batches.Add(Batch(4,50,0)); await coordinator.Tick(default);
+        Assert.Equal(1,counted.Transactions); Assert.Null(Assert.Single(h.Store.Values.OfType<OperationalEvent>()).ClearedAt);
+        ai.Batches.Add(Batch(5,1050,0)); await coordinator.Tick(default);
         Assert.Null(coordinator.Get(h.Camera.CameraId)!.Zones[0].Rules[0].IncidentId);
         Assert.Equal(2,counted.Transactions); Assert.NotNull(Assert.Single(h.Store.Values.OfType<OperationalEvent>()).ClearedAt);
-        ai.Batches.Add(Batch(5,66,5)); await coordinator.Tick(default);
+        ai.Batches.Add(Batch(6,1066,5)); await coordinator.Tick(default);
         Assert.Equal(3,counted.Transactions); Assert.Equal(2,h.Store.Values.OfType<OperationalEvent>().Count());
         Assert.Empty(h.Store.Values.OfType<Incident>()); await coordinator.Shutdown(default);
     }

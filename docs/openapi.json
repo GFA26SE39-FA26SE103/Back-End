@@ -6270,10 +6270,6 @@
             "type": "string",
             "nullable": true
           },
-          "severity": {
-            "type": "string",
-            "nullable": true
-          },
           "status": {
             "type": "string",
             "nullable": true
@@ -6291,6 +6287,35 @@
             "format": "date-time"
           },
           "closedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "slaPolicyId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "slaPriorityCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "slaPolicyVersion": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "responseDeadlineAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "resolutionDeadlineAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "mitigatedAt": {
             "type": "string",
             "format": "date-time",
             "nullable": true
@@ -6863,6 +6888,10 @@
             "type": "integer",
             "format": "int32"
           },
+          "clearDurationSec": {
+            "type": "integer",
+            "format": "int32"
+          },
           "enabled": {
             "type": "boolean"
           },
@@ -6912,6 +6941,10 @@
             "type": "integer",
             "format": "int32"
           },
+          "clearDurationSec": {
+            "type": "integer",
+            "format": "int32"
+          },
           "metricValue": {
             "type": "number",
             "format": "double",
@@ -6936,10 +6969,6 @@
           "incidentId": {
             "type": "string",
             "format": "uuid",
-            "nullable": true
-          },
-          "incidentSeverity": {
-            "type": "string",
             "nullable": true
           }
         },
@@ -6981,6 +7010,10 @@
             "format": "int32"
           },
           "cooldownSec": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "clearDurationSec": {
             "type": "integer",
             "format": "int32"
           },

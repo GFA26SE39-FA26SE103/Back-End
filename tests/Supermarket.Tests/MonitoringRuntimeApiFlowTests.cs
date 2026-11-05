@@ -33,15 +33,15 @@ public sealed class MonitoringRuntimeApiFlowTests
         await using var h=new MonitoringRuntimeTestSupport(); await h.Initialize();
         var (camera,zone,draft)=await h.Configure(); var active=await h.Activate(zone.ZoneId,draft);
         await h.Worker.Tick(default); h.Ai.Add(0,1); h.Ai.Add(1000,1); await h.Worker.Tick(default);
-        var incident=Assert.Single(await h.Rows<Incident>()); Assert.Equal("WARNING",incident.Severity); Assert.Equal("DETECTED",incident.Status);
+        var incident=Assert.Single(await h.Rows<Incident>()); Assert.NotNull(incident.SlaPolicyId); Assert.NotNull(incident.SlaSnapshotJson); Assert.Equal("DETECTED",incident.Status);
         var url=$"/api/cameras/{camera.CameraId}";
         var attached=await MonitoringRuntimeTestSupport.Read<AiPreviewStatusView>(await h.Client.PostAsync(url+"/ai-preview/start",null)); Assert.Equal("MONITORING",attached.Purpose);
         await MonitoringRuntimeTestSupport.Read<AiPreviewStatusView>(await h.Client.PostAsync(url+"/ai-preview/stop",null)); Assert.Equal(0,h.Ai.ViewerStarts); Assert.Equal(0,h.Ai.ViewerStops); Assert.Equal(0,h.Ai.Stops);
         h.Ai.Add(2000,3); h.Ai.Add(3000,3); await h.Worker.Tick(default);
-        incident=Assert.Single(await h.Rows<Incident>()); Assert.Equal("CRITICAL",incident.Severity);
+        incident=Assert.Single(await h.Rows<Incident>()); Assert.NotNull(incident.ResolutionDeadlineAt);
         h.Ai.Add(4000,0); h.Ai.State="COMPLETED"; await h.Worker.Tick(default); await h.Worker.Tick(default);
         Assert.Single(await h.Rows<OperationalEvent>()); Assert.Equal(1,h.Ai.Starts);
-        Assert.Equal("CRITICAL",Assert.Single(await h.Rows<Incident>()).Severity); Assert.Null(Assert.Single(await h.Rows<Incident>()).ClosedAt);
+        Assert.Null(Assert.Single(await h.Rows<Incident>()).ClosedAt);
         var feed=await MonitoringRuntimeTestSupport.Read<IncidentFeedView>(await h.Client.GetAsync(url+"/incidents")); var item=Assert.Single(feed.Items); Assert.True(item.IsDemo); Assert.Equal("PEOPLE_COUNT",item.MeasurementMode); Assert.Equal(0,item.MetricValue);
         var runtime=await MonitoringRuntimeTestSupport.Read<MonitoringCameraRuntimeView>(await h.Client.GetAsync(url+"/monitoring-runtime")); Assert.Equal("COMPLETED",runtime.State); Assert.Equal(0,Assert.Single(runtime.Zones).PeopleCount);
         // Closure is fixture SQL only, not a new product endpoint or auto-close behavior.
@@ -77,8 +77,8 @@ public sealed class MonitoringRuntimeApiFlowTests
         await h.Worker.Tick(default); Assert.Empty(await h.Rows<Incident>()); Assert.Empty(await h.Rows<OperationalEvent>());
         var type=draft.Rules[0].IncidentTypeId;
         await h.Execute("""
-          INSERT dbo.Incident(incident_id,incident_type_id,zone_id,trigger_camera_id,source_type,severity,title,status,closed_at,created_at,updated_at)
-          SELECT NEWID(),@type,@zone,@camera,'AI_DETECTED','WARNING','History','CLOSED',@time,@time,@time
+          INSERT dbo.Incident(incident_id,incident_type_id,zone_id,source_type,title,status,closed_at,created_at,updated_at)
+          SELECT NEWID(),@type,@zone,'AI_DETECTED','History','CLOSED',@time,@time,@time
           FROM (SELECT TOP(1000) ROW_NUMBER() OVER(ORDER BY (SELECT NULL)) n FROM sys.all_objects a CROSS JOIN sys.all_objects b) x;
           """,("@type",type),("@zone",zone.ZoneId),("@camera",camera.CameraId),("@time",h.Clock.UtcNow));
         var root=$"/api/cameras/{camera.CameraId}/incidents";

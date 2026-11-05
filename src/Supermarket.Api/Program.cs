@@ -152,6 +152,7 @@ builder.Services.AddScoped<ShiftSwaps>();
 builder.Services.AddScoped<ShiftPlanning>();
 builder.Services.AddHostedService<ShiftSwapWorker>();
 builder.Services.AddScoped<MonitoringIncidentWriter>();
+builder.Services.AddScoped<IncidentSlaPolicyService>();
 builder.Services.AddScoped<MonitoringLive>();
 builder.Services.AddSingleton<MonitoringCameraCoordinator>();
 builder.Services.AddSingleton<IMonitoringRuntimeState>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());

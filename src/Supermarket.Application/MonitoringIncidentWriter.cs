@@ -2,16 +2,17 @@ using System.Text.Json;
 using Supermarket.Domain;
 namespace Supermarket.Application;
 
-public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapshotReader snapshots,IMonitoringIncidentQueries queries,IClock clock,IOperationalEventResponder? responder=null)
+public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapshotReader snapshots,IMonitoringIncidentQueries queries,IClock clock,
+    IOperationalEventResponder? responder=null,IncidentSlaPolicyService? slaPolicies=null)
 {
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
     public Task<IncidentWriteResult> Apply(IncidentObservationCommand command,CancellationToken ct)
     {
         var evaluation=command.Evaluation;
-        if(!evaluation.Accepted) return Task.FromResult(new IncidentWriteResult(false,false,false,null,null,evaluation.Reason));
+        if(!evaluation.Accepted) return Task.FromResult(new IncidentWriteResult(false,false,false,null,evaluation.Reason));
         if(!command.ShouldSample && evaluation.EligibleSeverity is null && !evaluation.ShouldClear)
-            return Task.FromResult(new IncidentWriteResult(true,false,false,null,null,evaluation.Reason));
+            return Task.FromResult(new IncidentWriteResult(true,false,false,null,evaluation.Reason));
         var outcome=command.Rule.OutcomeType;
         if(outcome is not ("OPERATIONAL_EVENT" or "INCIDENT"))
             throw new ApplicationException("MONITORING_OUTCOME_INVALID","The monitoring rule outcome type is invalid.",503);
@@ -23,7 +24,7 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
         return store.Transaction(async()=>
         {
             if(!await snapshots.IsCurrent(command.Snapshot,command.Zone.ZoneId,ct))
-                return new IncidentWriteResult(false,true,false,null,null,"CONFIGURATION_CHANGED");
+                return new IncidentWriteResult(false,true,false,null,"CONFIGURATION_CHANGED");
 
             var rule=command.Rule; var zone=command.Zone; var batch=command.Batch;
             var metric=rule.Mode=="QUEUE_LENGTH"?command.Measurement.QueueCount:command.Measurement.PeopleCount;
@@ -34,7 +35,7 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
                 var incidentTypeId=rule.IncidentTypeId!.Value;
                 var existing=(await store.List<Incident>(i=>i.ZoneId==zone.ZoneId && i.IncidentTypeId==incidentTypeId && i.ClosedAt==null,ct)).SingleOrDefault();
                 if(evaluation.ShouldClear || evaluation.EligibleSeverity is null)
-                    return new(true,false,false,existing?.IncidentId,existing?.Severity,evaluation.Reason);
+                    return new(true,false,false,existing?.IncidentId,evaluation.Reason);
 
                 var latestEnded=existing is null?await queries.LatestEndedAt(zone.ZoneId,incidentTypeId,ct):null;
                 var decision=IncidentPolicy.Decide(existing,latestEnded,evaluation.EligibleSeverity,rule.Settings(),clock.UtcNow);
@@ -43,42 +44,43 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
                 {
                     var title=$"{rule.Name} — {zone.ZoneName}";
                     incident=new Incident { IncidentId=Guid.NewGuid(),IncidentTypeId=incidentTypeId,ZoneId=zone.ZoneId,
-                        MonitoringRuleId=rule.RuleId,Title=title[..Math.Min(200,title.Length)],Severity=decision.Severity!,
+                        MonitoringRuleId=rule.RuleId,Title=title[..Math.Min(200,title.Length)],
                         Description=$"{rule.Mode}: {metric} {rule.Unit}. AI-detected incident outcome; dispatch is not implemented." };
+                    if(slaPolicies is null)
+                        throw new ApplicationException("INCIDENT_SLA_SERVICE_UNAVAILABLE","Incident SLA matching is unavailable.",503);
+                    await slaPolicies.Assign(incident,ct);
                     await store.Add(incident,ct);
                 }
                 else if(incident is not null)
                 {
                     incident.MonitoringRuleId??=rule.RuleId;
-                    incident.Severity=decision.Severity!;
                     incident.Description=$"{rule.Mode}: {metric} {rule.Unit}. Latest aggregate observation; recovery does not automatically close this incident.";
                     await store.Update(incident,ct);
                 }
                 var reason=decision.Action=="SUPPRESSED"?"COOLDOWN":evaluation.Reason;
-                return new(true,false,false,incident?.IncidentId,incident?.Severity,reason,decision.CooldownRemainingSec);
+                return new(true,false,false,incident?.IncidentId,reason,decision.CooldownRemainingSec);
             }
 
-            var active=(await store.List<OperationalEvent>(e=>e.CameraId==command.Snapshot.CameraId && e.ZoneId==zone.ZoneId
-                && e.EventTypeId==rule.EventTypeId!.Value && e.ClearedAt==null,ct)).SingleOrDefault();
+            var active=(await store.List<OperationalEvent>(e=>e.RuleId==rule.RuleId && e.ZoneId==zone.ZoneId && e.ClearedAt==null,ct)).SingleOrDefault();
             if(active is not null && AlreadyApplied(active,batch))
-                return new(true,false,true,null,null,"IDEMPOTENT",0,active.EventId,active.Priority);
+                return new(true,false,true,null,"IDEMPOTENT",0,active.EventId,active.Priority);
 
             if(evaluation.ShouldClear)
             {
-                if(active is null) return new(true,false,false,null,null,evaluation.Reason);
+                if(active is null) return new(true,false,false,null,evaluation.Reason);
                 active.MetricValue=metric; active.LastObservedAt=batch.CapturedAt; active.ClearedAt=batch.CapturedAt;
                 active.UpdatedAt=clock.UtcNow; active.MetadataJson=metadata; active.Status="CLEARED";
                 await store.Update(active,ct);
                 if(responder is not null) await responder.Cleared(active,ct);
-                return new(true,false,false,null,null,evaluation.Reason,0,active.EventId,active.Priority);
+                return new(true,false,false,null,evaluation.Reason,0,active.EventId,active.Priority);
             }
 
             if(evaluation.EligibleSeverity is null)
             {
-                if(active is null) return new(true,false,false,null,null,evaluation.Reason);
+                if(active is null) return new(true,false,false,null,evaluation.Reason);
                 active.MetricValue=metric; active.LastObservedAt=batch.CapturedAt; active.UpdatedAt=clock.UtcNow; active.MetadataJson=metadata;
                 await store.Update(active,ct);
-                return new(true,false,false,null,null,evaluation.Reason,0,active.EventId,active.Priority);
+                return new(true,false,false,null,evaluation.Reason,0,active.EventId,active.Priority);
             }
 
             if(active is null)
@@ -99,13 +101,13 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
                 await store.Update(active,ct);
                 if(responder is not null && active.Priority!=previousPriority) await responder.Raised(active,previousPriority,ct);
             }
-            return new(true,false,false,null,null,evaluation.Reason,0,active.EventId,active.Priority);
+            return new(true,false,false,null,evaluation.Reason,0,active.EventId,active.Priority);
         },ct);
     }
 
     private static string Metadata(IncidentObservationCommand command,decimal metric)=>JsonSerializer.Serialize(new {
         outcomeType=command.Rule.OutcomeType,eventTypeId=command.Rule.EventTypeId,eventTypeCode=command.Rule.EventTypeCode,measurementMode=command.Rule.Mode,thresholdUnit=command.Rule.Unit,
-        command.Rule.WarningThreshold,command.Rule.CriticalThreshold,command.Rule.SustainSec,recoverySec=command.Rule.RecoverySec??command.Rule.SustainSec,
+        command.Rule.WarningThreshold,command.Rule.CriticalThreshold,command.Rule.SustainSec,clearDurationSec=command.Rule.ClearDurationSec??command.Rule.SustainSec,
         command.Zone.ConfigId,configurationVersion=command.Zone.ConfigVersion,command.Zone.Confidence,
         videoSourceType=command.Snapshot.Connection.SourceType,command.Batch.SessionId,command.Batch.ContinuityId,command.Batch.Sequence,
         command.Batch.SourceElapsedMs,command.Batch.ConfigurationFingerprint,metric,command.Measurement.PeopleCount,command.Measurement.QueueCount },Json);

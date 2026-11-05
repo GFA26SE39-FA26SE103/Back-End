@@ -8,7 +8,6 @@ public sealed class IncidentType : TrackedEntity
     public string Name { get; set; } = "";
     public string? Description { get; set; }
     public bool RequiresBeforePhoto { get; set; }
-    public string DefaultSeverity { get; set; } = "WARNING";
     public string Status { get; set; } = "ACTIVE";
 }
 public sealed class MonitoringRule : TrackedEntity
@@ -23,6 +22,7 @@ public sealed class MonitoringRule : TrackedEntity
     public string ThresholdUnit { get; set; } = "";
     public int SustainSec { get; set; } = 30;
     public int CooldownSec { get; set; } = 300;
+    public int ClearDurationSec { get; set; } = 60;
     public string? ParametersJson { get; set; }
     public bool Enabled { get; set; } = true;
 }
@@ -39,18 +39,7 @@ public static class MonitoringPolicy
         _ => null
     };
     public static string? OperationalEventCode(IncidentType type) => OperationalEventCode(type.Code);
-    public static int RecoverySeconds(MonitoringRule rule)
-    {
-        if(string.IsNullOrWhiteSpace(rule.ParametersJson)) return rule.SustainSec;
-        try
-        {
-            using var json=JsonDocument.Parse(rule.ParametersJson);
-            if(json.RootElement.ValueKind!=JsonValueKind.Object || !json.RootElement.TryGetProperty("recoverySec",out var value)) return rule.SustainSec;
-            Rules.Require(value.TryGetInt32(out var seconds) && seconds is >=0 and <=86400,"INVALID_RULE_TIMING","Recovery must be a whole number from 0 to 86400 seconds.");
-            return seconds;
-        }
-        catch(JsonException) { return rule.SustainSec; }
-    }
+    public static int RecoverySeconds(MonitoringRule rule) => rule.ClearDurationSec;
     public static RuntimeMeasurementDefinition RuntimeDefinition(MonitoringRule rule, OperationalEventType type)
     {
         if (type.Code=="LONG_QUEUE" && type.MeasurementType=="QUEUE_LENGTH" && rule.ThresholdUnit=="PEOPLE")
@@ -97,7 +86,8 @@ public static class MonitoringPolicy
             && decimal.Round(rule.CriticalThreshold, 4) == rule.CriticalThreshold,
             "INVALID_THRESHOLDS", "Use 0 <= warning < critical, at most four decimal places, within decimal(18,4).");
         rule.ThresholdUnit = Rules.Text(rule.ThresholdUnit, 30, "Threshold unit");
-        Rules.Require(rule.SustainSec >= 0 && rule.CooldownSec >= 0, "INVALID_RULE_TIMING", "Sustain and cooldown must be non-negative seconds.");
+        Rules.Require(rule.SustainSec >= 0 && rule.CooldownSec >= 0 && rule.ClearDurationSec is >= 1 and <= 86400,
+            "INVALID_RULE_TIMING", "Sustain and cooldown must be non-negative; clear duration must be from 1 to 86400 seconds.");
         var definition = Definition(type);
         Rules.Require(!rule.Enabled || definition is not null, "RULE_UNSUPPORTED", "This measurement is not ready; keep its rule disabled in Draft.");
         if (definition is not null && rule.Enabled)

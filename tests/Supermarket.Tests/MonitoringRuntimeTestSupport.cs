@@ -50,7 +50,7 @@ internal sealed class MonitoringRuntimeTestSupport : IAsyncDisposable
         await Execute("UPDATE dbo.CameraConnection SET source_type='RECORDED',protocol='FILE',stream_uri='file:///C:/runtime-test/video.mp4' WHERE camera_id=@camera",("@camera",camera.CameraId));
         await Read<MappingView>(await Client.PutAsJsonAsync($"/api/cameras/{camera.CameraId}/zones/{zone.ZoneId}",new MappingRequest(Roi)));
         var type=(await Client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!.Single(t=>t.Code==(queue?"LONG_QUEUE":"OVERCROWDING_CONGESTION"));
-        var config=await Read<MonitoringConfigurationView>(await Client.PutAsJsonAsync($"/api/zones/{zone.ZoneId}/monitoring",new MonitoringRequest("Runtime config",.7m,[new(type.IncidentTypeId,1,2,"PEOPLE",1,30,true,queue?null:"{\"measurementMode\":\"PEOPLE_COUNT\"}")])));
+        var config=await Read<MonitoringConfigurationView>(await Client.PutAsJsonAsync($"/api/zones/{zone.ZoneId}/monitoring",new MonitoringRequest("Runtime config",.7m,[new(type.IncidentTypeId,1,2,"PEOPLE",1,30,60,true,queue?null:"{\"measurementMode\":\"PEOPLE_COUNT\"}")])));
         var review=await Read<MonitoringReviewView>(await Client.GetAsync($"/api/zones/{zone.ZoneId}/monitoring/review")); Assert.True(review.CanActivate); Assert.Null(zone.AreaM2);
         return(camera,zone,config);
     }

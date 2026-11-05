@@ -8,12 +8,15 @@ public sealed class Incident : TrackedEntity
     public Guid? MonitoringRuleId { get; set; }
     public Guid? ReportedByUserId { get; set; }
     public string SourceType { get; set; } = "AI_DETECTED";
-    public string Severity { get; set; } = "WARNING";
     public string Title { get; set; } = "";
     public string? Description { get; set; }
     public string Status { get; set; } = "DETECTED";
     public string? StatusReason { get; set; }
     public DateTime? ClosedAt { get; set; }
+    public Guid? SlaPolicyId { get; set; }
+    public string? SlaSnapshotJson { get; set; }
+    public DateTime? ResolutionDeadlineAt { get; set; }
+    public DateTime? MitigatedAt { get; set; }
 }
 
 public sealed class OperationalEvent : Entity

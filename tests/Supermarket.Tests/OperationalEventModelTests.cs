@@ -9,7 +9,7 @@ namespace Supermarket.Tests;
 public sealed class OperationalEventModelTests
 {
     [Fact]
-    public void DatabaseV2EpisodeKeyAndColumnsAreMapped()
+    public void DatabaseV7EpisodeKeyAndColumnsAreMapped()
     {
         var options=new DbContextOptionsBuilder<AppDbContext>()
             .UseSqlServer("Server=localhost;Database=model-only;Integrated Security=true;TrustServerCertificate=true")
@@ -19,9 +19,10 @@ public sealed class OperationalEventModelTests
         var table=StoreObjectIdentifier.Table("OperationalEvent",null);
         Assert.Equal("event_type_id",entity.FindProperty(nameof(DbOperationalEvent.EventTypeId))!.GetColumnName(table));
         Assert.Equal("cleared_at",entity.FindProperty(nameof(DbOperationalEvent.ClearedAt))!.GetColumnName(table));
-        var index=entity.GetIndexes().Single(i=>i.GetDatabaseName()=="UX_OperationalEvent_Active_Camera_Zone_EventType");
+        var index=entity.GetIndexes().Single(i=>i.GetDatabaseName()=="UX_OperationalEvent_Active_Rule_Zone");
         Assert.True(index.IsUnique); Assert.Contains("[cleared_at] IS NULL",index.GetFilter());
-        Assert.Equal(new[] { "CameraId","ZoneId","EventTypeId" },index.Properties.Select(p=>p.Name));
+        Assert.Contains("[rule_id] IS NOT NULL",index.GetFilter());
+        Assert.Equal(new[] { "RuleId","ZoneId" },index.Properties.Select(p=>p.Name));
         Assert.NotNull(db.Model.FindEntityType(typeof(OperationalEventType)));
     }
 }

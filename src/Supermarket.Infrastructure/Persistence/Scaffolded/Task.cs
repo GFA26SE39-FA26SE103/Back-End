@@ -49,6 +49,22 @@ public partial class Task
 
     public int RejectionCount { get; set; }
 
+    public Guid? TaskTypeId { get; set; }
+
+    public Guid? SlaPolicyId { get; set; }
+
+    public string? SlaSnapshotJson { get; set; }
+
+    public DateTime? ResponseDeadlineAt { get; set; }
+
+    public DateTime? ResolutionDeadlineAt { get; set; }
+
+    public string? VerificationMode { get; set; }
+
+    public string? VerificationMethod { get; set; }
+
+    public bool IsMandatory { get; set; }
+
     public virtual UserAccount? AssignedByUser { get; set; }
 
     public virtual UserAccount? CurrentAssigneeUser { get; set; }
@@ -59,11 +75,17 @@ public partial class Task
 
     public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 
+    public virtual Slapolicy? SlaPolicy { get; set; }
+
     public virtual StaffReport? StaffReport { get; set; }
 
     public virtual ICollection<TaskAssignmentHistory> TaskAssignmentHistories { get; set; } = new List<TaskAssignmentHistory>();
 
     public virtual ICollection<TaskEvidence> TaskEvidences { get; set; } = new List<TaskEvidence>();
+
+    public virtual TaskOffer? TaskOffer { get; set; }
+
+    public virtual TaskType? TaskType { get; set; }
 
     public virtual UserAccount? VerifiedByUser { get; set; }
 

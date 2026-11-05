@@ -15,8 +15,6 @@ public partial class IncidentType
 
     public bool RequiresBeforePhoto { get; set; }
 
-    public string DefaultSeverity { get; set; } = null!;
-
     public string Status { get; set; } = null!;
 
     public DateTime CreatedAt { get; set; }
@@ -26,4 +24,6 @@ public partial class IncidentType
     public virtual ICollection<Incident> Incidents { get; set; } = new List<Incident>();
 
     public virtual ICollection<MonitoringRule> MonitoringRules { get; set; } = new List<MonitoringRule>();
+
+    public virtual Slapolicy? Slapolicy { get; set; }
 }

@@ -59,6 +59,7 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
                     IncidentTypeId = null, EventTypeId=eventType.EventTypeId, OutcomeType="OPERATIONAL_EVENT",
                     WarningThreshold = r.WarningThreshold, CriticalThreshold = r.CriticalThreshold,
                     ThresholdUnit = r.ThresholdUnit, SustainSec = r.SustainSec, CooldownSec = r.CooldownSec,
+                    ClearDurationSec = r.ClearDurationSec,
                     Enabled = r.Enabled, ParametersJson = r.ParametersJson, CreatedAt = old?.CreatedAt ?? default, UpdatedAt = old?.UpdatedAt ?? default };
                 MonitoringPolicy.Validate(rule, eventType);
                 prepared.Add((rule, old is null, r.IncidentTypeId));
@@ -161,7 +162,7 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
                 : eventType is null ? null : types.Values.SingleOrDefault(t=>MonitoringPolicy.OperationalEventCode(t.Code)==eventType.Code);
             return new MonitoringRuleView(r.RuleId,incidentType?.IncidentTypeId??Guid.Empty,
                 eventType?.Code??incidentType?.Code??"UNKNOWN",eventType?.Name??incidentType?.Name??"Unknown type",
-                r.WarningThreshold,r.CriticalThreshold,r.ThresholdUnit,r.SustainSec,r.CooldownSec,r.Enabled,r.ParametersJson);
+                r.WarningThreshold,r.CriticalThreshold,r.ThresholdUnit,r.SustainSec,r.CooldownSec,r.ClearDurationSec,r.Enabled,r.ParametersJson);
         }).OrderBy(r => r.IncidentCode).ToArray();
         return new(configuration.ConfigId,configuration.ZoneId,configuration.Name,configuration.ConfidenceThreshold,configuration.Status,
             configuration.CreatedByUserId,configuration.CreatedAt,configuration.UpdatedAt,views);

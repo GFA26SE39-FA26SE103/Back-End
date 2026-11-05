@@ -25,6 +25,8 @@ public partial class UserAccount
 
     public string Code { get; set; } = null!;
 
+    public Guid? SpecialtyId { get; set; }
+
     public virtual ICollection<AuditLog> AuditLogs { get; set; } = new List<AuditLog>();
 
     public virtual ICollection<CameraHealthEvent> CameraHealthEvents { get; set; } = new List<CameraHealthEvent>();
@@ -49,6 +51,8 @@ public partial class UserAccount
 
     public virtual ICollection<ShiftSwapRequest> ShiftSwapRequestTargetUsers { get; set; } = new List<ShiftSwapRequest>();
 
+    public virtual StaffSpecialty? Specialty { get; set; }
+
     public virtual ICollection<StaffReportMedium> StaffReportMedia { get; set; } = new List<StaffReportMedium>();
 
     public virtual ICollection<StaffReport> StaffReports { get; set; } = new List<StaffReport>();
@@ -66,6 +70,8 @@ public partial class UserAccount
     public virtual ICollection<Task> TaskCurrentAssigneeUsers { get; set; } = new List<Task>();
 
     public virtual ICollection<TaskEvidence> TaskEvidences { get; set; } = new List<TaskEvidence>();
+
+    public virtual ICollection<TaskOffer> TaskOffers { get; set; } = new List<TaskOffer>();
 
     public virtual ICollection<Task> TaskVerifiedByUsers { get; set; } = new List<Task>();
 

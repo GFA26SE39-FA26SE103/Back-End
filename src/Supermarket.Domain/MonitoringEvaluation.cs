@@ -1,7 +1,7 @@
 namespace Supermarket.Domain;
 
 public sealed record MonitoringEvaluationSettings(string Mode,string Unit,decimal WarningThreshold,decimal CriticalThreshold,
-    int SustainSec,int CooldownSec,bool Enabled,int? RecoverySec=null);
+    int SustainSec,int CooldownSec,bool Enabled,int? ClearDurationSec=null);
 public sealed record RuleObservation(Guid SessionId,Guid ContinuityId,long Sequence,long SourceElapsedMs,decimal MetricValue,
     string ConfigFingerprint,bool ContinuityBroken);
 public sealed record RuleEvaluationState(Guid? SessionId=null,Guid? ContinuityId=null,long Sequence=0,long SourceElapsedMs=0,
@@ -18,7 +18,7 @@ public static class MonitoringRuleEvaluator
         if(observation.MetricValue<0 || decimal.Truncate(observation.MetricValue)!=observation.MetricValue || observation.Sequence<1
            || observation.SourceElapsedMs<0 || observation.SessionId==Guid.Empty || observation.ContinuityId==Guid.Empty)
             return new(new(),null,0,0,"MEASUREMENT_INVALID",false);
-        var recoverySec=settings.RecoverySec??settings.SustainSec;
+        var recoverySec=settings.ClearDurationSec??settings.SustainSec;
         if(settings.SustainSec<0 || settings.CooldownSec<0 || recoverySec<0 || settings.WarningThreshold<0 || settings.CriticalThreshold<=settings.WarningThreshold)
             return new(new(),null,0,0,"RULE_INVALID",false);
         var matching=state.SessionId==observation.SessionId && state.ContinuityId==observation.ContinuityId && state.ConfigFingerprint==observation.ConfigFingerprint;
@@ -41,21 +41,17 @@ public static class MonitoringRuleEvaluator
     }
 }
 
-public sealed record IncidentDecision(string Action,string? Severity,decimal CooldownRemainingSec,bool Escalated=false);
+public sealed record IncidentDecision(string Action,decimal CooldownRemainingSec);
 public static class IncidentPolicy
 {
     public static IncidentDecision Decide(Incident? existingIncident,DateTime? latestEndedAt,string? eligibleSeverity,
         MonitoringEvaluationSettings settings,DateTime utcNow)
     {
         if(existingIncident is { ClosedAt:null })
-        {
-            var escalate=eligibleSeverity=="CRITICAL" && existingIncident.Severity!="CRITICAL"
-                || eligibleSeverity=="WARNING" && existingIncident.Severity=="INFO";
-            return new("UPDATE",escalate?eligibleSeverity:existingIncident.Severity,0,escalate);
-        }
+            return new("UPDATE",0);
         var remaining=latestEndedAt is null?0m:Math.Max(0m,settings.CooldownSec-(decimal)(utcNow-latestEndedAt.Value).TotalSeconds);
-        if(eligibleSeverity is null) return new("OBSERVE",null,remaining);
-        if(remaining>0) return new("SUPPRESSED",null,remaining);
-        return new("CREATE",eligibleSeverity,0);
+        if(eligibleSeverity is null) return new("OBSERVE",remaining);
+        if(remaining>0) return new("SUPPRESSED",remaining);
+        return new("CREATE",0);
     }
 }

@@ -71,11 +71,13 @@ public sealed class MonitoringSetupTests
     {
         var h = new Harness();
         var type = h.AddRule();
-        var input = new MonitoringRuleRequest(type.IncidentTypeId, 4, 7, "PEOPLE", 0, 0);
+        var input = new MonitoringRuleRequest(type.IncidentTypeId, 4, 7, "PEOPLE", 0, 0, 45);
         var stale = await Assert.ThrowsAsync<AppError>(() => h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Stale", Rules: [input], ExpectedUpdatedAt: DateTime.UnixEpoch), default));
         Assert.Equal("CONFIGURATION_CHANGED", stale.Code);
         var saved = await h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Saved", .6m, [input], h.Configuration.UpdatedAt), default);
         Assert.Equal(4, Assert.Single(saved.Rules).WarningThreshold);
+        Assert.Equal(45, Assert.Single(saved.Rules).ClearDurationSec);
+        Assert.Equal(45, Assert.Single(h.Store.Values.OfType<MonitoringRule>()).ClearDurationSec);
         Assert.NotEqual(Guid.Empty,Assert.Single(h.Store.Values.OfType<MonitoringRule>()).EventTypeId);
         var active = await h.Setup.Activate(h.Zone.ZoneId, true, saved.UpdatedAt, default);
         Assert.Equal("ACTIVE", active.Status);

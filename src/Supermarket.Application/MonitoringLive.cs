@@ -22,14 +22,14 @@ public sealed class MonitoringLive(ISetupStore store,ICurrentUser current,IMonit
                     {
                         var type=rule.EventTypeId is { } eventTypeId ? await store.Find<OperationalEventType>(eventTypeId,ct) : null;
                         var definition=type is null ? new RuntimeMeasurementDefinition("UNSUPPORTED",rule.ThresholdUnit,false,"Operational event type unavailable.") : MonitoringPolicy.RuntimeDefinition(rule,type);
-                        ruleViews.Add(new(rule.RuleId,type?.Code??"UNKNOWN",type?.Name??"Unknown event type",definition.Mode,definition.Unit,rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec,null,0,0,0,
+                        ruleViews.Add(new(rule.RuleId,type?.Code??"UNKNOWN",type?.Name??"Unknown event type",definition.Mode,definition.Unit,rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec,rule.ClearDurationSec,null,0,0,0,
                             config.Status!="ACTIVE"?"NO_ACTIVE_CONFIGURATION":!definition.Supported?"RULE_RUNTIME_UNSUPPORTED":"STARTING"));
                     }
                     else
                     {
                         var type=rule.IncidentTypeId is { } incidentTypeId ? await store.Find<IncidentType>(incidentTypeId,ct) : null;
                         ruleViews.Add(new(rule.RuleId,type?.Code??"UNKNOWN",type?.Name??"Unknown incident type","UNSUPPORTED",rule.ThresholdUnit,rule.WarningThreshold,rule.CriticalThreshold,
-                            rule.SustainSec,rule.CooldownSec,null,0,0,0,"INCIDENT_RULE_RUNTIME_UNSUPPORTED"));
+                            rule.SustainSec,rule.CooldownSec,rule.ClearDurationSec,null,0,0,0,"INCIDENT_RULE_RUNTIME_UNSUPPORTED"));
                     }
                 }
             zones.Add(new(zone.ZoneId,zone.Name,config?.ConfigId,config?.UpdatedAt,config?.Status??"NOT_CONFIGURED",config?.ConfidenceThreshold??0,null,null,ruleViews.ToArray()));

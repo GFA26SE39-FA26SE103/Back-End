@@ -15,8 +15,6 @@ public partial class Incident
 
     public string SourceType { get; set; } = null!;
 
-    public string Severity { get; set; } = null!;
-
     public string Title { get; set; } = null!;
 
     public string? Description { get; set; }
@@ -35,6 +33,14 @@ public partial class Incident
 
     public Guid? MonitoringRuleId { get; set; }
 
+    public Guid? SlaPolicyId { get; set; }
+
+    public string? SlaSnapshotJson { get; set; }
+
+    public DateTime? ResolutionDeadlineAt { get; set; }
+
+    public DateTime? MitigatedAt { get; set; }
+
     public virtual ICollection<IncidentMedium> IncidentMedia { get; set; } = new List<IncidentMedium>();
 
     public virtual IncidentType IncidentType { get; set; } = null!;
@@ -44,6 +50,8 @@ public partial class Incident
     public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 
     public virtual UserAccount? ReportedByUser { get; set; }
+
+    public virtual Slapolicy? SlaPolicy { get; set; }
 
     public virtual StaffReport? StaffReport { get; set; }
 

@@ -33,6 +33,8 @@ public partial class StaffReport
 
     public DateTime UpdatedAt { get; set; }
 
+    public string? LocationDescription { get; set; }
+
     public virtual Incident? Incident { get; set; }
 
     public virtual UserAccount ReportedByUser { get; set; } = null!;

@@ -29,13 +29,13 @@ public sealed class MonitoringSnapshotReader(ISetupStore store):IMonitoringSnaps
                         : MonitoringPolicy.RuntimeDefinition(rule,eventType);
                     rules.Add(new(rule.RuleId,null,eventType?.Code??"UNKNOWN",eventType?.Name??"Unknown event type",definition.Mode,definition.Unit,
                         rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec,rule.EventTypeId,eventType?.Code??"",
-                        MonitoringPolicy.RecoverySeconds(rule),rule.OutcomeType));
+                        rule.ClearDurationSec,rule.OutcomeType));
                     continue;
                 }
                 var incidentType=rule.IncidentTypeId is { } incidentTypeId ? await store.Find<IncidentType>(incidentTypeId,ct) : null;
                 issue??=incidentType is null?"INCIDENT_TYPE_UNAVAILABLE":"INCIDENT_RULE_RUNTIME_UNSUPPORTED";
                 rules.Add(new(rule.RuleId,rule.IncidentTypeId,incidentType?.Code??"UNKNOWN",incidentType?.Name??"Unknown incident type","UNSUPPORTED",rule.ThresholdUnit,
-                    rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec,null,"",MonitoringPolicy.RecoverySeconds(rule),rule.OutcomeType));
+                    rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec,null,"",rule.ClearDurationSec,rule.OutcomeType));
             }
             foreach(var mapping in mappings)
             {

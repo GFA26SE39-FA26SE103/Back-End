@@ -57,9 +57,15 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<ShiftSwapRequest> ShiftSwapRequests { get; set; }
 
+    public virtual DbSet<Slapolicy> Slapolicies { get; set; }
+
+    public virtual DbSet<SlapolicyAction> SlapolicyActions { get; set; }
+
     public virtual DbSet<StaffReport> StaffReports { get; set; }
 
     public virtual DbSet<StaffReportMedium> StaffReportMedia { get; set; }
+
+    public virtual DbSet<StaffSpecialty> StaffSpecialties { get; set; }
 
     public virtual DbSet<StaffUnavailability> StaffUnavailabilities { get; set; }
 
@@ -74,6 +80,10 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<TaskAssignmentHistory> TaskAssignmentHistories { get; set; }
 
     public virtual DbSet<TaskEvidence> TaskEvidences { get; set; }
+
+    public virtual DbSet<TaskOffer> TaskOffers { get; set; }
+
+    public virtual DbSet<TaskType> TaskTypes { get; set; }
 
     public virtual DbSet<UserAccount> UserAccounts { get; set; }
 
@@ -386,6 +396,10 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.MonitoringRuleId, "IX_Incident_MonitoringRuleId").HasFilter("([monitoring_rule_id] IS NOT NULL)");
 
+            entity.HasIndex(e => e.ResolutionDeadlineAt, "IX_Incident_ResolutionDeadline_Open").HasFilter("([resolution_deadline_at] IS NOT NULL AND [closed_at] IS NULL)");
+
+            entity.HasIndex(e => e.SlaPolicyId, "IX_Incident_SLAPolicyId").HasFilter("([sla_policy_id] IS NOT NULL)");
+
             entity.HasIndex(e => new { e.ZoneId, e.IncidentTypeId, e.ClosedAt }, "IX_Incident_Zone_Type_Closed");
 
             entity.HasIndex(e => new { e.ZoneId, e.IncidentTypeId }, "UX_Incident_Open_Zone_Type")
@@ -410,11 +424,16 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(2000)
                 .HasColumnName("description");
             entity.Property(e => e.IncidentTypeId).HasColumnName("incident_type_id");
+            entity.Property(e => e.MitigatedAt)
+                .HasPrecision(3)
+                .HasColumnName("mitigated_at");
             entity.Property(e => e.MonitoringRuleId).HasColumnName("monitoring_rule_id");
             entity.Property(e => e.ReportedByUserId).HasColumnName("reported_by_user_id");
-            entity.Property(e => e.Severity)
-                .HasMaxLength(20)
-                .HasColumnName("severity");
+            entity.Property(e => e.ResolutionDeadlineAt)
+                .HasPrecision(3)
+                .HasColumnName("resolution_deadline_at");
+            entity.Property(e => e.SlaPolicyId).HasColumnName("sla_policy_id");
+            entity.Property(e => e.SlaSnapshotJson).HasColumnName("sla_snapshot_json");
             entity.Property(e => e.SourceType)
                 .HasMaxLength(20)
                 .HasColumnName("source_type");
@@ -446,6 +465,10 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.ReportedByUser).WithMany(p => p.Incidents)
                 .HasForeignKey(d => d.ReportedByUserId)
                 .HasConstraintName("FK_Incident_Reporter");
+
+            entity.HasOne(d => d.SlaPolicy).WithMany(p => p.Incidents)
+                .HasForeignKey(d => d.SlaPolicyId)
+                .HasConstraintName("FK_Incident_SLAPolicy");
 
             entity.HasOne(d => d.StaffReport).WithOne(p => p.Incident)
                 .HasForeignKey<Incident>(d => d.StaffReportId)
@@ -498,10 +521,6 @@ public partial class AppDbContext : DbContext
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())", "DF_IncidentType_CreatedAt")
                 .HasColumnName("created_at");
-            entity.Property(e => e.DefaultSeverity)
-                .HasMaxLength(20)
-                .HasDefaultValue("WARNING", "DF_IncidentType_Severity")
-                .HasColumnName("default_severity");
             entity.Property(e => e.Description)
                 .HasMaxLength(500)
                 .HasColumnName("description");
@@ -586,6 +605,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.RuleId)
                 .HasDefaultValueSql("(newsequentialid())", "DF_MonitoringRule_Id")
                 .HasColumnName("rule_id");
+            entity.Property(e => e.ClearDurationSec)
+                .HasDefaultValue(60, "DF_MonitoringRule_ClearDuration")
+                .HasColumnName("clear_duration_sec");
             entity.Property(e => e.ConfigId).HasColumnName("config_id");
             entity.Property(e => e.CooldownSec)
                 .HasDefaultValue(300, "DF_MonitoringRule_Cooldown")
@@ -735,9 +757,9 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => new { e.ZoneId, e.DetectedAt }, "IX_OperationalEvent_Zone_Time").IsDescending(false, true);
 
-            entity.HasIndex(e => new { e.CameraId, e.ZoneId, e.EventTypeId }, "UX_OperationalEvent_Active_Camera_Zone_EventType")
+            entity.HasIndex(e => new { e.RuleId, e.ZoneId }, "UX_OperationalEvent_Active_Rule_Zone")
                 .IsUnique()
-                .HasFilter("([cleared_at] IS NULL)");
+                .HasFilter("([cleared_at] IS NULL AND [rule_id] IS NOT NULL)");
 
             entity.Property(e => e.EventId)
                 .HasDefaultValueSql("(newsequentialid())", "DF_OperationalEvent_Id")
@@ -1181,6 +1203,118 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("FK_ShiftSwapRequest_TargetUser");
         });
 
+        modelBuilder.Entity<Slapolicy>(entity =>
+        {
+            entity.HasKey(e => e.PolicyId);
+
+            entity.ToTable("SLAPolicy");
+
+            entity.HasIndex(e => e.EventTypeId, "IX_SLAPolicy_EventTypeId").HasFilter("([event_type_id] IS NOT NULL)");
+
+            entity.HasIndex(e => e.IncidentTypeId, "IX_SLAPolicy_IncidentTypeId").HasFilter("([incident_type_id] IS NOT NULL)");
+
+            entity.HasIndex(e => new { e.EventTypeId, e.PriorityCode }, "UX_SLAPolicy_Enabled_EventScope_Priority")
+                .IsUnique()
+                .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'OPERATIONAL_EVENT')");
+
+            entity.HasIndex(e => e.ProblemDomain, "UX_SLAPolicy_Enabled_IncidentFallback")
+                .IsUnique()
+                .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'INCIDENT' AND [incident_type_id] IS NULL)");
+
+            entity.HasIndex(e => e.IncidentTypeId, "UX_SLAPolicy_Enabled_IncidentScope")
+                .IsUnique()
+                .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'INCIDENT')");
+
+            entity.HasIndex(e => e.IncidentTypeId, "UX_SLAPolicy_Enabled_IncidentType")
+                .IsUnique()
+                .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'INCIDENT' AND [incident_type_id] IS NOT NULL)");
+
+            entity.Property(e => e.PolicyId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_SLAPolicy_Id")
+                .HasColumnName("policy_id");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_SLAPolicy_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.EventTypeId).HasColumnName("event_type_id");
+            entity.Property(e => e.IncidentTypeId).HasColumnName("incident_type_id");
+            entity.Property(e => e.IsEnabled)
+                .HasDefaultValue(true, "DF_SLAPolicy_Enabled")
+                .HasColumnName("is_enabled");
+            entity.Property(e => e.OfferTimeoutSec).HasColumnName("offer_timeout_sec");
+            entity.Property(e => e.PriorityCode)
+                .HasMaxLength(40)
+                .HasColumnName("priority_code");
+            entity.Property(e => e.ProblemDomain)
+                .HasMaxLength(40)
+                .HasColumnName("problem_domain");
+            entity.Property(e => e.ResolutionTargetSec).HasColumnName("resolution_target_sec");
+            entity.Property(e => e.ResponseTargetSec).HasColumnName("response_target_sec");
+            entity.Property(e => e.UpdatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_SLAPolicy_UpdatedAt")
+                .HasColumnName("updated_at");
+            entity.Property(e => e.Version)
+                .HasDefaultValue(1, "DF_SLAPolicy_Version")
+                .HasColumnName("version");
+            entity.Property(e => e.WarningPercent)
+                .HasDefaultValue(80, "DF_SLAPolicy_WarningPercent")
+                .HasColumnName("warning_percent");
+
+            entity.HasOne(d => d.EventType).WithMany(p => p.Slapolicies)
+                .HasForeignKey(d => d.EventTypeId)
+                .HasConstraintName("FK_SLAPolicy_EventType");
+
+            entity.HasOne(d => d.IncidentType).WithOne(p => p.Slapolicy)
+                .HasForeignKey<Slapolicy>(d => d.IncidentTypeId)
+                .HasConstraintName("FK_SLAPolicy_IncidentType");
+        });
+
+        modelBuilder.Entity<SlapolicyAction>(entity =>
+        {
+            entity.HasKey(e => e.ActionId);
+
+            entity.ToTable("SLAPolicyAction");
+
+            entity.HasIndex(e => e.PolicyId, "IX_SLAPolicyAction_PolicyId");
+
+            entity.HasIndex(e => e.TargetRoleId, "IX_SLAPolicyAction_TargetRoleId").HasFilter("([target_role_id] IS NOT NULL)");
+
+            entity.Property(e => e.ActionId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_SLAPolicyAction_Id")
+                .HasColumnName("action_id");
+            entity.Property(e => e.ActionParametersJson).HasColumnName("action_parameters_json");
+            entity.Property(e => e.ActionType)
+                .HasMaxLength(120)
+                .HasColumnName("action_type");
+            entity.Property(e => e.ConditionJson).HasColumnName("condition_json");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_SLAPolicyAction_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.ExecutionMode)
+                .HasMaxLength(80)
+                .HasColumnName("execution_mode");
+            entity.Property(e => e.IsEnabled)
+                .HasDefaultValue(true, "DF_SLAPolicyAction_Enabled")
+                .HasColumnName("is_enabled");
+            entity.Property(e => e.PolicyId).HasColumnName("policy_id");
+            entity.Property(e => e.TargetRoleId).HasColumnName("target_role_id");
+            entity.Property(e => e.UpdatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_SLAPolicyAction_UpdatedAt")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Policy).WithMany(p => p.SlapolicyActions)
+                .HasForeignKey(d => d.PolicyId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_SLAPolicyAction_Policy");
+
+            entity.HasOne(d => d.TargetRole).WithMany(p => p.SlapolicyActions)
+                .HasForeignKey(d => d.TargetRoleId)
+                .HasConstraintName("FK_SLAPolicyAction_TargetRole");
+        });
+
         modelBuilder.Entity<StaffReport>(entity =>
         {
             entity.HasKey(e => e.ReportId);
@@ -1207,6 +1341,9 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Description)
                 .HasMaxLength(4000)
                 .HasColumnName("description");
+            entity.Property(e => e.LocationDescription)
+                .HasMaxLength(1000)
+                .HasColumnName("location_description");
             entity.Property(e => e.OriginalInputJson).HasColumnName("original_input_json");
             entity.Property(e => e.ReportCategory)
                 .HasMaxLength(100)
@@ -1270,6 +1407,28 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.UploadedByUserId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_StaffReportMedia_Uploader");
+        });
+
+        modelBuilder.Entity<StaffSpecialty>(entity =>
+        {
+            entity.HasKey(e => e.SpecialtyId);
+
+            entity.ToTable("StaffSpecialty");
+
+            entity.HasIndex(e => e.Code, "UQ_StaffSpecialty_Code").IsUnique();
+
+            entity.Property(e => e.SpecialtyId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_StaffSpecialty_Id")
+                .HasColumnName("specialty_id");
+            entity.Property(e => e.Code)
+                .HasMaxLength(100)
+                .HasColumnName("code");
+            entity.Property(e => e.Description)
+                .HasMaxLength(1000)
+                .HasColumnName("description");
+            entity.Property(e => e.Name)
+                .HasMaxLength(200)
+                .HasColumnName("name");
         });
 
         modelBuilder.Entity<StaffUnavailability>(entity =>
@@ -1406,6 +1565,14 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.PlannedStartAt, "IX_Task_PlannedStart_Open").HasFilter("([planned_start_at] IS NOT NULL AND [started_at] IS NULL)");
 
+            entity.HasIndex(e => e.ResolutionDeadlineAt, "IX_Task_ResolutionDeadline_Open").HasFilter("([resolution_deadline_at] IS NOT NULL AND [verified_at] IS NULL)");
+
+            entity.HasIndex(e => e.ResponseDeadlineAt, "IX_Task_ResponseDeadline_Open").HasFilter("([response_deadline_at] IS NOT NULL AND [accepted_at] IS NULL)");
+
+            entity.HasIndex(e => e.SlaPolicyId, "IX_Task_SLAPolicyId").HasFilter("([sla_policy_id] IS NOT NULL)");
+
+            entity.HasIndex(e => e.TaskTypeId, "IX_Task_TaskTypeId").HasFilter("([task_type_id] IS NOT NULL)");
+
             entity.HasIndex(e => new { e.ZoneId, e.Status }, "IX_Task_Zone_Status");
 
             entity.Property(e => e.TaskId)
@@ -1428,6 +1595,7 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("description");
             entity.Property(e => e.EventId).HasColumnName("event_id");
             entity.Property(e => e.IncidentId).HasColumnName("incident_id");
+            entity.Property(e => e.IsMandatory).HasColumnName("is_mandatory");
             entity.Property(e => e.OriginType)
                 .HasMaxLength(40)
                 .HasColumnName("origin_type");
@@ -1438,6 +1606,14 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(40)
                 .HasColumnName("priority");
             entity.Property(e => e.RejectionCount).HasColumnName("rejection_count");
+            entity.Property(e => e.ResolutionDeadlineAt)
+                .HasPrecision(3)
+                .HasColumnName("resolution_deadline_at");
+            entity.Property(e => e.ResponseDeadlineAt)
+                .HasPrecision(3)
+                .HasColumnName("response_deadline_at");
+            entity.Property(e => e.SlaPolicyId).HasColumnName("sla_policy_id");
+            entity.Property(e => e.SlaSnapshotJson).HasColumnName("sla_snapshot_json");
             entity.Property(e => e.StaffReportId).HasColumnName("staff_report_id");
             entity.Property(e => e.StartedAt)
                 .HasPrecision(3)
@@ -1448,6 +1624,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.SubmittedAt)
                 .HasPrecision(3)
                 .HasColumnName("submitted_at");
+            entity.Property(e => e.TaskTypeId).HasColumnName("task_type_id");
             entity.Property(e => e.Title)
                 .HasMaxLength(200)
                 .HasColumnName("title");
@@ -1455,6 +1632,12 @@ public partial class AppDbContext : DbContext
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())", "DF_Task_UpdatedAt")
                 .HasColumnName("updated_at");
+            entity.Property(e => e.VerificationMethod)
+                .HasMaxLength(80)
+                .HasColumnName("verification_method");
+            entity.Property(e => e.VerificationMode)
+                .HasMaxLength(40)
+                .HasColumnName("verification_mode");
             entity.Property(e => e.VerifiedAt)
                 .HasPrecision(3)
                 .HasColumnName("verified_at");
@@ -1477,9 +1660,17 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.IncidentId)
                 .HasConstraintName("FK_Task_Incident");
 
+            entity.HasOne(d => d.SlaPolicy).WithMany(p => p.Tasks)
+                .HasForeignKey(d => d.SlaPolicyId)
+                .HasConstraintName("FK_Task_SLAPolicy");
+
             entity.HasOne(d => d.StaffReport).WithMany(p => p.Tasks)
                 .HasForeignKey(d => d.StaffReportId)
                 .HasConstraintName("FK_Task_StaffReport");
+
+            entity.HasOne(d => d.TaskType).WithMany(p => p.Tasks)
+                .HasForeignKey(d => d.TaskTypeId)
+                .HasConstraintName("FK_Task_TaskType");
 
             entity.HasOne(d => d.VerifiedByUser).WithMany(p => p.TaskVerifiedByUsers)
                 .HasForeignKey(d => d.VerifiedByUserId)
@@ -1580,6 +1771,92 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("FK_TaskEvidence_Task");
         });
 
+        modelBuilder.Entity<TaskOffer>(entity =>
+        {
+            entity.HasKey(e => e.OfferId);
+
+            entity.ToTable("TaskOffer");
+
+            entity.HasIndex(e => new { e.StaffUserId, e.Status, e.ExpiresAt }, "IX_TaskOffer_Staff_Status_Expiry");
+
+            entity.HasIndex(e => new { e.TaskId, e.Status }, "IX_TaskOffer_Task_Status");
+
+            entity.HasIndex(e => new { e.TaskId, e.DispatchCycleId, e.StaffUserId }, "UQ_TaskOffer_Task_Cycle_Staff").IsUnique();
+
+            entity.HasIndex(e => e.TaskId, "UX_TaskOffer_Accepted_Task")
+                .IsUnique()
+                .HasFilter("([status]=N'ACCEPTED')");
+
+            entity.Property(e => e.OfferId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_TaskOffer_Id")
+                .HasColumnName("offer_id");
+            entity.Property(e => e.DeclineReasonCode)
+                .HasMaxLength(200)
+                .HasColumnName("decline_reason_code");
+            entity.Property(e => e.DispatchCycleId).HasColumnName("dispatch_cycle_id");
+            entity.Property(e => e.DispatchScope)
+                .HasMaxLength(80)
+                .HasColumnName("dispatch_scope");
+            entity.Property(e => e.ExpiresAt)
+                .HasPrecision(3)
+                .HasColumnName("expires_at");
+            entity.Property(e => e.OfferedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_TaskOffer_OfferedAt")
+                .HasColumnName("offered_at");
+            entity.Property(e => e.RespondedAt)
+                .HasPrecision(3)
+                .HasColumnName("responded_at");
+            entity.Property(e => e.StaffUserId).HasColumnName("staff_user_id");
+            entity.Property(e => e.Status)
+                .HasMaxLength(40)
+                .HasDefaultValue("PENDING", "DF_TaskOffer_Status")
+                .HasColumnName("status");
+            entity.Property(e => e.TaskId).HasColumnName("task_id");
+            entity.Property(e => e.WaveNumber).HasColumnName("wave_number");
+
+            entity.HasOne(d => d.StaffUser).WithMany(p => p.TaskOffers)
+                .HasForeignKey(d => d.StaffUserId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_TaskOffer_StaffUser");
+
+            entity.HasOne(d => d.Task).WithOne(p => p.TaskOffer)
+                .HasForeignKey<TaskOffer>(d => d.TaskId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_TaskOffer_Task");
+        });
+
+        modelBuilder.Entity<TaskType>(entity =>
+        {
+            entity.ToTable("TaskType");
+
+            entity.HasIndex(e => e.RequiredSpecialtyId, "IX_TaskType_RequiredSpecialtyId");
+
+            entity.HasIndex(e => e.Code, "UQ_TaskType_Code").IsUnique();
+
+            entity.Property(e => e.TaskTypeId)
+                .HasDefaultValueSql("(newsequentialid())", "DF_TaskType_Id")
+                .HasColumnName("task_type_id");
+            entity.Property(e => e.Code)
+                .HasMaxLength(100)
+                .HasColumnName("code");
+            entity.Property(e => e.Description)
+                .HasMaxLength(1000)
+                .HasColumnName("description");
+            entity.Property(e => e.Name)
+                .HasMaxLength(200)
+                .HasColumnName("name");
+            entity.Property(e => e.RequiredSpecialtyId).HasColumnName("required_specialty_id");
+            entity.Property(e => e.SourceCategory)
+                .HasMaxLength(200)
+                .HasColumnName("source_category");
+
+            entity.HasOne(d => d.RequiredSpecialty).WithMany(p => p.TaskTypes)
+                .HasForeignKey(d => d.RequiredSpecialtyId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_TaskType_RequiredSpecialty");
+        });
+
         modelBuilder.Entity<UserAccount>(entity =>
         {
             entity.HasKey(e => e.UserId);
@@ -1587,6 +1864,8 @@ public partial class AppDbContext : DbContext
             entity.ToTable("UserAccount");
 
             entity.HasIndex(e => e.RoleId, "IX_UserAccount_RoleId");
+
+            entity.HasIndex(e => e.SpecialtyId, "IX_UserAccount_SpecialtyId").HasFilter("([specialty_id] IS NOT NULL)");
 
             entity.HasIndex(e => e.Code, "UQ_UserAccount_Code").IsUnique();
 
@@ -1615,6 +1894,7 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(30)
                 .HasColumnName("phone");
             entity.Property(e => e.RoleId).HasColumnName("role_id");
+            entity.Property(e => e.SpecialtyId).HasColumnName("specialty_id");
             entity.Property(e => e.Status)
                 .HasMaxLength(20)
                 .HasDefaultValue("ACTIVE", "DF_UserAccount_Status")
@@ -1628,6 +1908,10 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.RoleId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_UserAccount_Role");
+
+            entity.HasOne(d => d.Specialty).WithMany(p => p.UserAccounts)
+                .HasForeignKey(d => d.SpecialtyId)
+                .HasConstraintName("FK_UserAccount_Specialty");
         });
 
         modelBuilder.Entity<UserDevice>(entity =>

@@ -33,6 +33,8 @@ public partial class MonitoringRule
 
     public string OutcomeType { get; set; } = null!;
 
+    public int ClearDurationSec { get; set; }
+
     public virtual MonitoringConfiguration Config { get; set; } = null!;
 
     public virtual OperationalEventType? EventType { get; set; }
