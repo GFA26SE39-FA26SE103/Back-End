@@ -12,6 +12,25 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
 {
     private const int ResultLimit = 200;
 
+    public async Task<TaskOfferView[]> Offers(string? status, Guid? taskId, CancellationToken ct)
+    {
+        UseCase.Operator(current);
+        await schema.Require(ct);
+        var statuses = status is null ? new[] { TaskOfferStatus.Pending, TaskOfferStatus.Accepted, TaskOfferStatus.Declined, TaskOfferStatus.Expired, TaskOfferStatus.Cancelled }
+            : status.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        foreach (var value in statuses) Rules.Status(value, TaskOfferStatus.Pending, TaskOfferStatus.Accepted, TaskOfferStatus.Declined, TaskOfferStatus.Expired, TaskOfferStatus.Cancelled);
+        var rows = await store.List<TaskOffer>(o => statuses.Contains(o.Status) && (taskId == null || o.TaskId == taskId), ct);
+        return await views.Offers(rows.OrderByDescending(o => o.OfferedAt).Take(ResultLimit).ToList(), ct);
+    }
+
+    public async Task<TaskOfferView> Offer(Guid offerId, CancellationToken ct)
+    {
+        UseCase.Operator(current);
+        await schema.Require(ct);
+        var offer = UseCase.Found(await store.Find<TaskOffer>(offerId, ct));
+        return (await views.Offers([offer], ct)).Single();
+    }
+
     public async Task<StaffTaskView[]> List(string? status, bool needsAssignment, CancellationToken ct)
     {
         UseCase.Viewer(current);

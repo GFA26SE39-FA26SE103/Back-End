@@ -15,7 +15,8 @@ public sealed record MonitoringConfigurationView(Guid ConfigId, Guid ZoneId, str
 public sealed record MonitoringMeasurementOptionView(string Mode, string Unit, bool Supported, string? Reason, decimal? DefaultWarning=null, decimal? DefaultCritical=null);
 public sealed record IncidentTypeView(Guid IncidentTypeId, string Code, string Name, string? Description, string SourceType,
     string? MeasurementType, string Status, bool Supported, string? ThresholdUnit, decimal? DefaultWarningThreshold,
-    decimal? DefaultCriticalThreshold, string? UnsupportedReason, MonitoringMeasurementOptionView[]? MeasurementOptions=null);
+    decimal? DefaultCriticalThreshold, string? UnsupportedReason, MonitoringMeasurementOptionView[]? MeasurementOptions=null,
+    bool RequiresBeforePhoto=false);
 public sealed record MonitoringIssue(string Code, string Message);
 public sealed record MonitoringCameraView(Guid CameraId, string Code, string Name, string Status, string MappingStatus,
     Point[] RoiPolygon, string? SourceType, string? Protocol, bool IsEnabled, string? LastTestResult, DateTime? LastTestedAt,

@@ -22,11 +22,14 @@ public sealed class TaskViews(ISetupStore store, TaskDispatch dispatch)
             var needsAssignment = t.Status == WorkTaskStatus.Offered && t.CurrentAssigneeUserId is null
                 && !taskOffers.Any(o => o.TaskId == t.TaskId && o.Status == TaskOfferStatus.Pending);
             var firstPriority = context.FirstOfferPriority.GetValueOrDefault(t.TaskId);
+            var sla = IncidentSlaPolicyService.ReadSnapshot(t.SlaSnapshotJson);
             return new StaffTaskView(t.TaskId, t.OriginType, SourceCode(t), ev is null ? null : context.EventTypes.GetValueOrDefault(ev.EventTypeId)?.Code, t.Title, t.Description, t.Priority,
                 firstPriority is not null && TaskRules.Rank(firstPriority) < TaskRules.Rank(t.Priority) ? firstPriority : null,
                 t.ZoneId, context.Zones.GetValueOrDefault(t.ZoneId)?.Name ?? "", ev is null ? null : context.Cameras.GetValueOrDefault(ev.CameraId)?.Code, t.Status,
                 current?.AssignmentType ?? TaskAssignmentType.Offer, t.CurrentAssigneeUserId, t.CurrentAssigneeUserId is { } id ? names.GetValueOrDefault(id) : null,
-                t.CreatedAt, t.AssignedAt, t.AcceptedAt, t.PlannedStartAt, t.StartedAt, t.SubmittedAt, ev?.ClearedAt, needsAssignment, t.UpdatedAt);
+                t.CreatedAt, t.AssignedAt, t.AcceptedAt, t.PlannedStartAt, t.StartedAt, t.SubmittedAt, ev?.ClearedAt, needsAssignment, t.UpdatedAt,
+                t.SlaPolicyId, sla?.PriorityCode, sla?.PolicyVersion, t.ResponseDeadlineAt ?? sla?.ResponseDeadlineAt,
+                t.ResolutionDeadlineAt ?? sla?.ResolutionDeadlineAt);
         }).ToArray();
     }
 
@@ -37,6 +40,8 @@ public sealed class TaskViews(ISetupStore store, TaskDispatch dispatch)
         var tasks = (await store.List<WorkTask>(t => taskIds.Contains(t.TaskId), ct)).ToDictionary(t => t.TaskId);
         var context = await Load(tasks.Values.ToList(), ct);
         var allOffers = await store.List<TaskOffer>(a => taskIds.Contains(a.TaskId), ct);
+        var staffIds = offers.Select(o => o.StaffUserId).Distinct().ToList();
+        var staffNames = (await store.List<UserAccount>(u => staffIds.Contains(u.UserId), ct)).ToDictionary(u => u.UserId, u => u.FullName);
         var rounds = await store.List<Notification>(n => n.TaskId != null && taskIds.Contains(n.TaskId.Value) && n.NotificationType == TaskNotifier.Offer, ct);
         var (_, maxAttempts) = await dispatch.Retry(ct);
         return offers.Where(o => tasks.ContainsKey(o.TaskId)).Select(o =>
@@ -50,7 +55,8 @@ public sealed class TaskViews(ISetupStore store, TaskDispatch dispatch)
             var (mode, unit) = Measurement(ev?.MetadataJson);
             return new TaskOfferView(o.OfferId, t.TaskId, t.OriginType, SourceCode(t), ev is null ? null : context.EventTypes.GetValueOrDefault(ev.EventTypeId)?.Code,
                 t.Title, t.Description, t.Priority, t.ZoneId, context.Zones.GetValueOrDefault(t.ZoneId)?.Name ?? "", camera?.Code, camera?.Name, ev?.MetricValue, mode, unit,
-                o.OfferedAt, allOffers.Where(a => a.TaskId == t.TaskId).Select(a => a.StaffUserId).Distinct().Count(), attempt, maxAttempts, next, o.Status, o.DeclineReasonCode, ev?.ClearedAt);
+                o.OfferedAt, allOffers.Where(a => a.TaskId == t.TaskId).Select(a => a.StaffUserId).Distinct().Count(), attempt, maxAttempts, next, o.Status, o.DeclineReasonCode, ev?.ClearedAt,
+                o.StaffUserId, staffNames.GetValueOrDefault(o.StaffUserId), o.DispatchCycleId, o.WaveNumber, o.DispatchScope, o.ExpiresAt, o.RespondedAt);
         }).ToArray();
     }
 

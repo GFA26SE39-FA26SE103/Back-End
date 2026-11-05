@@ -36,7 +36,7 @@ public static class MonitoringSettings
 }
 public sealed record MonitoringRuleRuntimeView(Guid RuleId,string IncidentCode,string IncidentName,string Mode,string Unit,decimal WarningThreshold,
     decimal CriticalThreshold,int SustainSec,int CooldownSec,int ClearDurationSec,decimal? MetricValue,long WarningProgressMs,long CriticalProgressMs,
-    decimal CooldownRemainingSec,string Reason,Guid? IncidentId=null);
+    decimal CooldownRemainingSec,string Reason,Guid? IncidentId=null,string? OperationalEventPriority=null);
 public sealed record MonitoringZoneRuntimeView(Guid ZoneId,string ZoneName,Guid? ConfigId,DateTime? ConfigVersion,string ConfigurationStatus,
     decimal Confidence,int? PeopleCount,int? QueueCount,MonitoringRuleRuntimeView[] Rules,string? IssueCode=null);
 public sealed record MonitoringCameraRuntimeView(Guid CameraId,string State,string Reason,string? ErrorCode,string? VideoSourceType,
