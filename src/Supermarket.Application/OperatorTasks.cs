@@ -56,7 +56,9 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
         var excluded = await RejectedTwice(taskId, ct);
         var onShift = await roster.OnShift(clock.UtcNow, ct);
         var specialty = task.TaskTypeId is { } taskTypeId ? (await store.Find<TaskType>(taskTypeId, ct))?.RequiredSpecialtyId : null;
-        return onShift.Where(s => specialty is not null && s.User.SpecialtyId == specialty
+        // Historical/manual tasks may predate V7 TaskType data. Enforce specialty whenever
+        // the task is typed; keep those legacy tasks manually assignable for migration safety.
+        return onShift.Where(s => (specialty is null || s.User.SpecialtyId == specialty)
                 && s.ActiveTasks < TaskRules.MaxActiveTasks && !excluded.Contains(s.User.UserId))
             .Select(s => new AssignableStaffView(s.User.UserId, s.User.FullName, s.ZoneIds.Contains(task.ZoneId), s.ActiveTasks, s.EndsAt))
             .OrderByDescending(s => s.AssignedToZone).ThenBy(s => s.ActiveTasks).ThenBy(s => s.FullName).ToArray();
@@ -81,7 +83,7 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
             if ((await RejectedTwice(taskId, ct)).Contains(staff.User.UserId))
                 throw new ApplicationException("STAFF_REJECTED_TWICE", "This Staff member's work on the task was rejected twice; assign a different Staff member.");
             if (staff.ActiveTasks >= TaskRules.MaxActiveTasks) throw new ApplicationException("WORKLOAD_LIMIT", "The Staff member has reached the active-task limit.");
-            if (!await roster.HasRequiredSpecialty(task, staff.User, ct))
+            if (task.TaskTypeId is not null && !await roster.HasRequiredSpecialty(task, staff.User, ct))
                 throw new ApplicationException("SPECIALTY_MISMATCH", "The Staff member's specialty does not match this TaskType.", 422);
             if (task.CurrentAssigneeUserId is not null || !staff.ZoneIds.Contains(task.ZoneId))
                 Rules.Require(!string.IsNullOrWhiteSpace(request.Reason), "REASON_REQUIRED", "A reason is required for reassignment or assignment outside the Task Zone.");
