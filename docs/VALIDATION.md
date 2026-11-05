@@ -339,6 +339,15 @@ The original `feature/zone-min-staff` increment exposed `Zone.min_staff` through
 
 Existing Zone rows are deliberately not rewritten. Their current `min_staff=0` continues to mean that no minimum coverage gate is configured until a Manager records the approved baseline in Zone staffing.
 
+## MF-02 V7 TaskOffer + specialty dispatch — 2026-11-05
+
+Branch `feature/task-offer-dispatch`, based on the V7 backend synchronization branch. Runtime claim/accept/decline/expire/cancel state now uses `TaskOffer`; `TaskAssignmentHistory` is retained only for audit/current assignment history. Eligibility is bounded to `SAME_ZONE` and requires active STAFF, current check-in/shift, active Zone assignment, workload below two, and `UserAccount.specialty_id == TaskType.required_specialty_id`. Response policies can persist an explicit `taskTypeCode`; missing or ambiguous TaskType resolution fails closed. No adjacent-Zone expansion or full SLA warning/breach escalation is claimed.
+
+- `dotnet build Supermarket.sln --no-restore -m:1`: **PASS**, 0 warnings and 0 errors.
+- Direct focused execution of 37 non-HTTP `[Fact]` tests across `StaffTaskTests`, `StaffExecutionTests`, `TaskPersistenceMappingTests` and `ResponsePolicyTests`: **37 passed, 0 failed**. This covers specialty filtering, no-eligible Operator exception, accepted/declined/expired/retry flows, first-winner cancellation, active duplicate prevention, V7 EF mapping and explicit policy TaskType.
+- The normal filtered `dotnet test` invocation could not start tests in this host because `vstest.console` did not connect to `testhost` within 60 seconds. The temporary direct runner was removed after execution. No full-suite or HTTP/SQL acceptance claim is made from this run.
+- `docs/openapi.json` parses successfully after adding `taskTypeCode`, Staff specialty account fields and `GET /api/staff-specialties`.
+
 ## MF-03 Task Evidence integrated with dev — 2026-10-29
 
 Branch `feature/mf03-task-evidence` was updated from `origin/dev` at `d0a3b24`. The two content conflicts were resolved by retaining both Task Evidence and Notification registrations in `Program.cs`, and by documenting both notification/device behavior and the MF-03 evidence API in `docs/API.md`.

@@ -19,5 +19,20 @@ public partial class AppDbContext
         modelBuilder.Entity<MonitoringRule>().Property(r => r.CooldownSec).ValueGeneratedNever();
         modelBuilder.Entity<MonitoringRule>().Property(r => r.ClearDurationSec).ValueGeneratedNever();
         modelBuilder.Entity<MonitoringConfiguration>().Property(c => c.ConfidenceThreshold).ValueGeneratedNever();
+
+        // Reverse engineering sees the filtered unique "one ACCEPTED offer per task" index and
+        // incorrectly models TaskOffer.TaskId as a one-to-one FK. The database permits many offers
+        // per task and only filters uniqueness to status=ACCEPTED, so correct the runtime model here
+        // without editing generated scaffold files.
+        var offerType = modelBuilder.Entity<TaskOffer>().Metadata;
+        var taskForeignKey = offerType.GetForeignKeys().Single(f => f.PrincipalEntityType.ClrType == typeof(Task));
+        offerType.RemoveForeignKey(taskForeignKey);
+        modelBuilder.Entity<Task>().Ignore(t => t.TaskOffer);
+        modelBuilder.Entity<TaskOffer>()
+            .HasOne(o => o.Task)
+            .WithMany()
+            .HasForeignKey(o => o.TaskId)
+            .OnDelete(DeleteBehavior.ClientSetNull)
+            .HasConstraintName("FK_TaskOffer_Task");
     }
 }

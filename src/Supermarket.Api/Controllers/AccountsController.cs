@@ -26,4 +26,5 @@ public sealed class UsersController(Accounts accounts) : ControllerBase
     [HttpPost("{id:guid}/disable")] public Task<UserView> Disable(Guid id, CancellationToken ct) => accounts.Status(id, false, ct);
     [HttpPost("{id:guid}/enable")] public Task<UserView> Enable(Guid id, CancellationToken ct) => accounts.Status(id, true, ct);
     [HttpGet("/api/roles")] public Task<List<Supermarket.Domain.Role>> Roles(CancellationToken ct) => accounts.Roles(ct);
+    [HttpGet("/api/staff-specialties")] public Task<StaffSpecialtyView[]> Specialties(CancellationToken ct) => accounts.Specialties(ct);
 }

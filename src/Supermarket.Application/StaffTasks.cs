@@ -61,8 +61,8 @@ public sealed class StaffTasks(ISetupStore store, ICurrentUser current, IClock c
         UseCase.Staff(current);
         await schema.Require(ct);
         var me = current.UserId; var since = clock.UtcNow.AddDays(-1);
-        var offers = await store.List<TaskAssignmentHistory>(a => a.StaffUserId == me && a.AssignmentType == TaskAssignmentType.Offer
-            && (a.Status == OfferStatus.Offered || (!openOnly && a.AssignedAt >= since)), ct);
+        var offers = await store.List<TaskOffer>(a => a.StaffUserId == me
+            && (a.Status == TaskOfferStatus.Pending || (!openOnly && a.OfferedAt >= since)), ct);
         return (await views.Offers(offers, ct)).OrderByDescending(o => o.CreatedAt).ToArray();
     }
 
@@ -87,20 +87,23 @@ public sealed class StaffTasks(ISetupStore store, ICurrentUser current, IClock c
                 var offer = await MyOffer(offerId, ct);
                 var task = UseCase.Found(await store.Find<WorkTask>(offer.TaskId, ct));
                 taskId = task.TaskId;
-                if (offer.Status != OfferStatus.Offered || task.Status != WorkTaskStatus.Offered || task.CurrentAssigneeUserId is not null)
+                if (offer.ExpiresAt <= clock.UtcNow && offer.Status == TaskOfferStatus.Pending)
+                    throw new ApplicationException("OFFER_EXPIRED", "This TaskOffer expired before it was claimed.");
+                if (offer.Status != TaskOfferStatus.Pending || task.Status != WorkTaskStatus.Offered || task.CurrentAssigneeUserId is not null)
                 {
                     // A retry of my own acceptance (e.g. after a timeout) returns the task as it is now.
-                    if (offer.Status == OfferStatus.Accepted && task.CurrentAssigneeUserId == current.UserId && request.Response != TaskResponse.CannotHandle) return true;
+                    if (offer.Status == TaskOfferStatus.Accepted && task.CurrentAssigneeUserId == current.UserId && request.Response != TaskResponse.CannotHandle) return true;
                     if (task.CurrentAssigneeUserId is { } other && other != current.UserId) throw await Taken(task, ct);
                     throw new ApplicationException("OFFER_CLOSED", "This offer is no longer open.");
                 }
                 var now = clock.UtcNow;
                 if (request.Response == TaskResponse.CannotHandle)
                 {
-                    offer.Status = OfferStatus.Declined; offer.RespondedAt = now; offer.EndedAt = now; offer.Reason = request.Reason!.Trim();
+                    offer.Status = TaskOfferStatus.Declined; offer.RespondedAt = now; offer.DeclineReasonCode = request.Reason!.Trim();
                     await store.Update(offer, ct);
-                    var stillOpen = (await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId && a.Status == OfferStatus.Offered, ct))
-                        .Any(a => a.TaskAssignmentId != offer.TaskAssignmentId);
+                    await dispatch.Audit(offer, OfferStatus.Declined, offer.DeclineReasonCode, now, ct);
+                    var stillOpen = (await store.List<TaskOffer>(a => a.TaskId == task.TaskId && a.Status == TaskOfferStatus.Pending, ct))
+                        .Any(a => a.OfferId != offer.OfferId);
                     if (!stillOpen) await dispatch.NeedsOperator(task, "Every offered Staff member answered Cannot handle.", ct);
                     return false;
                 }
@@ -108,12 +111,17 @@ public sealed class StaffTasks(ISetupStore store, ICurrentUser current, IClock c
                     ?? throw new ApplicationException("NOT_ON_SHIFT", "Check in to a current shift before accepting tasks.");
                 if (me.ActiveTasks >= TaskRules.MaxActiveTasks)
                     throw new ApplicationException("WORKLOAD_LIMIT", $"You already have {me.ActiveTasks} active tasks; the limit is {TaskRules.MaxActiveTasks}.");
+                if (!me.ZoneIds.Contains(task.ZoneId))
+                    throw new ApplicationException("NOT_ELIGIBLE", "You are no longer assigned to the Task Zone.");
+                if (!await roster.HasRequiredSpecialty(task, me.User, ct))
+                    throw new ApplicationException("SPECIALTY_MISMATCH", "Your Staff specialty no longer matches this TaskType.");
                 if (request.Response == TaskResponse.HandleLater) TaskRules.PlannedStart(request.PlannedStartAt, now, me.EndsAt);
                 TaskRules.Accept(task, now, request.Response, request.PlannedStartAt, current.UserId);
                 await store.Update(task, ct);
-                offer.Status = OfferStatus.Accepted; offer.RespondedAt = now;
+                offer.Status = TaskOfferStatus.Accepted; offer.RespondedAt = now;
                 await store.Update(offer, ct);
-                await dispatch.CloseOpenOffers(task.TaskId, OfferStatus.Withdrawn, "TAKEN_BY_OTHER", now, ct, offer.TaskAssignmentId);
+                await dispatch.Audit(offer, OfferStatus.Accepted, null, now, ct);
+                await dispatch.CloseOpenOffers(task.TaskId, TaskOfferStatus.Cancelled, "TAKEN_BY_OTHER", now, ct, offer.OfferId);
                 return true;
             }, ct);
             return new TaskResponseResult(request.Response, accepted ? await View(taskId, ct) : null);
@@ -159,10 +167,10 @@ public sealed class StaffTasks(ISetupStore store, ICurrentUser current, IClock c
 
     // Views are built after commit so they include rows written by the transaction.
     private async Task<StaffTaskView> View(Guid taskId, CancellationToken ct) => (await views.Tasks([UseCase.Found(await store.Find<WorkTask>(taskId, ct))], ct)).Single();
-    private async Task<TaskAssignmentHistory> MyOffer(Guid offerId, CancellationToken ct)
+    private async Task<TaskOffer> MyOffer(Guid offerId, CancellationToken ct)
     {
-        var offer = await store.Find<TaskAssignmentHistory>(offerId, ct);
-        if (offer is null || offer.StaffUserId != current.UserId || offer.AssignmentType != TaskAssignmentType.Offer)
+        var offer = await store.Find<TaskOffer>(offerId, ct);
+        if (offer is null || offer.StaffUserId != current.UserId)
             throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
         return offer;
     }

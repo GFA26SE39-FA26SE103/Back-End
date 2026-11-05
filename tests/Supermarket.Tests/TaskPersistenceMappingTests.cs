@@ -13,7 +13,7 @@ public sealed class TaskPersistenceMappingTests
     // Add/Find use the actual EF mapper and tracked rows without connecting to SQL.
     // MemoryStore-based dispatch tests cannot catch a domain/scaffold mismatch.
     [Fact]
-    public async System.Threading.Tasks.Task AutomaticTaskActionRoundTripsThroughTheV6Mapper()
+    public async System.Threading.Tasks.Task AutomaticTaskActionRoundTripsThroughTheV7Mapper()
     {
         using var db = Context();
         var clock = new Clock();
@@ -37,29 +37,41 @@ public sealed class TaskPersistenceMappingTests
     }
 
     [Fact]
-    public async System.Threading.Tasks.Task EventTaskAndOfferRoundTripThroughTheV6Mapper()
+    public async System.Threading.Tasks.Task EventTaskAndMultipleOffersRoundTripThroughTheV7Mapper()
     {
         using var db = Context();
         var store = new EfSetupStore(db, new Clock());
+        var taskTypeId = Guid.NewGuid();
         var task = new WorkTask
         {
             TaskId = Guid.NewGuid(), ZoneId = Guid.NewGuid(), EventId = Guid.NewGuid(),
-            Title = "Clear the queue", OriginType = TaskOrigin.OperationalEvent
+            Title = "Clear the queue", OriginType = TaskOrigin.OperationalEvent, TaskTypeId = taskTypeId
         };
-        var offer = new Supermarket.Domain.TaskAssignmentHistory
+        var cycle = Guid.NewGuid();
+        var offer = new Supermarket.Domain.TaskOffer
         {
-            TaskAssignmentId = Guid.NewGuid(), TaskId = task.TaskId, StaffUserId = Guid.NewGuid(),
-            AssignedAt = new Clock().UtcNow
+            OfferId = Guid.NewGuid(), TaskId = task.TaskId, StaffUserId = Guid.NewGuid(), DispatchCycleId = cycle,
+            WaveNumber = 1, DispatchScope = TaskDispatchScope.SameZone, Status = TaskOfferStatus.Pending,
+            OfferedAt = new Clock().UtcNow, ExpiresAt = new Clock().UtcNow.AddSeconds(30)
+        };
+        var other = new Supermarket.Domain.TaskOffer
+        {
+            OfferId = Guid.NewGuid(), TaskId = task.TaskId, StaffUserId = Guid.NewGuid(), DispatchCycleId = cycle,
+            WaveNumber = 1, DispatchScope = TaskDispatchScope.SameZone, Status = TaskOfferStatus.Pending,
+            OfferedAt = offer.OfferedAt, ExpiresAt = offer.ExpiresAt
         };
 
         await store.Add(task);
         await store.Add(offer);
+        await store.Add(other);
         var loadedTask = Assert.IsType<WorkTask>(await store.Find<WorkTask>(task.TaskId));
-        var loadedOffer = Assert.IsType<Supermarket.Domain.TaskAssignmentHistory>(await store.Find<Supermarket.Domain.TaskAssignmentHistory>(offer.TaskAssignmentId));
+        var loadedOffer = Assert.IsType<Supermarket.Domain.TaskOffer>(await store.Find<Supermarket.Domain.TaskOffer>(offer.OfferId));
         Assert.Equal(task.EventId, loadedTask.EventId);
+        Assert.Equal(taskTypeId, loadedTask.TaskTypeId);
         Assert.Equal(TaskOrigin.OperationalEvent, loadedTask.OriginType);
         Assert.Equal(WorkTaskStatus.Offered, loadedTask.Status);
-        Assert.Equal((task.TaskId, offer.StaffUserId, OfferStatus.Offered), (loadedOffer.TaskId, loadedOffer.StaffUserId, loadedOffer.Status));
+        Assert.Equal((task.TaskId, offer.StaffUserId, TaskOfferStatus.Pending), (loadedOffer.TaskId, loadedOffer.StaffUserId, loadedOffer.Status));
+        Assert.Equal(2, db.TaskOffers.Local.Count);
     }
 
     private static AppDbContext Context() => new(new DbContextOptionsBuilder<AppDbContext>()

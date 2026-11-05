@@ -15,7 +15,7 @@ Controller và use case cùng kiểm tra quyền; STAFF không đọc được d
 | Capability | Routes |
 |---|---|
 | Auth | POST /auth/login; GET /auth/me |
-| Accounts | GET/POST /users; PATCH /users/{id}; POST /users/{id}/enable hoặc disable; GET /roles |
+| Accounts | GET/POST /users; PATCH /users/{id}; POST /users/{id}/enable hoặc disable; GET /roles; GET /staff-specialties |
 | Supermarket | GET/POST /supermarkets; GET/PATCH /supermarkets/{id} |
 | Floors | GET/POST /supermarkets/{id}/floors; GET/PATCH /floors/{id}; PATCH /floors/{id}/details; POST/GET /floors/{id}/map |
 | Zones | GET/POST /floors/{id}/zones; GET/PATCH /zones/{id}; normalized polygon, optional `colorHex`/`areaM2`, and Zone-level `minStaff >= 0` configured by Admin for Manager coverage planning |
@@ -201,15 +201,17 @@ ERD V6 đã có `SystemSetting`, `Notification`, `NotificationRecipient`, `UserD
 
 V1 Admin chỉ quản lý `notification.push_enabled`, `notification.task_offer_push_enabled`, `notification.task_update_push_enabled`, `notification.shift_swap_push_enabled`. In-app records và web inbox luôn hoạt động; không có switch tắt persistence. Staff device lifecycle đã có trên `UserDevice`, nhưng `pushConfigured` vẫn `false` vì FCM sender, credential, Mobile integration và Gate B staging chưa được implement/enable. Vì vậy lưu policy, web inbox và device registration đã có, nhưng **chưa có FCM delivery**. `FA26SE103_Database_V8_Notification_Settings.sql` seed bốn default row idempotently; API không tự mutate DB khi startup.
 
-### MF-02 staff tasks (đã tích hợp vào scaffold ERD V6)
+### MF-02 staff tasks (V7 TaskOffer + specialty dispatch)
 
-Cần database đúng post-cleanup ERD V6, gồm các bảng Task/Shift/Notification/ResponsePolicy, `Task.planned_start_at` và `SystemSetting`. Nếu thiếu, các route dưới đây trả 503 `TASK_SCHEMA_NOT_READY`; monitoring vẫn chạy, chỉ không tạo task.
+Cần database ERD V7/V9, gồm `TaskOffer`, `TaskType`, `StaffSpecialty`, các bảng Task/Shift/Notification/ResponsePolicy và `UserAccount.specialty_id`. Nếu thiếu, các route dưới đây trả 503 `TASK_SCHEMA_NOT_READY`; monitoring vẫn chạy, chỉ không tạo task.
 
-Luồng tạo task: OperationalEvent episode mở hoặc tăng priority → `ResponsePolicy` (rule_id + event_priority, enabled) → `ResponsePolicyAction` `CREATE_OPERATIONAL_TASK` + `AUTOMATIC` + enabled → một `Task` origin `OPERATIONAL_EVENT`, status `OFFERED`. Mỗi episode tối đa một task; WARNING→CRITICAL cập nhật priority của task đó. `action_parameters_json` tuỳ chọn `{"title","instructions"}`. Action `APPROVAL_REQUIRED` chưa chạy (chưa có luồng Operator duyệt). Không có policy thì không có task.
+Luồng tạo task: OperationalEvent episode mở hoặc tăng priority → `ResponsePolicy` (rule_id + event_priority, enabled) → `ResponsePolicyAction` `CREATE_OPERATIONAL_TASK` + `AUTOMATIC` + enabled → một `Task` origin `OPERATIONAL_EVENT`, status `OFFERED`. Mỗi episode tối đa một task; WARNING→CRITICAL cập nhật priority của task đó. `action_parameters_json` hỗ trợ `{"title","instructions","taskTypeCode"}`. Nếu không cấu hình `taskTypeCode`, backend chỉ suy ra khi `OperationalEventType.name` khớp đúng một `TaskType.source_category`; thiếu/mơ hồ thì fail closed và không tạo task. Action `APPROVAL_REQUIRED` chưa chạy. Không có policy thì không có task.
 
-Offer là một dòng `TaskAssignmentHistory` (`assignment_type=OFFER`, status `OFFERED/ACCEPTED/DECLINED/WITHDRAWN/EXPIRED`, `reason` lưu lý do). Staff đủ điều kiện: role STAFF ACTIVE, đã check-in vào ca đang diễn ra, có `StaffZoneAssignment` ACTIVE vào zone của task, dưới 2 task `ACCEPTED/IN_PROGRESS`. Worker `TaskOffers` (mặc định quét 2 s) gửi lại theo V6 `SystemSetting`: `task_offer.retry_interval_sec` và `task_offer.max_retry_count` (tổng số lần = 1 + max retry; giá trị thiếu/không hợp lệ dùng 60 s × 3 lần), offer thêm Staff mới đủ điều kiện, rồi hết lượt thì chuyển offer sang `EXPIRED` và báo Operator một lần (`TASK_NEEDS_ASSIGNMENT`). Không ai đủ điều kiện, hoặc mọi người đều Cannot handle, cũng báo Operator ngay. Không có SLA/deadline: `plannedStartAt` chỉ là giờ bắt đầu dự kiến, backend không tự đánh Overdue hay leo thang.
+Runtime offer nằm trong `TaskOffer`, trạng thái `PENDING/ACCEPTED/DECLINED/EXPIRED/CANCELLED`; `TaskAssignmentHistory` chỉ ghi audit/assignment history. Mỗi vòng tạo một `dispatchCycleId`, `waveNumber=1`, `dispatchScope=SAME_ZONE`; cùng task/staff không thể có hai offer đang `PENDING`. Staff đủ điều kiện phải là STAFF ACTIVE, đã check-in vào ca đang diễn ra, có `StaffZoneAssignment` ACTIVE vào đúng zone, dưới 2 task `ACCEPTED/IN_PROGRESS`, và `UserAccount.specialty_id` khớp `TaskType.required_specialty_id`. Chưa mở rộng Zone lân cận.
 
-Event `CLEARED` (tạm theo open point 5): task chưa ai nhận → offer `WITHDRAWN` reason `EVENT_CLEARED`, task `CANCELLED`, báo các Staff được offer. Task đã nhận giữ nguyên, assignee nhận `EVENT_CLEARED`; view có `eventClearedAt`.
+Worker `TaskOffers` (mặc định quét 2 s) chuyển offer quá `expiresAt` sang `EXPIRED` (không phải Declined), ghi audit, rồi retry. `SLAPolicy.offer_timeout_sec` được ưu tiên khi Task có policy; nếu chưa có thì dùng `task_offer.retry_interval_sec`. Số vòng hiện vẫn dùng `task_offer.max_retry_count` (tổng = 1 + max retry; fallback 60 s × 3 lần). Hết vòng, không có assignee đủ điều kiện, hoặc mọi người Cannot handle thì báo Operator một lần (`TASK_NEEDS_ASSIGNMENT`). `Notification.severity` giữ priority của Task; Incident không có severity. SLA warning/breach/escalation đầy đủ chưa thuộc increment này.
+
+Event `CLEARED` (tạm theo open point 5): task chưa ai nhận → offer `CANCELLED` reason `EVENT_CLEARED`, task `CANCELLED`, báo các Staff được offer. Task đã nhận giữ nguyên, assignee nhận `EVENT_CLEARED`; view có `eventClearedAt`.
 
 | Quyền | Route | Ghi chú |
 |---|---|---|
@@ -218,13 +220,13 @@ Event `CLEARED` (tạm theo open point 5): task chưa ai nhận → offer `WITHD
 | STAFF | `GET /me/eligibility` | `checkedIn` chỉ true khi đang trong giờ ca. |
 | STAFF | `GET /me/task-offers?status=ALL` | Mặc định chỉ offer đang mở; `ALL` thêm offer 24 giờ qua kèm `status` và `closedReason`. |
 | STAFF | `GET /task-offers/{offerId}` | Một offer của chính mình. |
-| STAFF | `POST /task-offers/{offerId}/respond` | Body `{response, plannedStartAt?, reason?}`. `HANDLE_NOW` → `IN_PROGRESS`; `HANDLE_LATER` → `ACCEPTED` + `plannedStartAt` (sau hiện tại, không quá giờ hết ca); `CANNOT_HANDLE` cần `reason`, trả `task: null`. Lỗi: 409 `TASK_ALREADY_TAKEN` (detail có tên + giờ người nhận), 409 `OFFER_CLOSED`, 409 `NOT_ON_SHIFT`, 409 `WORKLOAD_LIMIT`, 422 `REASON_REQUIRED`, 422 `INVALID_PLANNED_START`. Ai nhận hợp lệ trước thì được (transaction serializable + concurrency token). |
+| STAFF | `POST /task-offers/{offerId}/respond` | Body `{response, plannedStartAt?, reason?}`. `HANDLE_NOW` → `IN_PROGRESS`; `HANDLE_LATER` → `ACCEPTED` + `plannedStartAt` (sau hiện tại, không quá giờ hết ca); `CANNOT_HANDLE` → offer `DECLINED`, cần `reason`, trả `task: null`. Lỗi: 409 `TASK_ALREADY_TAKEN`, `OFFER_CLOSED`, `OFFER_EXPIRED`, `NOT_ON_SHIFT`, `WORKLOAD_LIMIT`, `SPECIALTY_MISMATCH`; 422 `REASON_REQUIRED`, `INVALID_PLANNED_START`. Ai nhận hợp lệ trước thì được (transaction serializable + unique accepted-offer index). |
 | STAFF | `GET /me/tasks?status=ACCEPTED,IN_PROGRESS` | Mặc định ACCEPTED, IN_PROGRESS, SUBMITTED. |
 | STAFF | `POST /tasks/{taskId}/start` | `ACCEPTED` → `IN_PROGRESS`; 409 `TASK_NOT_ACCEPTED`. |
 | STAFF, OPERATOR, MANAGER | `GET /me/notifications`, `POST /me/notifications/read-all` | 100 thông báo in-app gần nhất của caller; xem Global notification settings ở trên. |
 | STAFF (người liên quan), ADMIN, OPERATOR, MANAGER | `GET /tasks/{taskId}` | Staff chỉ đọc task mình được offer hoặc được giao. |
 | ADMIN, OPERATOR, MANAGER | `GET /tasks?status=&needsAssignment=true` | Mặc định OFFERED, ACCEPTED, IN_PROGRESS, SUBMITTED; tối đa 200. |
-| OPERATOR | `GET /tasks/{taskId}/assignable-staff` | Staff đang trong ca, còn dưới giới hạn task; `assignedToZone` đứng trước. |
+| OPERATOR | `GET /tasks/{taskId}/assignable-staff` | Staff đang trong ca, đúng specialty và còn dưới giới hạn task; `assignedToZone` đứng trước. |
 | OPERATOR | `POST /tasks/{taskId}/assign` | Body `{staffUserId, reason?, expectedUpdatedAt?}`. Giao tay vào thẳng `ACCEPTED`, chỉ khi Task còn `OFFERED/ACCEPTED`; rút offer đang mở (`MANUALLY_ASSIGNED`). Web gửi `updatedAt` đã đọc vào `expectedUpdatedAt`; 409 `TASK_CHANGED` nếu dữ liệu đã đổi. Reassign hoặc giao ngoài Zone bắt buộc reason (422 `REASON_REQUIRED`). 409 `TASK_NOT_ASSIGNABLE`, `STAFF_NOT_ON_SHIFT`, `WORKLOAD_LIMIT`. |
 
 Notification types: `TASK_OFFER`, `TASK_OFFER_WITHDRAWN`, `TASK_ASSIGNED`, `TASK_NEEDS_ASSIGNMENT`, `TASK_PRIORITY_RAISED`, `EVENT_CLEARED`, cùng các loại MF-03 bên dưới. Web inbox dùng kênh `IN_APP`; device-token API và optional Firebase delivery worker đã có, nhưng external push chỉ hoạt động khi provider/credentials được cấu hình và policy được bật. `sourceCode` (`EVT-xxxxxxxx`) là mã hiển thị suy từ ID, không phải cột DB. Chưa làm: StaffReport. Đổi ca: xem mục MF-04 bên dưới.

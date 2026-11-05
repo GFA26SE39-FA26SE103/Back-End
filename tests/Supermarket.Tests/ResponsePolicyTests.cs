@@ -75,6 +75,25 @@ public sealed class ResponsePolicyTests
     }
 
     [Fact]
+    public async Task SavePersistsAnExplicitTaskTypeForSpecialtyAwareDispatch()
+    {
+        var h = World();
+        var specialty = new StaffSpecialty { SpecialtyId = Guid.NewGuid(), Code = "SPC-01", Name = "Checkout Operations" };
+        h.Store.Values.Add(specialty);
+        h.Store.Values.Add(new TaskType { TaskTypeId = Guid.NewGuid(), Code = "TT-03", Name = "Crowd control",
+            SourceCategory = "Overcrowding", RequiredSpecialtyId = specialty.SpecialtyId });
+        var rule = Assert.Single(h.Store.Values.OfType<MonitoringRule>());
+        var policies = new OperationalResponsePolicies(h.Store, new MonitoringSetupTests.User("ADMIN"));
+
+        var saved = await policies.Save(rule.RuleId, "WARNING",
+            new(true, null, new(true, "Relieve congestion", null, "tt-03")), default);
+
+        Assert.Equal("TT-03", saved.Action!.TaskTypeCode);
+        using var json = JsonDocument.Parse(Assert.Single(h.Store.Values.OfType<ResponsePolicyAction>()).ActionParametersJson!);
+        Assert.Equal("TT-03", json.RootElement.GetProperty("taskTypeCode").GetString());
+    }
+
+    [Fact]
     public async Task ReadinessExplainsDisabledRuleConfigurationPolicyAndAction()
     {
         var h = World();

@@ -29,12 +29,17 @@ public sealed class EfTaskSchema(AppDbContext db) : ITaskSchema
         var value = await db.Database.SqlQueryRaw<int>("""
             SELECT CASE WHEN OBJECT_ID(N'dbo.Task',N'U') IS NOT NULL
                 AND OBJECT_ID(N'dbo.TaskAssignmentHistory',N'U') IS NOT NULL
+                AND OBJECT_ID(N'dbo.TaskOffer',N'U') IS NOT NULL
+                AND OBJECT_ID(N'dbo.TaskType',N'U') IS NOT NULL
+                AND OBJECT_ID(N'dbo.StaffSpecialty',N'U') IS NOT NULL
                 AND OBJECT_ID(N'dbo.ShiftAssignment',N'U') IS NOT NULL
                 AND OBJECT_ID(N'dbo.StaffZoneAssignment',N'U') IS NOT NULL
                 AND OBJECT_ID(N'dbo.NotificationRecipient',N'U') IS NOT NULL
                 AND OBJECT_ID(N'dbo.ResponsePolicyAction',N'U') IS NOT NULL
                 AND OBJECT_ID(N'dbo.SystemSetting',N'U') IS NOT NULL
                 AND COL_LENGTH(N'dbo.Task',N'planned_start_at') IS NOT NULL
+                AND COL_LENGTH(N'dbo.Task',N'task_type_id') IS NOT NULL
+                AND COL_LENGTH(N'dbo.UserAccount',N'specialty_id') IS NOT NULL
                 THEN 1 ELSE 0 END AS Value
             """).SingleAsync(ct);
         ready = value == 1;

@@ -48,6 +48,8 @@ public sealed class UserAccount : TrackedEntity
     }
     /// <summary>Database V2 requires a unique code; new accounts use the same USR-&lt;16 hex&gt; form V2 backfilled.</summary>
     public string Code { get; set; } = "";
+    /// <summary>Primary operational specialty used for TaskType eligibility; separate from RBAC role.</summary>
+    public Guid? SpecialtyId { get; set; }
     public static string CodeFor(Guid userId) => "USR-" + userId.ToString("N")[..16].ToUpperInvariant();
 }
 public sealed class Supermarket : TrackedEntity

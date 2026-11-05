@@ -26,6 +26,22 @@ public sealed class AccountCodeTests
         Assert.NotEqual(users[first.UserId].Code, users[second.UserId].Code);
     }
 
+    [Fact]
+    public async Task AdminAssignsASeededSpecialtyToAStaffAccount()
+    {
+        var store = new MonitoringSetupTests.MemoryStore();
+        var staff = new Role { RoleId = Guid.NewGuid(), Name = "STAFF" };
+        var specialty = new StaffSpecialty { SpecialtyId = Guid.NewGuid(), Code = "SPC-01", Name = "Checkout Operations" };
+        store.Values.AddRange([staff, specialty]);
+        var accounts = new Accounts(store, new Admin(), new Passwords(), new Tokens());
+
+        var created = await accounts.Create(new CreateUserRequest("staff@test.local", "password-12345", "Staff", staff.RoleId, specialty.SpecialtyId), default);
+
+        Assert.Equal((specialty.SpecialtyId, specialty.Code, specialty.Name), (created.SpecialtyId, created.SpecialtyCode, created.SpecialtyName));
+        Assert.Equal(specialty.SpecialtyId, Assert.Single(store.Values.OfType<UserAccount>()).SpecialtyId);
+        Assert.Equal(specialty.SpecialtyId, Assert.Single(await accounts.Specialties(default)).SpecialtyId);
+    }
+
     private sealed class Admin : ICurrentUser { public Guid UserId { get; } = Guid.NewGuid(); public string Role => "ADMIN"; }
     private sealed class Passwords : IPasswordService { public string Hash(string password) => "hash"; public bool Verify(string hash, string password) => false; }
     private sealed class Tokens : ITokenIssuer { public LoginResponse Issue(UserView user) => throw new NotSupportedException(); }

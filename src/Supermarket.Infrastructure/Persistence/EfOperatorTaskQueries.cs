@@ -10,7 +10,7 @@ public sealed class EfOperatorTaskQueries(AppDbContext db) : IOperatorTaskQuerie
     public Task<Guid[]> NeedingAssignmentIds(int limit, CancellationToken ct)
         => db.Tasks.AsNoTracking()
             .Where(task => task.Status == WorkTaskStatus.Offered && task.CurrentAssigneeUserId == null
-                && !db.TaskAssignmentHistories.Any(assignment => assignment.TaskId == task.TaskId && assignment.Status == OfferStatus.Offered))
+                && !db.TaskOffers.Any(offer => offer.TaskId == task.TaskId && offer.Status == TaskOfferStatus.Pending))
             .OrderByDescending(task => task.CreatedAt)
             .ThenByDescending(task => task.TaskId)
             .Take(limit)

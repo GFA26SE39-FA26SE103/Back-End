@@ -53,8 +53,19 @@ public sealed class StaffRoster(ISetupStore store, StoreCalendar calendar)
                 zones.Where(z => z.ShiftAssignmentId == a.ShiftAssignmentId).Select(z => z.ZoneId).Distinct().ToArray(), load.GetValueOrDefault(a.UserId)))
             .ToList();
     }
-    public async Task<List<OnShiftStaff>> Eligible(Guid zoneId, DateTime now, CancellationToken ct)
-        => (await OnShift(now, ct)).Where(s => s.ZoneIds.Contains(zoneId) && s.ActiveTasks < TaskRules.MaxActiveTasks).ToList();
+    public async Task<List<OnShiftStaff>> Eligible(WorkTask task, DateTime now, CancellationToken ct)
+    {
+        var taskType = task.TaskTypeId is { } taskTypeId ? await store.Find<TaskType>(taskTypeId, ct) : null;
+        if (taskType is null) return [];
+        return (await OnShift(now, ct)).Where(s => s.ZoneIds.Contains(task.ZoneId)
+            && s.ActiveTasks < TaskRules.MaxActiveTasks
+            && s.User.SpecialtyId == taskType.RequiredSpecialtyId).ToList();
+    }
+    public async Task<bool> HasRequiredSpecialty(WorkTask task, UserAccount staff, CancellationToken ct)
+    {
+        var taskType = task.TaskTypeId is { } taskTypeId ? await store.Find<TaskType>(taskTypeId, ct) : null;
+        return taskType is not null && staff.SpecialtyId == taskType.RequiredSpecialtyId;
+    }
     public async Task<Dictionary<Guid, int>> Workload(IEnumerable<Guid> userIds, CancellationToken ct)
     {
         var ids = userIds.ToList();
@@ -101,7 +112,7 @@ public sealed class TaskNotifier(ISetupStore store, IClock clock)
     private static string Cut(string value, int max) => value.Length <= max ? value : value[..max];
 }
 
-/// <summary>Required post-cleanup ERD V6 tables and Task.planned_start_at column.</summary>
+/// <summary>Required ERD V7 task, offer, type and specialty structures.</summary>
 public interface ITaskSchema
 {
     Task<bool> Ready(CancellationToken ct);
@@ -111,7 +122,7 @@ public static class TaskSchemaCheck
     public static async Task Require(this ITaskSchema schema, CancellationToken ct)
     {
         if (!await schema.Ready(ct))
-            throw new ApplicationException("TASK_SCHEMA_NOT_READY", "Apply the approved FA26SE103 ERD V6 database migration before using staff tasks.", 503);
+            throw new ApplicationException("TASK_SCHEMA_NOT_READY", "Apply the approved FA26SE103 ERD V7 database migration before using staff tasks.", 503);
     }
 }
 
@@ -130,7 +141,7 @@ public interface IOperationalEventResponder
 public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNotifier notifier, IClock clock, ITaskSchema schema) : IOperationalEventResponder
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private sealed record TaskParameters(string? Title, string? Instructions);
+    private sealed record TaskParameters(string? Title, string? Instructions, string? TaskTypeCode);
 
     public async Task Raised(OperationalEvent ev, string? previousPriority, CancellationToken ct)
     {
@@ -155,9 +166,13 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
         var parameters = Parameters(action.ActionParametersJson);
         var zone = await store.Find<Zone>(ev.ZoneId, ct);
         var type = await store.Find<OperationalEventType>(ev.EventTypeId, ct);
+        var taskType = await ResolveTaskType(parameters?.TaskTypeCode, type, ct);
+        // V7 dispatch is specialty-aware. A missing/ambiguous TaskType must be fixed in policy configuration;
+        // silently creating a specialty-less Task would fabricate eligibility.
+        if (taskType is null) return;
         var title = parameters?.Title is { Length: > 0 } custom ? custom : $"{type?.Name ?? "Operational event"} — {zone?.Name ?? "Zone"}";
         var task = new WorkTask { TaskId = Guid.NewGuid(), ZoneId = ev.ZoneId, Title = title.Length <= 200 ? title : title[..200], Description = parameters?.Instructions,
-            Priority = ev.Priority, Status = WorkTaskStatus.Offered, OriginType = TaskOrigin.OperationalEvent, EventId = ev.EventId };
+            Priority = ev.Priority, Status = WorkTaskStatus.Offered, OriginType = TaskOrigin.OperationalEvent, EventId = ev.EventId, TaskTypeId = taskType.TaskTypeId };
         await store.Add(task, ct);
         await OfferRound(task, ev.CameraId, ct);
     }
@@ -174,7 +189,7 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
         {
             if (task.Status == WorkTaskStatus.Offered && task.CurrentAssigneeUserId is null)
             {
-                var withdrawn = await CloseOpenOffers(task.TaskId, OfferStatus.Withdrawn, "EVENT_CLEARED", now, ct);
+                var withdrawn = await CloseOpenOffers(task.TaskId, TaskOfferStatus.Cancelled, "EVENT_CLEARED", now, ct);
                 task.Status = WorkTaskStatus.Cancelled;
                 await store.Update(task, ct);
                 if (withdrawn.Count > 0)
@@ -185,7 +200,7 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
         }
     }
 
-    /// <summary>Background retry: re-offer after each interval, then expire the offers and ask the Operator to assign.</summary>
+    /// <summary>Background retry: expire V7 offers, open a new dispatch cycle, then ask the Operator after exhaustion.</summary>
     public async Task<int> Tick(CancellationToken ct)
     {
         if (!await schema.Ready(ct)) return 0;
@@ -193,23 +208,35 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
     }
     private async Task<int> RetryRound(CancellationToken ct)
     {
-        var now = clock.UtcNow; var (interval, maxAttempts) = await Retry(ct); var changed = 0;
+        var now = clock.UtcNow; var (_, maxAttempts) = await Retry(ct); var changedTasks = new HashSet<Guid>();
         foreach (var task in await store.List<WorkTask>(t => t.Status == WorkTaskStatus.Offered && t.CurrentAssigneeUserId == null, ct))
         {
             // A Task rejected twice waits for the Operator to reassign it (BR-28); it is not re-offered.
             if ((await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId && a.Reason == TaskEvidenceRules.RejectedTwiceReason, ct)).Count > 0) continue;
+            var offers = await store.List<TaskOffer>(o => o.TaskId == task.TaskId, ct);
+            foreach (var expired in offers.Where(o => o.Status == TaskOfferStatus.Pending && o.ExpiresAt <= now))
+            {
+                expired.Status = TaskOfferStatus.Expired;
+                expired.RespondedAt = now;
+                expired.DeclineReasonCode = "NO_RESPONSE";
+                await store.Update(expired, ct);
+                await Audit(expired, OfferStatus.Expired, "NO_RESPONSE", now, ct);
+                changedTasks.Add(task.TaskId);
+            }
+            if (offers.Any(o => o.Status == TaskOfferStatus.Pending && o.ExpiresAt > now)) continue;
             var rounds = await store.List<Notification>(n => n.TaskId == task.TaskId && n.NotificationType == TaskNotifier.Offer, ct);
-            if (rounds.Count == 0 || now < rounds.Max(n => n.CreatedAt).AddSeconds(interval)) continue;
+            if (rounds.Count == 0) continue;
+            var timeout = await OfferTimeout(task, ct);
+            if (now < rounds.Max(n => n.CreatedAt).AddSeconds(timeout)) continue;
             if (rounds.Count < maxAttempts)
             {
                 await OfferRound(task, null, ct);
-                changed++;
+                changedTasks.Add(task.TaskId);
                 continue;
             }
-            var expired = await CloseOpenOffers(task.TaskId, OfferStatus.Expired, "NO_ACCEPTANCE", now, ct);
-            if (await NeedsOperator(task, "Nobody accepted the task after every notification attempt.", ct) || expired.Count > 0) changed++;
+            if (await NeedsOperator(task, "Nobody accepted the task after every TaskOffer dispatch cycle.", ct)) changedTasks.Add(task.TaskId);
         }
-        return changed;
+        return changedTasks.Count;
     }
 
     public async Task<(int IntervalSec, int MaxAttempts)> Retry(CancellationToken ct)
@@ -235,23 +262,29 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
     private static int? LatestInt(IEnumerable<SystemSetting> settings, string key)
         => int.TryParse(settings.Where(s => s.SettingKey == key).OrderByDescending(s => s.UpdatedAt).FirstOrDefault()?.SettingValue, out var value) ? value : null;
 
-    /// <summary>Offers the task to newly eligible Staff, then notifies everyone with an open offer. Staff who declined are not asked again.</summary>
+    /// <summary>Creates one V7 SAME_ZONE dispatch cycle. Active duplicate task/staff offers are forbidden.</summary>
     private async Task OfferRound(WorkTask task, Guid? cameraId, CancellationToken ct)
     {
         var now = clock.UtcNow;
-        var offers = await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId, ct);
-        foreach (var staff in await roster.Eligible(task.ZoneId, now, ct))
+        var timeout = await OfferTimeout(task, ct);
+        var cycleId = Guid.NewGuid();
+        var offers = await store.List<TaskOffer>(a => a.TaskId == task.TaskId, ct);
+        var rejectedTwice = (await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId && a.Reason == TaskEvidenceRules.RejectedTwiceReason, ct))
+            .Select(a => a.StaffUserId).ToHashSet();
+        foreach (var staff in await roster.Eligible(task, now, ct))
         {
-            if (offers.Any(o => o.StaffUserId == staff.User.UserId && (o.Status is OfferStatus.Offered or OfferStatus.Declined || o.Reason == TaskEvidenceRules.RejectedTwiceReason))) continue;
-            var offer = new TaskAssignmentHistory { TaskAssignmentId = Guid.NewGuid(), TaskId = task.TaskId, StaffUserId = staff.User.UserId,
-                AssignmentType = TaskAssignmentType.Offer, Status = OfferStatus.Offered, AssignedAt = now };
+            if (rejectedTwice.Contains(staff.User.UserId)
+                || offers.Any(o => o.StaffUserId == staff.User.UserId && o.Status is TaskOfferStatus.Pending or TaskOfferStatus.Declined)) continue;
+            var offer = new TaskOffer { OfferId = Guid.NewGuid(), TaskId = task.TaskId, StaffUserId = staff.User.UserId,
+                DispatchCycleId = cycleId, WaveNumber = 1, DispatchScope = TaskDispatchScope.SameZone,
+                Status = TaskOfferStatus.Pending, OfferedAt = now, ExpiresAt = now.AddSeconds(timeout) };
             await store.Add(offer, ct);
             offers.Add(offer);
         }
-        var open = offers.Where(o => o.Status == OfferStatus.Offered).Select(o => o.StaffUserId).Distinct().ToList();
+        var open = offers.Where(o => o.Status == TaskOfferStatus.Pending && o.ExpiresAt > now).Select(o => o.StaffUserId).Distinct().ToList();
         await notifier.Send(TaskNotifier.Offer, $"{task.Priority} · New task", task.Title, task, open, "ELIGIBLE_ZONE_STAFF", ct, cameraId);
         if (open.Count == 0)
-            await NeedsOperator(task, "No eligible Staff is on shift, checked in and assigned to this Zone.", ct);
+            await NeedsOperator(task, "No eligible Staff has the required specialty, current check-in, Zone assignment and workload capacity.", ct);
     }
 
     /// <summary>Notifies Operators once per task that it needs manual assignment.</summary>
@@ -265,18 +298,36 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
     public async Task<List<Guid>> CloseOpenOffers(Guid taskId, string status, string reason, DateTime now, CancellationToken ct, Guid? except = null)
     {
         var closed = new List<Guid>();
-        foreach (var offer in await store.List<TaskAssignmentHistory>(a => a.TaskId == taskId && a.Status == OfferStatus.Offered, ct))
+        foreach (var offer in await store.List<TaskOffer>(a => a.TaskId == taskId && a.Status == TaskOfferStatus.Pending, ct))
         {
-            if (offer.TaskAssignmentId == except) continue;
-            offer.Status = status; offer.EndedAt = now; offer.Reason = reason;
+            if (offer.OfferId == except) continue;
+            offer.Status = status; offer.RespondedAt = now; offer.DeclineReasonCode = reason;
             await store.Update(offer, ct);
+            await Audit(offer, status, reason, now, ct);
             closed.Add(offer.StaffUserId);
         }
         return closed;
     }
 
     private async Task<List<Guid>> OpenOfferStaff(Guid taskId, CancellationToken ct)
-        => (await store.List<TaskAssignmentHistory>(a => a.TaskId == taskId && a.Status == OfferStatus.Offered, ct)).Select(a => a.StaffUserId).ToList();
+        => (await store.List<TaskOffer>(a => a.TaskId == taskId && a.Status == TaskOfferStatus.Pending, ct)).Select(a => a.StaffUserId).ToList();
+
+    public async Task<int> OfferTimeout(WorkTask task, CancellationToken ct)
+    {
+        if (task.SlaPolicyId is { } policyId && await store.Find<SlaPolicy>(policyId, ct) is { OfferTimeoutSec: > 0 } policy)
+            return policy.OfferTimeoutSec;
+        return (await Retry(ct)).IntervalSec;
+    }
+
+    public async Task Audit(TaskOffer offer, string status, string? reason, DateTime now, CancellationToken ct)
+    {
+        await store.Add(new TaskAssignmentHistory
+        {
+            TaskAssignmentId = Guid.NewGuid(), TaskId = offer.TaskId, StaffUserId = offer.StaffUserId,
+            AssignmentType = TaskAssignmentType.Offer, Status = status, AssignedAt = offer.OfferedAt,
+            RespondedAt = now, EndedAt = status == OfferStatus.Accepted ? null : now, Reason = reason
+        }, ct);
+    }
 
     private async Task<ResponsePolicyAction?> TaskAction(OperationalEvent ev, CancellationToken ct)
     {
@@ -298,5 +349,15 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
         if (string.IsNullOrWhiteSpace(json)) return null;
         try { return JsonSerializer.Deserialize<TaskParameters>(json, Json); }
         catch (JsonException) { return null; }
+    }
+
+    private async Task<TaskType?> ResolveTaskType(string? configuredCode, OperationalEventType? eventType, CancellationToken ct)
+    {
+        var types = await store.List<TaskType>(ct: ct);
+        if (!string.IsNullOrWhiteSpace(configuredCode))
+            return types.SingleOrDefault(t => string.Equals(t.Code, configuredCode.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (eventType is null) return null;
+        var matches = types.Where(t => string.Equals(t.SourceCategory, eventType.Name, StringComparison.OrdinalIgnoreCase)).ToList();
+        return matches.Count == 1 ? matches[0] : null;
     }
 }

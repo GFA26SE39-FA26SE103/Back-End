@@ -4,9 +4,12 @@ namespace Supermarket.Application;
 
 public sealed record LoginRequest([Required, EmailAddress, MaxLength(255)] string Email, [Required, MaxLength(128)] string Password);
 public sealed record LoginResponse(string AccessToken, DateTime ExpiresAt, UserView User);
-public sealed record UserView(Guid UserId, string Email, string FullName, Guid RoleId, string Role, string Status);
-public sealed record CreateUserRequest([Required, EmailAddress, MaxLength(255)] string Email, [Required, MinLength(12), MaxLength(128)] string Password, [Required, MaxLength(150)] string FullName, Guid RoleId);
-public sealed record UpdateUserRequest([Required, MaxLength(150)] string FullName, Guid RoleId);
+public sealed record UserView(Guid UserId, string Email, string FullName, Guid RoleId, string Role, string Status,
+    Guid? SpecialtyId = null, string? SpecialtyCode = null, string? SpecialtyName = null);
+public sealed record CreateUserRequest([Required, EmailAddress, MaxLength(255)] string Email, [Required, MinLength(12), MaxLength(128)] string Password,
+    [Required, MaxLength(150)] string FullName, Guid RoleId, Guid? SpecialtyId = null);
+public sealed record UpdateUserRequest([Required, MaxLength(150)] string FullName, Guid RoleId, Guid? SpecialtyId = null);
+public sealed record StaffSpecialtyView(Guid SpecialtyId, string Code, string Name, string? Description);
 public sealed record StoreRequest([Required, MaxLength(50)] string Code, [Required, MaxLength(150)] string Name, [MaxLength(500)] string? Address, string Status = "ACTIVE");
 public sealed record FloorRequest(int FloorNumber, [Required, MaxLength(100)] string Name, [MaxLength(1000)] string? MapAssetUrl, int? MapWidth, int? MapHeight);
 public sealed record FloorDetailsRequest(int FloorNumber, [Required, MaxLength(100)] string Name);

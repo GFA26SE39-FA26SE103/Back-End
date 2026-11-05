@@ -7,7 +7,7 @@ namespace Supermarket.Application;
 public sealed class OperationalResponsePolicies(ISetupStore store, ICurrentUser currentUser)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private sealed record TaskParameters(string? Title, string? Instructions);
+    private sealed record TaskParameters(string? Title, string? Instructions, string? TaskTypeCode);
 
     public async Task<List<ResponsePolicyView>> List(Guid ruleId, CancellationToken ct)
     {
@@ -27,12 +27,18 @@ public sealed class OperationalResponsePolicies(ISetupStore store, ICurrentUser 
         var normalizedPriority = ResponsePolicyRules.Priority(priority);
         if (request.Action is null)
             throw new DomainException("INVALID_POLICY_ACTION", "An automatic-task action is required.");
-        var parameters = ResponsePolicyRules.TaskParameters(request.Action.Title, request.Action.Instructions);
+        var parameters = ResponsePolicyRules.TaskParameters(request.Action.Title, request.Action.Instructions, request.Action.TaskTypeCode);
         return store.Transaction(async () =>
         {
             var rule = UseCase.Found(await store.Find<MonitoringRule>(ruleId, ct));
             ResponsePolicyRules.OperationalEventRule(rule);
             var configuration = UseCase.Found(await store.Find<MonitoringConfiguration>(rule.ConfigId, ct));
+            if (parameters.TaskTypeCode is not null)
+            {
+                var taskTypes = await store.List<TaskType>(t => t.Code == parameters.TaskTypeCode, ct);
+                if (taskTypes.Count != 1)
+                    throw new DomainException("INVALID_TASK_TYPE", "The response policy must reference one task type.");
+            }
             var existing = await store.List<ResponsePolicy>(p => p.RuleId == ruleId && p.EventPriority == normalizedPriority, ct);
             if (existing.Count > 1)
                 throw new ApplicationException("POLICY_AMBIGUOUS", "More than one policy exists for this rule and priority.");
@@ -62,7 +68,7 @@ public sealed class OperationalResponsePolicies(ISetupStore store, ICurrentUser 
             if (managedActions.Count > 1)
                 throw new ApplicationException("POLICY_ACTION_AMBIGUOUS", "More than one automatic-task action exists for this policy.");
             var action = managedActions.SingleOrDefault();
-            var actionParameters = JsonSerializer.Serialize(new TaskParameters(parameters.Title, parameters.Instructions), Json);
+            var actionParameters = JsonSerializer.Serialize(new TaskParameters(parameters.Title, parameters.Instructions, parameters.TaskTypeCode), Json);
             if (action is null)
             {
                 action = new ResponsePolicyAction
@@ -119,7 +125,7 @@ public sealed class OperationalResponsePolicies(ISetupStore store, ICurrentUser 
         var action = actions.Count == 1 ? actions[0] : null;
         var parameters = Parameters(action?.ActionParametersJson);
         return new(policy.PolicyId, policy.RuleId, policy.EventPriority, policy.IsEnabled, policy.Version, policy.UpdatedAt,
-            action is null ? null : new(action.ActionId, action.IsEnabled, action.ActionType, action.ExecutionMode, parameters?.Title, parameters?.Instructions),
+            action is null ? null : new(action.ActionId, action.IsEnabled, action.ActionType, action.ExecutionMode, parameters?.Title, parameters?.Instructions, parameters?.TaskTypeCode),
             issues.Count == 0, issues);
     }
 

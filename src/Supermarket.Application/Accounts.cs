@@ -17,11 +17,18 @@ public sealed class Accounts(ISetupStore store, ICurrentUser current, IPasswordS
         UseCase.Admin(current);
         return store.List<Role>(ct: ct);
     }
+    public async Task<StaffSpecialtyView[]> Specialties(CancellationToken ct)
+    {
+        UseCase.Admin(current);
+        return (await store.List<StaffSpecialty>(ct: ct)).OrderBy(s => s.Code)
+            .Select(s => new StaffSpecialtyView(s.SpecialtyId, s.Code, s.Name, s.Description)).ToArray();
+    }
     public async Task<List<UserView>> List(CancellationToken ct)
     {
         UseCase.Admin(current);
         var roles = await store.List<Role>(ct: ct);
-        return (await store.List<UserAccount>(ct: ct)).Select(u => new UserView(u.UserId, u.Email, u.FullName, u.RoleId, roles.Single(r => r.RoleId == u.RoleId).Name, u.Status)).ToList();
+        var specialties = (await store.List<StaffSpecialty>(ct: ct)).ToDictionary(s => s.SpecialtyId);
+        return (await store.List<UserAccount>(ct: ct)).Select(u => View(u, roles.Single(r => r.RoleId == u.RoleId), specialties.GetValueOrDefault(u.SpecialtyId ?? Guid.Empty))).ToList();
     }
     public Task<UserView> Create(CreateUserRequest request, CancellationToken ct)
     {
@@ -32,9 +39,11 @@ public sealed class Accounts(ISetupStore store, ICurrentUser current, IPasswordS
             Rules.Require(new System.ComponentModel.DataAnnotations.EmailAddressAttribute().IsValid(email), "INVALID_EMAIL", "Email is invalid.");
             Rules.Require(request.Password.Length is >= 12 and <= 128, "INVALID_PASSWORD", "Password must contain 12 to 128 characters.");
             UseCase.Unique((await store.List<UserAccount>(u => u.Email == email, ct)).Count > 0);
-            UseCase.Found(await store.Find<Role>(request.RoleId, ct));
+            var role = UseCase.Found(await store.Find<Role>(request.RoleId, ct));
+            var specialty = await Specialty(role, request.SpecialtyId, ct);
             var userId = Guid.NewGuid();
-            var user = new UserAccount { UserId = userId, Code = UserAccount.CodeFor(userId), Email = email, FullName = Rules.Text(request.FullName, 150, "FullName"), RoleId = request.RoleId, PasswordHash = passwords.Hash(request.Password), Status = "ACTIVE" };
+            var user = new UserAccount { UserId = userId, Code = UserAccount.CodeFor(userId), Email = email, FullName = Rules.Text(request.FullName, 150, "FullName"),
+                RoleId = request.RoleId, SpecialtyId = specialty?.SpecialtyId, PasswordHash = passwords.Hash(request.Password), Status = "ACTIVE" };
             await store.Add(user, ct);
             return await View(user, ct);
         }, ct);
@@ -53,6 +62,10 @@ public sealed class Accounts(ISetupStore store, ICurrentUser current, IPasswordS
             var activeCount = (await store.List<UserAccount>(u => u.RoleId == admin.RoleId && u.Status == "ACTIVE", ct)).Count;
             Rules.ProtectAdmin(oldRole.Name == "ADMIN" && user.Status == "ACTIVE", newRole.Name == "ADMIN" && (status ?? user.Status) == "ACTIVE", activeCount);
             user.RoleId = newRole.RoleId;
+            if (request is not null)
+                user.SpecialtyId = (await Specialty(newRole, request.SpecialtyId, ct))?.SpecialtyId;
+            else if (newRole.Name != "STAFF")
+                user.SpecialtyId = null;
             user.Status = status ?? user.Status;
             if (request is not null)
                 user.FullName = Rules.Text(request.FullName, 150, "FullName");
@@ -60,5 +73,21 @@ public sealed class Accounts(ISetupStore store, ICurrentUser current, IPasswordS
             return await View(user, ct);
         }, ct);
     }
-    private async Task<UserView> View(UserAccount u, CancellationToken ct) => new(u.UserId, u.Email, u.FullName, u.RoleId, UseCase.Found(await store.Find<Role>(u.RoleId, ct)).Name, u.Status);
+    private async Task<UserView> View(UserAccount u, CancellationToken ct)
+    {
+        var role = UseCase.Found(await store.Find<Role>(u.RoleId, ct));
+        var specialty = u.SpecialtyId is { } id ? await store.Find<StaffSpecialty>(id, ct) : null;
+        return View(u, role, specialty);
+    }
+    private static UserView View(UserAccount u, Role role, StaffSpecialty? specialty)
+        => new(u.UserId, u.Email, u.FullName, u.RoleId, role.Name, u.Status, specialty?.SpecialtyId, specialty?.Code, specialty?.Name);
+    private async Task<StaffSpecialty?> Specialty(Role role, Guid? specialtyId, CancellationToken ct)
+    {
+        if (role.Name != "STAFF")
+        {
+            Rules.Require(specialtyId is null, "SPECIALTY_NOT_ALLOWED", "Only STAFF accounts can have a StaffSpecialty.");
+            return null;
+        }
+        return specialtyId is { } id ? UseCase.Found(await store.Find<StaffSpecialty>(id, ct)) : null;
+    }
 }

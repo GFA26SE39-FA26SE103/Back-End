@@ -24,6 +24,45 @@ public sealed class WorkTask : TrackedEntity
     public DateTime? PlannedStartAt { get; set; }
     /// <summary>Rejected submissions of this Task across all performers (BR-28).</summary>
     public int RejectionCount { get; set; }
+    public Guid? TaskTypeId { get; set; }
+    public Guid? SlaPolicyId { get; set; }
+    public string? SlaSnapshotJson { get; set; }
+    public DateTime? ResponseDeadlineAt { get; set; }
+    public DateTime? ResolutionDeadlineAt { get; set; }
+    public string? VerificationMode { get; set; }
+    public string? VerificationMethod { get; set; }
+    public bool IsMandatory { get; set; }
+}
+/// <summary>V7 runtime offer. TaskAssignmentHistory remains an audit/assignment history, never the live offer queue.</summary>
+public sealed class TaskOffer : Entity
+{
+    public Guid OfferId { get; set; }
+    public Guid TaskId { get; set; }
+    public Guid StaffUserId { get; set; }
+    public Guid DispatchCycleId { get; set; }
+    public int WaveNumber { get; set; }
+    public string DispatchScope { get; set; } = TaskDispatchScope.SameZone;
+    public string Status { get; set; } = TaskOfferStatus.Pending;
+    public string? DeclineReasonCode { get; set; }
+    public DateTime OfferedAt { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public DateTime? RespondedAt { get; set; }
+}
+public sealed class TaskType : Entity
+{
+    public Guid TaskTypeId { get; set; }
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
+    public Guid RequiredSpecialtyId { get; set; }
+    public string SourceCategory { get; set; } = "";
+}
+public sealed class StaffSpecialty : Entity
+{
+    public Guid SpecialtyId { get; set; }
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? Description { get; set; }
 }
 public sealed class TaskAssignmentHistory : Entity
 {
@@ -32,7 +71,7 @@ public sealed class TaskAssignmentHistory : Entity
     public Guid StaffUserId { get; set; }
     public Guid? AssignedByUserId { get; set; }
     public string AssignmentType { get; set; } = TaskAssignmentType.Offer;
-    public string Status { get; set; } = OfferStatus.Offered;
+    public string Status { get; set; } = OfferStatus.Accepted;
     public DateTime AssignedAt { get; set; }
     public DateTime? RespondedAt { get; set; }
     public DateTime? EndedAt { get; set; }
@@ -135,10 +174,20 @@ public static class TaskAssignmentType
 {
     public const string Offer = "OFFER", Manual = "MANUAL";
 }
-/// <summary>TaskAssignmentHistory.status for one offer to one Staff member.</summary>
+/// <summary>Assignment-history status; live offer state belongs to TaskOfferStatus.</summary>
 public static class OfferStatus
 {
-    public const string Offered = "OFFERED", Accepted = "ACCEPTED", Declined = "DECLINED", Withdrawn = "WITHDRAWN", Expired = "EXPIRED";
+    public const string Accepted = "ACCEPTED", Declined = "DECLINED", Cancelled = "CANCELLED", Expired = "EXPIRED";
+}
+public static class TaskOfferStatus
+{
+    public const string Pending = "PENDING", Accepted = "ACCEPTED", Declined = "DECLINED", Expired = "EXPIRED", Cancelled = "CANCELLED";
+    public static readonly string[] Active = [Pending];
+}
+public static class TaskDispatchScope
+{
+    // Zone expansion is deliberately not implemented until the ZoneAdjacency rule is approved.
+    public const string SameZone = "SAME_ZONE";
 }
 public static class TaskResponse
 {
@@ -162,7 +211,7 @@ public static class TaskRules
         Rules.Status(response ?? "", TaskResponse.HandleNow, TaskResponse.HandleLater, TaskResponse.CannotHandle);
         if (response == TaskResponse.CannotHandle)
             Rules.Require(!string.IsNullOrWhiteSpace(reason), "REASON_REQUIRED", "A reason is required when the task cannot be handled.");
-        Rules.Optional(reason, 2000, "Reason");
+        Rules.Optional(reason, 200, "Reason");
     }
     /// <summary>A deferred start keeps responsibility with the Staff member; it must be in the future and inside the current shift.</summary>
     public static void PlannedStart(DateTime? plannedStartAt, DateTime now, DateTime shiftEndsAt)

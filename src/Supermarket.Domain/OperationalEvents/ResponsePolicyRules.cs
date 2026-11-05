@@ -20,13 +20,15 @@ public static class ResponsePolicyRules
     public static bool IsOperationalEventRule(MonitoringRule rule)
         => rule.OutcomeType == "OPERATIONAL_EVENT" && rule.EventTypeId is not null && rule.IncidentTypeId is null;
 
-    public static (string? Title, string? Instructions) TaskParameters(string? title, string? instructions)
+    public static (string? Title, string? Instructions, string? TaskTypeCode) TaskParameters(string? title, string? instructions, string? taskTypeCode)
     {
         title = Normalize(title);
         instructions = Normalize(instructions);
+        taskTypeCode = Normalize(taskTypeCode)?.ToUpperInvariant();
         Rules.Optional(title, 200, "Task title");
         Rules.Optional(instructions, 4000, "Task instructions");
-        return (title, instructions);
+        Rules.Optional(taskTypeCode, 50, "Task type code");
+        return (title, instructions, taskTypeCode);
     }
 
     public static IReadOnlyList<string> ReadinessIssues(MonitoringRule rule, MonitoringConfiguration configuration, ResponsePolicy policy,

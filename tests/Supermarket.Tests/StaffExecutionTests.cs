@@ -17,13 +17,13 @@ public sealed class StaffExecutionTests
         await w.Raise();
         var offer = w.OfferFor(a); var staff = w.StaffTasks(a);
 
-        var first = (await staff.Respond(offer.TaskAssignmentId, new(TaskResponse.HandleNow, null, null), default)).Task!;
-        var retry = (await staff.Respond(offer.TaskAssignmentId, new(TaskResponse.HandleNow, null, null), default)).Task!;
+        var first = (await staff.Respond(offer.OfferId, new(TaskResponse.HandleNow, null, null), default)).Task!;
+        var retry = (await staff.Respond(offer.OfferId, new(TaskResponse.HandleNow, null, null), default)).Task!;
 
         Assert.Equal((first.TaskId, WorkTaskStatus.InProgress, a), (retry.TaskId, retry.Status, retry.AssigneeUserId));
         Assert.Equal(first.StartedAt, retry.StartedAt);
         // Declining a task I already hold is not a retry.
-        Assert.Equal("OFFER_CLOSED", (await Assert.ThrowsAsync<AppError>(() => staff.Respond(offer.TaskAssignmentId, new(TaskResponse.CannotHandle, null, "Busy"), default))).Code);
+        Assert.Equal("OFFER_CLOSED", (await Assert.ThrowsAsync<AppError>(() => staff.Respond(offer.OfferId, new(TaskResponse.CannotHandle, null, "Busy"), default))).Code);
         Assert.Equal(a, Assert.Single(w.Store.Values.OfType<WorkTask>()).CurrentAssigneeUserId);
     }
 
@@ -50,7 +50,7 @@ public sealed class StaffExecutionTests
     {
         var w = new World(); var a = w.Staff("An"); var b = w.Staff("Binh"); w.Policy();
         await w.Raise();
-        var task = (await w.StaffTasks(a).Respond(w.OfferFor(a).TaskAssignmentId, new(TaskResponse.HandleLater, Now.AddMinutes(10), null), default)).Task!;
+        var task = (await w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.HandleLater, Now.AddMinutes(10), null), default)).Task!;
 
         Assert.Equal("NOT_FOUND", (await Assert.ThrowsAsync<AppError>(() => w.StaffTasks(b).Start(task.TaskId, default))).Code);
         Assert.Empty(await w.StaffTasks(b).Tasks(null, default));
@@ -80,8 +80,8 @@ public sealed class StaffExecutionTests
         Assert.Equal(3, w.Notifications(task, TaskNotifier.Offer).Count);
         Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment))));
         Assert.Equal((WorkTaskStatus.Offered, (Guid?)null), (task.Status, task.CurrentAssigneeUserId));
-        Assert.Equal((OfferStatus.Expired, "NO_ACCEPTANCE"), (w.OfferFor(a).Status, w.OfferFor(a).Reason));
-        Assert.Equal("OFFER_CLOSED", (await Assert.ThrowsAsync<AppError>(() => w.StaffTasks(a).Respond(w.OfferFor(a).TaskAssignmentId, new(TaskResponse.HandleNow, null, null), default))).Code);
+        Assert.Equal((TaskOfferStatus.Expired, "NO_RESPONSE"), (w.OfferFor(a).Status, w.OfferFor(a).DeclineReasonCode));
+        Assert.Equal("OFFER_CLOSED", (await Assert.ThrowsAsync<AppError>(() => w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.HandleNow, null, null), default))).Code);
     }
 
     [Fact]
@@ -132,7 +132,10 @@ public sealed class StaffExecutionTests
                 RuleId = ruleId, ConfigId = configuration.ConfigId, EventTypeId = eventTypeId,
                 OutcomeType = "OPERATIONAL_EVENT", Enabled = true
             };
-            Store.Values.AddRange([zone, camera, configuration, rule,
+            var specialty = new StaffSpecialty { SpecialtyId = Guid.NewGuid(), Code = "SPC-01", Name = "Checkout Operations" };
+            var taskType = new TaskType { TaskTypeId = Guid.NewGuid(), Code = "TT-01", Name = "Open Additional Checkout",
+                SourceCategory = "Long queue", RequiredSpecialtyId = specialty.SpecialtyId };
+            Store.Values.AddRange([zone, camera, configuration, rule, specialty, taskType,
                 new OperationalEventType { EventTypeId = eventTypeId, Code = "LONG_QUEUE", Name = "Long queue", MeasurementType = "QUEUE_LENGTH" },
                 new Shift { ShiftId = shiftId, WeekStart = new(2026, 10, 5), Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
             roster = new StaffRoster(Store, calendar);
@@ -142,7 +145,8 @@ public sealed class StaffExecutionTests
 
         public Guid User(string role, string name)
         {
-            var user = new UserAccount { UserId = Guid.NewGuid(), RoleId = Store.Values.OfType<Role>().Single(r => r.Name == role).RoleId, FullName = name, Email = $"{name}@test", Status = "ACTIVE" };
+            var user = new UserAccount { UserId = Guid.NewGuid(), RoleId = Store.Values.OfType<Role>().Single(r => r.Name == role).RoleId, FullName = name, Email = $"{name}@test", Status = "ACTIVE",
+                SpecialtyId = role == "STAFF" ? Store.Values.OfType<StaffSpecialty>().Single().SpecialtyId : null };
             Store.Values.Add(user);
             return user.UserId;
         }
@@ -187,7 +191,8 @@ public sealed class StaffExecutionTests
             await dispatch.Raised(ev, null, default);
         }
 
-        public TaskAssignmentHistory OfferFor(Guid staff) => Store.Values.OfType<TaskAssignmentHistory>().Single(a => a.StaffUserId == staff && a.AssignmentType == TaskAssignmentType.Offer);
+        public TaskOffer OfferFor(Guid staff) => Store.Values.OfType<TaskOffer>().Where(a => a.StaffUserId == staff)
+            .OrderByDescending(a => a.OfferedAt).ThenByDescending(a => a.OfferId).First();
 
         public StaffTasks StaffTasks(Guid user) => new(Store, new User(user, "STAFF"), Clock, calendar, roster, dispatch, views, schema);
     }

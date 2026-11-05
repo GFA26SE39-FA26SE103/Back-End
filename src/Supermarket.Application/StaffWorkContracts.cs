@@ -5,7 +5,7 @@ public sealed record ShiftView(Guid ShiftAssignmentId, Guid ShiftId, string Shif
 public sealed record ShiftZoneView(Guid ZoneId, string ZoneName);
 public sealed record EligibilityView(bool CheckedIn, Guid? ShiftAssignmentId, DateTime? ShiftEndsAt, int ActiveTasks, int MaxActiveTasks, ShiftZoneView[] Zones);
 
-/// <summary>One offer of one task to the calling Staff member (a TaskAssignmentHistory row of type OFFER).</summary>
+/// <summary>One V7 TaskOffer for the calling Staff member.</summary>
 public sealed record TaskOfferView(Guid OfferId, Guid TaskId, string Origin, string SourceCode, string? EventTypeCode, string Title, string? Instructions,
     string Priority, Guid ZoneId, string ZoneName, string? CameraCode, string? CameraName, decimal? MetricValue, string? MeasurementMode, string? MeasurementUnit,
     DateTime CreatedAt, int Recipients, int Attempt, int MaxAttempts, DateTime? NextAlertAt, string Status, string? ClosedReason, DateTime? EventClearedAt);

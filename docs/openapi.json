@@ -5271,6 +5271,44 @@
         }
       }
     },
+    "/api/staff-specialties": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffSpecialtyView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffSpecialtyView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffSpecialtyView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/shifts": {
       "get": {
         "tags": [
@@ -5660,6 +5698,10 @@
           "instructions": {
             "type": "string",
             "nullable": true
+          },
+          "taskTypeCode": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -5687,6 +5729,10 @@
             "nullable": true
           },
           "instructions": {
+            "type": "string",
+            "nullable": true
+          },
+          "taskTypeCode": {
             "type": "string",
             "nullable": true
           }
@@ -6060,6 +6106,11 @@
           "roleId": {
             "type": "string",
             "format": "uuid"
+          },
+          "specialtyId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -8804,6 +8855,11 @@
           "roleId": {
             "type": "string",
             "format": "uuid"
+          },
+          "specialtyId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -8888,6 +8944,41 @@
             "nullable": true
           },
           "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "specialtyId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "specialtyCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "specialtyName": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaffSpecialtyView": {
+        "type": "object",
+        "properties": {
+          "specialtyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
             "type": "string",
             "nullable": true
           }

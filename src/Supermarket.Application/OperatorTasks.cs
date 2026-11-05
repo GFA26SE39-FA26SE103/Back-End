@@ -39,7 +39,9 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
         if (current.Role == "STAFF")
         {
             var me = current.UserId;
-            var involved = task.CurrentAssigneeUserId == me || (await store.List<TaskAssignmentHistory>(a => a.TaskId == taskId && a.StaffUserId == me, ct)).Count > 0;
+            var involved = task.CurrentAssigneeUserId == me
+                || (await store.List<TaskOffer>(o => o.TaskId == taskId && o.StaffUserId == me, ct)).Count > 0
+                || (await store.List<TaskAssignmentHistory>(a => a.TaskId == taskId && a.StaffUserId == me, ct)).Count > 0;
             if (!involved) throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
         }
         else UseCase.Viewer(current);
@@ -52,7 +54,10 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
         await schema.Require(ct);
         var task = UseCase.Found(await store.Find<WorkTask>(taskId, ct));
         var excluded = await RejectedTwice(taskId, ct);
-        return (await roster.OnShift(clock.UtcNow, ct)).Where(s => s.ActiveTasks < TaskRules.MaxActiveTasks && !excluded.Contains(s.User.UserId))
+        var onShift = await roster.OnShift(clock.UtcNow, ct);
+        var specialty = task.TaskTypeId is { } taskTypeId ? (await store.Find<TaskType>(taskTypeId, ct))?.RequiredSpecialtyId : null;
+        return onShift.Where(s => specialty is not null && s.User.SpecialtyId == specialty
+                && s.ActiveTasks < TaskRules.MaxActiveTasks && !excluded.Contains(s.User.UserId))
             .Select(s => new AssignableStaffView(s.User.UserId, s.User.FullName, s.ZoneIds.Contains(task.ZoneId), s.ActiveTasks, s.EndsAt))
             .OrderByDescending(s => s.AssignedToZone).ThenBy(s => s.ActiveTasks).ThenBy(s => s.FullName).ToArray();
     }
@@ -76,6 +81,8 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
             if ((await RejectedTwice(taskId, ct)).Contains(staff.User.UserId))
                 throw new ApplicationException("STAFF_REJECTED_TWICE", "This Staff member's work on the task was rejected twice; assign a different Staff member.");
             if (staff.ActiveTasks >= TaskRules.MaxActiveTasks) throw new ApplicationException("WORKLOAD_LIMIT", "The Staff member has reached the active-task limit.");
+            if (!await roster.HasRequiredSpecialty(task, staff.User, ct))
+                throw new ApplicationException("SPECIALTY_MISMATCH", "The Staff member's specialty does not match this TaskType.", 422);
             if (task.CurrentAssigneeUserId is not null || !staff.ZoneIds.Contains(task.ZoneId))
                 Rules.Require(!string.IsNullOrWhiteSpace(request.Reason), "REASON_REQUIRED", "A reason is required for reassignment or assignment outside the Task Zone.");
             foreach (var previous in await store.List<TaskAssignmentHistory>(a => a.TaskId == taskId && a.Status == OfferStatus.Accepted && a.EndedAt == null, ct))
@@ -83,7 +90,7 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
                 previous.EndedAt = now; previous.Reason = "REASSIGNED";
                 await store.Update(previous, ct);
             }
-            await dispatch.CloseOpenOffers(taskId, OfferStatus.Withdrawn, "MANUALLY_ASSIGNED", now, ct);
+            await dispatch.CloseOpenOffers(taskId, TaskOfferStatus.Cancelled, "MANUALLY_ASSIGNED", now, ct);
             await store.Add(new TaskAssignmentHistory { TaskAssignmentId = Guid.NewGuid(), TaskId = taskId, StaffUserId = staff.User.UserId, AssignedByUserId = current.UserId,
                 AssignmentType = TaskAssignmentType.Manual, Status = OfferStatus.Accepted, AssignedAt = now, RespondedAt = now, Reason = request.Reason?.Trim() }, ct);
             task.CurrentAssigneeUserId = staff.User.UserId; task.AssignedByUserId = current.UserId; task.AssignedAt = now; task.AcceptedAt = now;
