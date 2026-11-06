@@ -12,6 +12,49 @@ namespace Supermarket.Tests;
 public sealed class ResponsePolicyTests
 {
     [Fact]
+    public async Task TaskTypeCatalogIncludesNamesDescriptionsAndSpecialtyRequirements()
+    {
+        var h = World();
+        var type = Assert.Single(h.Store.Values.OfType<TaskType>());
+        type.Description = "Assist customers at checkout queues.";
+        type.RequiredSpecialtyId = Guid.NewGuid();
+        var result = Assert.Single(await new OperationalResponsePolicies(h.Store, new MonitoringSetupTests.User("ADMIN")).ListTaskTypes(default));
+        Assert.Equal(new ResponseTaskTypeView(type.TaskTypeId, type.Code, type.Name, type.Description, type.RequiredSpecialtyId), result);
+    }
+
+    [Theory]
+    [InlineData("OPERATOR")]
+    [InlineData("STAFF")]
+    [InlineData("MANAGER")]
+    public async Task TaskTypeCatalogRequiresAdmin(string role)
+    {
+        var h = World();
+        await Assert.ThrowsAsync<AppError>(() => new OperationalResponsePolicies(h.Store, new MonitoringSetupTests.User(role)).ListTaskTypes(default));
+    }
+
+    [Theory]
+    [InlineData(null, HttpStatusCode.Unauthorized)]
+    [InlineData("STAFF", HttpStatusCode.Forbidden)]
+    [InlineData("OPERATOR", HttpStatusCode.Forbidden)]
+    [InlineData("MANAGER", HttpStatusCode.Forbidden)]
+    [InlineData("ADMIN", HttpStatusCode.OK)]
+    public async Task TaskTypeCatalogHttpContractRequiresAdmin(string? role, HttpStatusCode expected)
+    {
+        var h = World();
+        await using var factory = new SetupOverviewTests.Factory(h.Store);
+        using var client = factory.CreateClient();
+        if (role is not null) client.DefaultRequestHeaders.Add("X-Test-Role", role);
+        var response = await client.GetAsync("/api/task-types");
+        Assert.Equal(expected, response.StatusCode);
+        if (expected == HttpStatusCode.OK)
+        {
+            var type = Assert.Single((await response.Content.ReadFromJsonAsync<List<ResponseTaskTypeView>>())!);
+            Assert.Equal("TT-01", type.Code);
+            Assert.Equal("Queue assistance", type.Name);
+        }
+    }
+
+    [Fact]
     public async Task SaveRequiresAnApprovedSlaPolicyInsteadOfInventingPriorityAndTiming()
     {
         var h = World();

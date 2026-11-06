@@ -5271,6 +5271,44 @@
         }
       }
     },
+    "/api/task-types": {
+      "get": {
+        "tags": [
+          "ResponsePolicies"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ResponseTaskTypeView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ResponseTaskTypeView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ResponseTaskTypeView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/staff-specialties": {
       "get": {
         "tags": [
@@ -8959,6 +8997,32 @@
           "specialtyName": {
             "type": "string",
             "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResponseTaskTypeView": {
+        "type": "object",
+        "properties": {
+          "taskTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "requiredSpecialtyId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "additionalProperties": false
