@@ -32,6 +32,7 @@ public sealed class EfShiftSwapSchema(AppDbContext db) : IShiftSwapSchema
                 AND COL_LENGTH(N'dbo.ShiftSwapRequest',N'cancelled_by_user_id') IS NOT NULL
                 AND COL_LENGTH(N'dbo.Zone',N'min_staff') IS NOT NULL
                 AND COL_LENGTH(N'dbo.Shift',N'week_start') IS NOT NULL
+                AND COL_LENGTH(N'dbo.UserAccount',N'specialty_id') IS NOT NULL
                 THEN 1 ELSE 0 END AS Value
             """).SingleAsync(ct);
         ready = value == 1;

@@ -58,6 +58,8 @@ Account administration supports MF-01 but is not a required diagram step. Later 
 
 ## Architecture and database changes
 
+SWAP/COVER specialty eligibility: both Staff must have the same assigned primary `UserAccount.specialty_id` (non-null/non-empty). The shared planner rechecks this at candidate selection, request, peer acceptance and Manager approval/assisted/direct transfer. Missing specialties are ineligible; decline/cancel/reject can still end a request.
+
 Use the existing ASP.NET Core .NET 10 / EF Core / SQL Server architecture:
 
 ```text

@@ -359,6 +359,15 @@ Branch `feature/mf03-task-evidence` was updated from `origin/dev` at `d0a3b24`. 
 - `git diff --check`: **PASS** after conflict resolution.
 
 No shared SQL data/schema, deployment, credential, push-provider configuration or generated scaffold was changed. The implementation uses the existing V6 `TaskEvidence` table and `Task.rejection_count`. SQL/API acceptance with the deployed database and real Cloudinary credentials remains a pre-deployment smoke check; StaffReport and independent Incident closure remain outside this increment.
+## SWAP/COVER specialty eligibility — 2026-11-06
+
+Implemented on existing `feature/after-review-backend-sync` at baseline `0aeceea`. The shared planner requires the requester and replacement to have the same non-null/non-empty primary specialty. This applies to Staff/Manager candidates, create, peer acceptance, approval, assisted cover and Manager direct changes. Account specialty changes are rechecked before transfer. Candidate mismatches are hidden; mutations return `SWAP_NOT_ALLOWED`; Manager detail includes `SPECIALTY_COMPATIBLE`. The schema readiness check now requires existing `UserAccount.specialty_id`. No schema, DTO or endpoint changes.
+
+- Focused scheduling/SWAP suite: **34 passed, 0 failed, 0 skipped**.
+- Full `dotnet test Supermarket.sln --no-restore -m:1 --filter "Category!=SqlIntegration" --verbosity minimal`: **482 passed, 0 failed, 0 skipped**; build completed successfully.
+- Added 12 regression cases covering SWAP/COVER mismatch/missing specialty, stale eligibility at peer/Manager decisions, Manager-assisted candidates and stale assignment, Manager-direct rejection without cancelling pending requests, and two missing specialties. Existing matching-specialty happy paths remain covered. Test fixtures now seed Staff specialties.
+- Tests run outside the Windows sandbox to avoid its previously observed build/testhost hangs. SQL integration and Web/Mobile staging acceptance were not run. No shared Staff data was backfilled.
+
 ## Operational SLA cutover V11 — 2026-11-06
 
 Branches: `feature/operational-sla-cutover` in Backend and Database; no worktree, commit, push or merge.

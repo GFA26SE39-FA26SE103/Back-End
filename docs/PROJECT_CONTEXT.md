@@ -196,6 +196,7 @@ Manager operational intervention
 ```
 
 - SWAP exchanges affected A/B assignments; COVER transfers coverage for A's shift using an eligible B.
+- SWAP/COVER requires the two Staff members to have the same non-null, non-empty primary specialty. Recheck current specialties for candidate selection, request, peer acceptance and every Manager approval/assisted/direct path. Two missing specialties are not compatible; rejection/cancellation remains possible.
 - A may cancel while pending. B may decline before acceptance, or withdraw/cancel while awaiting Manager. No cancellation after final approval.
 - Unresolved requests **expire exactly when 24 hours remain before the earliest affected shift begins**. For SWAP use the earlier of both shifts; for COVER use A's shift. This is **not** 24h after request creation.
 - Recheck future start, overlap, availability, weekly hours, relevant zone coverage and permissions **at approval time**; preserve original assignments on rejection, cancellation or expiry.
@@ -792,6 +793,7 @@ The 29/10 mentor clarification adds two Manager-owned exception paths without a 
 - A cancels while pending; B withdraws only while awaiting the Manager; actor, time and reason use the V5 cancellation columns.
 - `expires_at` is the earliest affected local shift start minus 24 hours, stored in UTC. A background worker sets EXPIRED; reads and actions already treat past-deadline requests as expired.
 - Rules are re-checked on request, peer acceptance and Manager action: active Staff, future and not checked-in shifts, decision deadline for peer flow, different shifts for SWAP, one pending request per shift (application check, no DB unique index), no overlap, `StaffUnavailability`, hard limit 48 h per local Monday–Sunday week, and Zone coverage (informational, because zone rows move with the assignment). Candidate DTOs flag `recommended=true` through 40 h; 40–48 h remains eligible but is shown as high workload.
+- `SPECIALTY_COMPATIBLE` additionally enforces matching assigned primary specialty in that shared rule path, including Manager candidates/direct intervention. Missing specialty blocks transfers until account configuration is corrected. This uses existing V7 `UserAccount.specialty_id`; no schema or DTO change.
 - Notifications are in-app only. `Notification` has no swap-request reference column, so clients open the caller's request list.
 
 Manager shift planning has subsequently been extended by Database V7 Weekly Work Shifts:
