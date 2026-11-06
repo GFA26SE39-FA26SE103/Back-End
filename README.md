@@ -1,5 +1,7 @@
 # FA26SE103 MF-01 backend
 
+**Manager analytics API (06/11/2026):** Three MANAGER-only read endpoints provide overview, daily cohorts and per-zone Event/Incident/Task KPIs from grouped SQL queries. Includes duration sample counts, nullable averages and Task SLA reporting from stored deadlines. See [contract and KPI definitions](docs/MANAGER_ANALYTICS_API.md). Dashboard UI, exports, recommendations and staging performance acceptance remain separate work; no schema/data migration is required.
+
 **Response-policy TaskType selection (06/11/2026):** Admin can read the fixed catalog through `GET /api/task-types` (code, name, description and required specialty ID). The web editor selects a catalog entry rather than requiring a memorized code. No schema change or catalog-write API is introduced.
 
 Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.md](AGENTS.md) và [context đầy đủ của team](docs/PROJECT_CONTEXT.md), đồng bộ SRS/BR/diagram V2 và ERD V6 ngày **23/10/2026** trên baseline Mainflow 02/10/2026. SQL Server là nguồn dữ liệu chính. Backend có API setup, floor-plan upload, upload MP4 và AI preview; mức độ nối frontend cần đối chiếu với checkout frontend hiện tại. Phạm vi chính là **MF-01**, kèm các subset MF-02/MF-04 được ghi rõ bên dưới.

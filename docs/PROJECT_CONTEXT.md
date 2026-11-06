@@ -674,7 +674,8 @@ Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a 
 | MF-04 SWAP/COVER and shift planning | `ShiftSwaps`, `ShiftPlanning`, controllers, workers and tests | **Merged to `dev`** with the bounded behavior in §42. |
 | Camera playback/editing | `CameraPlayback`, `MediaMtxGateway`, `CameraSetup`, camera tests | Dynamic MediaMTX playback paths, sanitized WHEP URLs and preserve-password editing are present; see §43. |
 | MF-03 Task evidence and verification | `TaskEvidenceWork`, Task routes/storage and focused tests | **Implemented on `feature/mf03-task-evidence`**: upload, submit, verify/reject, rework and reassign-after-two-rejections. The new AUTO/MANUAL, evidence-or-note, P1/safety and automatic Incident-closure target is not yet proven by this snapshot. |
-| Confirmed StaffReport, complete analytics | No complete application flow established | **Do not claim implemented**. |
+| Manager analytics API (WF-05 / FE-09–10 subset) | `ManagerAnalytics`, `EfAnalyticsQueries`, Manager analytics controller | Read-only overview, daily cohorts and Zone aggregates for recorded Event/Incident/Task data. Task SLA reporting uses stored deadlines. [Contract/KPI definitions](MANAGER_ANALYTICS_API.md); UI, export, recommendations, staging latency and end-to-end acceptance remain open. |
+| Confirmed StaffReport, complete analytics | No complete application flow established | **Do not claim complete**; the bounded analytics API above is only a subset. |
 | `SystemSetting`, `ServiceHealthEvent`, V6 zone staffing fields | V6 scaffold plus focused application reads | MF-02 consumes two retry settings; Admin manages the four approved notification policy keys. Other settings and service-health workflows remain unimplemented unless separately verified. |
 | Deployment health / CI results | Historical README, workflow and VALIDATION docs | **Dated evidence only**, no live deployment check performed for this synchronization. |
 

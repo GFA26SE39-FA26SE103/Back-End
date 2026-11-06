@@ -388,3 +388,11 @@ The SQL-backed historical integration suite was not used: it requires an absent 
 - Frontend ResponsePolicies tests: **9 passed**; production build passed. Covers code/name selection, selected description, catalog load failure/retry, retained drafts and the unchanged versioned save contract.
 - Edge visual check used mocked API catalog/policy data at 1440×1000: select displays code/name and description, stacked layout has no horizontal overflow. This is not live database or deployed end-to-end acceptance.
 - No schema, seed data, shared database or deployment changes. OpenAPI snapshot and API documentation updated for the additive endpoint.
+
+## Manager analytics API and KPI definitions — 2026-11-06
+
+- Added MANAGER-only read endpoints `/api/manager/analytics/overview`, `/trends`, `/zones`, with inclusive local-date and optional Zone filters; default seven days, maximum 93 days. Cohort/current-status semantics and KPI denominators are defined in [MANAGER_ANALYTICS_API.md](MANAGER_ANALYTICS_API.md).
+- EF SQL Server queries aggregate Events, Incidents and Tasks in SQL. No raw-feed cap or manually fabricated historical measurements. SLA reporting uses persisted Task deadlines; dismissed Incidents are excluded from incident totals; absent duration/rate samples are null.
+- Focused analytics suite: **19 passed**. Includes default/range/zone validation, empty cohorts, weighted durations, dismissed reconciliation, SLA denominator counts, zero-filled trends, empty zones, DST boundaries, all endpoint roles/no-store, unavailable-data HTTP error, EF SQL translation, 93-day SQL CASE nesting and generated Swagger contracts.
+- Full non-SQL backend suite: **510 passed, 0 failed, 0 skipped**. Release publish: **PASS**. `git diff --check`: PASS. OpenAPI additions were captured from the compiled API test host and merged into the existing snapshot, preserving unrelated paths.
+- No schema, seed, generated-scaffold or shared-data change; no commit/push/deployment performed. SQL translation was verified without executing against a live SQL Server. Staging SQL result correctness, representative latency/NFR-02, Manager frontend, export and recommendations remain unverified or out of this increment's scope. The complete WF-05 E2E/commitment is not claimed finished.
