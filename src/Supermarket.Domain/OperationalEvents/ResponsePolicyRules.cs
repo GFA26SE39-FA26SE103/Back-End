@@ -31,28 +31,5 @@ public static class ResponsePolicyRules
         return (title, instructions, taskTypeCode);
     }
 
-    public static IReadOnlyList<string> ReadinessIssues(MonitoringRule rule, MonitoringConfiguration configuration, ResponsePolicy policy,
-        IReadOnlyCollection<ResponsePolicyAction> actions)
-    {
-        var issues = new List<string>();
-        if (!IsOperationalEventRule(rule)) issues.Add("INVALID_POLICY_RULE");
-        if (!rule.Enabled) issues.Add("RULE_DISABLED");
-        if (configuration.Status != "ACTIVE") issues.Add("CONFIGURATION_NOT_ACTIVE");
-        if (!policy.IsEnabled) issues.Add("POLICY_DISABLED");
-        if (actions.Count == 0) issues.Add("ACTION_MISSING");
-        if (actions.Count > 1) issues.Add("ACTION_AMBIGUOUS");
-        var action = actions.Count == 1 ? actions.Single() : null;
-        if (action is not null)
-        {
-            if (!action.IsEnabled) issues.Add("ACTION_DISABLED");
-            if (action.ExecutionMode != Automatic) issues.Add("ACTION_NOT_AUTOMATIC");
-        }
-        return issues;
-    }
-
-    public static ResponsePolicyAction? ReadyAutomaticTaskAction(MonitoringRule rule, MonitoringConfiguration configuration, ResponsePolicy policy,
-        IReadOnlyCollection<ResponsePolicyAction> actions)
-        => ReadinessIssues(rule, configuration, policy, actions).Count == 0 ? actions.Single() : null;
-
     private static string? Normalize(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

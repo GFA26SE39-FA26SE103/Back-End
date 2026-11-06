@@ -93,10 +93,12 @@ public sealed class TaskNotifier(ISetupStore store, IClock clock)
         return notification;
     }
     /// <summary>A notification that is not about a Task (for example a shift swap).</summary>
-    public async Task<Notification> Broadcast(string type, string title, string message, IEnumerable<Guid> recipients, string reason, CancellationToken ct)
+    public async Task<Notification> Broadcast(string type, string title, string message, IEnumerable<Guid> recipients, string reason, CancellationToken ct,
+        Guid? eventId = null, string severity = "INFO", Guid? cameraId = null)
     {
         var now = clock.UtcNow;
-        var notification = new Notification { NotificationId = Guid.NewGuid(), NotificationType = type, Title = Cut(title, 200), Message = Cut(message, 4000), CreatedAt = now };
+        var notification = new Notification { NotificationId = Guid.NewGuid(), NotificationType = type, Title = Cut(title, 200), Message = Cut(message, 4000), CreatedAt = now,
+            EventId = eventId, Severity = severity, CameraId = cameraId };
         await store.Add(notification, ct);
         foreach (var userId in recipients.Distinct())
             await store.Add(new NotificationRecipient { NotificationRecipientId = Guid.NewGuid(), NotificationId = notification.NotificationId, UserId = userId,
@@ -134,7 +136,7 @@ public interface IOperationalEventResponder
 }
 
 /// <summary>
-/// OperationalEvent → ResponsePolicy → CREATE_OPERATIONAL_TASK (AUTOMATIC) → Task offered to eligible Zone Staff,
+/// OperationalEvent → SLAPolicy → alert-conditioned action → notification or Task offered to eligible Zone Staff,
 /// re-offered every retry interval, then handed to the Operator for manual assignment (BR-19, BR-21, BR-22).
 /// One episode yields at most one Task; a priority rise updates it.
 /// </summary>
@@ -142,12 +144,15 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private sealed record TaskParameters(string? Title, string? Instructions, string? TaskTypeCode);
+    private sealed record OperationalSlaSnapshot(Guid PolicyId, int PolicyVersion, Guid EventTypeId, string PriorityCode,
+        int ResponseTargetSec, int ResolutionTargetSec, int OfferTimeoutSec, int WarningPercent, DateTime AppliedAt,
+        DateTime ResponseDeadlineAt, DateTime ResolutionDeadlineAt);
 
     public async Task Raised(OperationalEvent ev, string? previousPriority, CancellationToken ct)
     {
         // Monitoring keeps working on a database without the task schema; there is simply no dispatch.
         if (!await schema.Ready(ct)) return;
-        var existing = (await store.List<WorkTask>(t => t.EventId == ev.EventId && t.Status != WorkTaskStatus.Cancelled, ct)).FirstOrDefault();
+        var existing = (await store.List<WorkTask>(t => t.EventId == ev.EventId, ct)).FirstOrDefault();
         if (existing is not null)
         {
             if (TaskRules.Rank(ev.Priority) > TaskRules.Rank(existing.Priority))
@@ -159,20 +164,40 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
             }
             return;
         }
-        if (previousPriority is not null && TaskRules.Rank(ev.Priority) <= TaskRules.Rank(previousPriority)) return;
-        var action = await TaskAction(ev, ct);
-        if (action is null) return;
+        var match = await TaskAction(ev, ct);
+        if (match is null) return;
+        var (policy, action) = match.Value;
+        if (action.ActionType == OperationalSlaPolicyRules.NotifyOperator)
+        {
+            await EventNotice(ev, "OPERATIONAL_EVENT_WARNING", "Operational warning", "Review the operational event.", ct);
+            return;
+        }
 
         var parameters = Parameters(action.ActionParametersJson);
+        if (parameters is null || parameters.Instructions?.Length > 4000)
+        {
+            await ConfigurationException(ev, "ACTION_PARAMETERS_INVALID", ct);
+            return;
+        }
         var zone = await store.Find<Zone>(ev.ZoneId, ct);
         var type = await store.Find<OperationalEventType>(ev.EventTypeId, ct);
         var taskType = await ResolveTaskType(parameters?.TaskTypeCode, type, ct);
         // V7 dispatch is specialty-aware. A missing/ambiguous TaskType must be fixed in policy configuration;
         // silently creating a specialty-less Task would fabricate eligibility.
-        if (taskType is null) return;
+        if (taskType is null)
+        {
+            await ConfigurationException(ev, "TASK_TYPE_MISSING_OR_AMBIGUOUS", ct);
+            return;
+        }
         var title = parameters?.Title is { Length: > 0 } custom ? custom : $"{type?.Name ?? "Operational event"} — {zone?.Name ?? "Zone"}";
+        var now = clock.UtcNow;
+        var snapshot = new OperationalSlaSnapshot(policy.PolicyId, policy.Version, ev.EventTypeId, policy.PriorityCode,
+            policy.ResponseTargetSec, policy.ResolutionTargetSec, policy.OfferTimeoutSec, policy.WarningPercent, now,
+            now.AddSeconds(policy.ResponseTargetSec), now.AddSeconds(policy.ResolutionTargetSec));
         var task = new WorkTask { TaskId = Guid.NewGuid(), ZoneId = ev.ZoneId, Title = title.Length <= 200 ? title : title[..200], Description = parameters?.Instructions,
-            Priority = ev.Priority, Status = WorkTaskStatus.Offered, OriginType = TaskOrigin.OperationalEvent, EventId = ev.EventId, TaskTypeId = taskType.TaskTypeId };
+            Priority = ev.Priority, Status = WorkTaskStatus.Offered, OriginType = TaskOrigin.OperationalEvent, EventId = ev.EventId, TaskTypeId = taskType.TaskTypeId,
+            SlaPolicyId = policy.PolicyId, SlaSnapshotJson = JsonSerializer.Serialize(snapshot, Json),
+            ResponseDeadlineAt = snapshot.ResponseDeadlineAt, ResolutionDeadlineAt = snapshot.ResolutionDeadlineAt };
         await store.Add(task, ct);
         await OfferRound(task, ev.CameraId, ct);
     }
@@ -314,6 +339,17 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
 
     public async Task<int> OfferTimeout(WorkTask task, CancellationToken ct)
     {
+        if (!string.IsNullOrWhiteSpace(task.SlaSnapshotJson))
+        {
+            try
+            {
+                using var snapshot = JsonDocument.Parse(task.SlaSnapshotJson);
+                if (snapshot.RootElement.ValueKind == JsonValueKind.Object
+                    && snapshot.RootElement.TryGetProperty("offerTimeoutSec", out var value)
+                    && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var seconds) && seconds > 0) return seconds;
+            }
+            catch (JsonException) { /* Older tasks can still use their policy or global retry setting. */ }
+        }
         if (task.SlaPolicyId is { } policyId && await store.Find<SlaPolicy>(policyId, ct) is { OfferTimeoutSec: > 0 } policy)
             return policy.OfferTimeoutSec;
         return (await Retry(ct)).IntervalSec;
@@ -329,35 +365,65 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
         }, ct);
     }
 
-    private async Task<ResponsePolicyAction?> TaskAction(OperationalEvent ev, CancellationToken ct)
+    private async Task<(SlaPolicy Policy, SlaPolicyAction Action)?> TaskAction(OperationalEvent ev, CancellationToken ct)
     {
         if (ev.RuleId is not { } ruleId) return null;
         var rule = await store.Find<MonitoringRule>(ruleId, ct);
         if (rule is null) return null;
         var configuration = await store.Find<MonitoringConfiguration>(rule.ConfigId, ct);
         if (configuration is null) return null;
-        var policies = await store.List<ResponsePolicy>(p => p.RuleId == ruleId && p.EventPriority == ev.Priority, ct);
-        if (policies.Count != 1) return null;
+        if (!ResponsePolicyRules.IsOperationalEventRule(rule) || rule.EventTypeId != ev.EventTypeId
+            || !rule.Enabled || configuration.Status != "ACTIVE") return null;
+        var policies = await store.List<SlaPolicy>(p => p.ProblemDomain == "OPERATIONAL_EVENT" && p.EventTypeId == ev.EventTypeId && p.IsEnabled, ct);
+        if (policies.Count != 1)
+        {
+            await ConfigurationException(ev, policies.Count == 0 ? "POLICY_MISSING" : "POLICY_AMBIGUOUS", ct);
+            return null;
+        }
         var policy = policies[0];
-        var actions = await store.List<ResponsePolicyAction>(a => a.PolicyId == policy.PolicyId && a.ActionType == ResponsePolicyRules.CreateOperationalTask, ct);
-        // Disabled, ambiguous and APPROVAL_REQUIRED policies are not executable by the automatic path.
-        return ResponsePolicyRules.ReadyAutomaticTaskAction(rule, configuration, policy, actions);
+        if (!OperationalSlaPolicyRules.Valid(policy))
+        {
+            await ConfigurationException(ev, "POLICY_INVALID", ct);
+            return null;
+        }
+        var actions = await store.List<SlaPolicyAction>(a => a.PolicyId == policy.PolicyId && a.IsEnabled, ct);
+        var matches = actions.Where(a => OperationalSlaPolicyRules.AlertLevel(a.ConditionJson) == ev.Priority).ToList();
+        var expected = ev.Priority == "WARNING" ? OperationalSlaPolicyRules.NotifyOperator : OperationalSlaPolicyRules.CreateTask;
+        if (ev.Priority is not ("WARNING" or "CRITICAL") || matches.Count != 1
+            || matches[0].ActionType != expected || matches[0].ExecutionMode != "AUTOMATIC")
+        {
+            await ConfigurationException(ev, "ACTION_MISSING_INVALID_OR_AMBIGUOUS", ct);
+            return null;
+        }
+        return (policy, matches[0]);
+    }
+
+    private Task ConfigurationException(OperationalEvent ev, string code, CancellationToken ct)
+        => EventNotice(ev, "OPERATIONAL_SLA_CONFIGURATION_EXCEPTION", "Operational SLA configuration needs attention", code, ct);
+
+    private async Task EventNotice(OperationalEvent ev, string type, string title, string message, CancellationToken ct)
+    {
+        // Runs within the event writer's serializable transaction: one notice per episode/type.
+        if ((await store.List<Notification>(n => n.EventId == ev.EventId && n.NotificationType == type, ct)).Count != 0) return;
+        await notifier.Broadcast(type, title, message, await notifier.Operators(ct), "OPERATOR", ct, ev.EventId, ev.Priority, ev.CameraId);
     }
 
     private static TaskParameters? Parameters(string? json)
     {
-        if (string.IsNullOrWhiteSpace(json)) return null;
+        if (string.IsNullOrWhiteSpace(json) || json.Length > 32768) return null;
         try { return JsonSerializer.Deserialize<TaskParameters>(json, Json); }
         catch (JsonException) { return null; }
     }
 
     private async Task<TaskType?> ResolveTaskType(string? configuredCode, OperationalEventType? eventType, CancellationToken ct)
     {
-        var types = await store.List<TaskType>(ct: ct);
         if (!string.IsNullOrWhiteSpace(configuredCode))
-            return types.SingleOrDefault(t => string.Equals(t.Code, configuredCode.Trim(), StringComparison.OrdinalIgnoreCase));
-        if (eventType is null) return null;
-        var matches = types.Where(t => string.Equals(t.SourceCategory, eventType.Name, StringComparison.OrdinalIgnoreCase)).ToList();
-        return matches.Count == 1 ? matches[0] : null;
+        {
+            var code = configuredCode.Trim().ToUpperInvariant();
+            var matches = await store.List<TaskType>(t => t.Code == code, ct);
+            return matches.Count == 1 ? matches[0] : null;
+        }
+        // Source-category labels cannot distinguish TT-03 from TT-04. Require an explicit mapping.
+        return null;
     }
 }

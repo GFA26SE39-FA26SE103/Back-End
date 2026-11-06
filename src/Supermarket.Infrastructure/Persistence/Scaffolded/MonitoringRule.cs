@@ -44,6 +44,4 @@ public partial class MonitoringRule
     public virtual ICollection<Incident> Incidents { get; set; } = new List<Incident>();
 
     public virtual ICollection<OperationalEvent> OperationalEvents { get; set; } = new List<OperationalEvent>();
-
-    public virtual ICollection<ResponsePolicy> ResponsePolicies { get; set; } = new List<ResponsePolicy>();
 }

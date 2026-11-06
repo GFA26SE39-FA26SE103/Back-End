@@ -47,7 +47,7 @@ Account administration supports MF-01 but is not a required diagram step. Later 
 - New connections start disabled; enabling must enforce current connection validation. Configuration changes invalidate old test results.
 - Camera operational status, camera health status, connection enablement, and monitoring activation are separate concepts.
 - `CameraHealthEvent` is system health, not an operational `Incident`. `OperationalEvent` and `Incident` are also distinct.
-- OperationalEvent response is `OperationalEvent → ResponsePolicy → ResponsePolicyAction → notification/recommendation/operational Task`. Incident is an independent MonitoringRule outcome or confirmed-report path; a threshold breach or CRITICAL priority alone does not convert an Event into an Incident.
+- OperationalEvent response is `OperationalEvent → SLAPolicy (EventType match) → SLAPolicyAction (alert-level condition) → notification/operational Task`. Incident is an independent MonitoringRule outcome or confirmed-report path; a threshold breach or CRITICAL priority alone does not convert an Event into an Incident.
 - `StaffReport` is a separate confirmed staff-submission path; routine reports must not be fabricated into OperationalEvents.
 - `Task` has exactly one origin type: `OPERATIONAL_EVENT`, `INCIDENT`, `STAFF_REPORT`, or `MANUAL`, with exclusive nullable source FKs.
 - Task acceptance must be atomic first-valid-acceptance-wins; target requirements evaluate eligible checked-in/on-shift Staff in the target Zone and configured adjacent Zones simultaneously, using role, availability and workload. The current MF-02 subset still offers only to the target Zone.

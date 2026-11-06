@@ -359,3 +359,15 @@ Branch `feature/mf03-task-evidence` was updated from `origin/dev` at `d0a3b24`. 
 - `git diff --check`: **PASS** after conflict resolution.
 
 No shared SQL data/schema, deployment, credential, push-provider configuration or generated scaffold was changed. The implementation uses the existing V6 `TaskEvidence` table and `Task.rejection_count`. SQL/API acceptance with the deployed database and real Cloudinary credentials remains a pre-deployment smoke check; StaffReport and independent Incident closure remain outside this increment.
+## Operational SLA cutover V11 — 2026-11-06
+
+Branches: `feature/operational-sla-cutover` in Backend and Database; no worktree, commit, push or merge.
+
+- Baseline focused suite: **48 passed** before changes. Final `dotnet test Supermarket.sln -c Release --no-restore --filter "Category!=SqlIntegration" --verbosity quiet`: **467 passed, 0 failed, 0 skipped**.
+- Release build and API publish: **PASS**. Runtime/EF dependency scan: no legacy policy/action table reads or readiness checks; scaffold regenerated with SLA-only table selection. Existing API route names remain for compatibility.
+- Tests exercise WARNING notification deduplication, WARNING → CRITICAL one-task transition, missing/ambiguous/invalid policy/action exception routing, explicit task types, immutable offer timeout/deadlines, specialty eligibility/retry/acceptance and SLA mapper round trips. An independent review found oversized task instructions could fail SQL persistence; a failing regression test was added, then fixed with fail-closed parameter validation.
+- Live SQL Server: V11 default preview **PASS/ROLLED_BACK**. After user-confirmed backup and stopped backend, apply/drop **COMMITTED**. Both legacy table object IDs are NULL; four enabled operational policies and eight enabled actions persisted. Existing codes retained: LONG_QUEUE HIGH/TT-01, EXCESSIVE_WAIT MEDIUM/TT-02, CONGESTION CRITICAL/TT-03, CHECKOUT_CAPACITY MEDIUM/TT-05.
+- Preserved row counts before/after: **OperationalEvent 863, Incident 0, TaskAssignmentHistory 11**. New operational unique index has only `event_type_id` as its key. Incident unique indexes remain intact.
+- Post-drop V11 rollback rerun: **PASS**, same policy/action IDs and policy version 1, four/eight persisted rows, no static binding errors for dropped objects.
+
+The SQL-backed historical integration suite was not used: it requires an absent old schema file and creates temporary databases, contrary to this task's constraints. No temporary database or committed synthetic measurements were created. HTTP/camera/AI end-to-end acceptance and SLA warning/breach escalation workers are not claimed by this verification.

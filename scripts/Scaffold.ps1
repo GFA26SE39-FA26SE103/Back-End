@@ -12,7 +12,7 @@ try {
         'IncidentType','Incident','IncidentMedia','StaffReport','StaffReportMedia',
         'StaffSpecialty','TaskType','Task','TaskOffer','TaskAssignmentHistory','TaskEvidence',
         'Shift','ShiftAssignment','StaffZoneAssignment','StaffUnavailability','ShiftSwapRequest','ZoneAdjacency',
-        'Notification','NotificationRecipient','UserDevice','ResponsePolicy','ResponsePolicyAction',
+        'Notification','NotificationRecipient','UserDevice',
         'SLAPolicy','SLAPolicyAction','Recommendation','AuditLog','ServiceHealthEvent','SystemSetting'
     )
     $tableArguments = $tables | ForEach-Object { '--table'; $_ }

@@ -301,3 +301,6 @@ Luật: Work Shift dài 4, 6 hoặc 8 giờ (BR-33; giờ kết thúc ≤ giờ 
 | MANAGER | `DELETE /staff-unavailability/{id}` | 204. |
 
 Notification types: `SHIFT_PUBLISHED`, `SHIFT_CHANGED`, `SHIFT_CANCELLED` (in-app). Copy tuần chỉ copy cấu hình Work Shift; Manager vẫn chủ động xếp Staff và publish từng tuần. Chưa làm: lặp assignment tự động, giới hạn giờ/tuần qua `SystemSetting`, Staff tự gửi đơn nghỉ.
+## Operational SLA compatibility cutover (2026-11-06)
+
+The existing `/api/monitoring-rules/{ruleId}/response-policies` routes are retained, backed by `SLAPolicy`/`SLAPolicyAction`, not legacy response-policy tables. Rules sharing an EventType share the enabled SLA policy and version. WARNING manages a notification action only; CRITICAL manages a task action with explicit `taskTypeCode`. Missing/ambiguous SLA configuration fails closed; the API does not fabricate priorities or deadlines. Runtime configuration exceptions notify Operators with an event-linked `OPERATIONAL_SLA_CONFIGURATION_EXCEPTION` notification. Tasks retain operational alert priority while their immutable SLA snapshot stores the distinct SLA priority and deadlines.

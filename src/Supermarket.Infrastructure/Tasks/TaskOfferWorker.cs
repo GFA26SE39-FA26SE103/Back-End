@@ -35,7 +35,8 @@ public sealed class EfTaskSchema(AppDbContext db) : ITaskSchema
                 AND OBJECT_ID(N'dbo.ShiftAssignment',N'U') IS NOT NULL
                 AND OBJECT_ID(N'dbo.StaffZoneAssignment',N'U') IS NOT NULL
                 AND OBJECT_ID(N'dbo.NotificationRecipient',N'U') IS NOT NULL
-                AND OBJECT_ID(N'dbo.ResponsePolicyAction',N'U') IS NOT NULL
+                AND OBJECT_ID(N'dbo.SLAPolicy',N'U') IS NOT NULL
+                AND OBJECT_ID(N'dbo.SLAPolicyAction',N'U') IS NOT NULL
                 AND OBJECT_ID(N'dbo.SystemSetting',N'U') IS NOT NULL
                 AND COL_LENGTH(N'dbo.Task',N'planned_start_at') IS NOT NULL
                 AND COL_LENGTH(N'dbo.Task',N'task_type_id') IS NOT NULL

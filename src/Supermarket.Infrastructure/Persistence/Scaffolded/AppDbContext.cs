@@ -43,10 +43,6 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<Recommendation> Recommendations { get; set; }
 
-    public virtual DbSet<ResponsePolicy> ResponsePolicies { get; set; }
-
-    public virtual DbSet<ResponsePolicyAction> ResponsePolicyActions { get; set; }
-
     public virtual DbSet<Role> Roles { get; set; }
 
     public virtual DbSet<ServiceHealthEvent> ServiceHealthEvents { get; set; }
@@ -904,83 +900,6 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("FK_Recommendation_Zone");
         });
 
-        modelBuilder.Entity<ResponsePolicy>(entity =>
-        {
-            entity.HasKey(e => e.PolicyId);
-
-            entity.ToTable("ResponsePolicy");
-
-            entity.HasIndex(e => new { e.RuleId, e.EventPriority }, "UQ_ResponsePolicy_Rule_Priority").IsUnique();
-
-            entity.Property(e => e.PolicyId)
-                .HasDefaultValueSql("(newsequentialid())", "DF_ResponsePolicy_Id")
-                .HasColumnName("policy_id");
-            entity.Property(e => e.CreatedAt)
-                .HasPrecision(3)
-                .HasDefaultValueSql("(sysutcdatetime())", "DF_ResponsePolicy_CreatedAt")
-                .HasColumnName("created_at");
-            entity.Property(e => e.EventPriority)
-                .HasMaxLength(40)
-                .HasColumnName("event_priority");
-            entity.Property(e => e.IsEnabled)
-                .HasDefaultValue(true, "DF_ResponsePolicy_Enabled")
-                .HasColumnName("is_enabled");
-            entity.Property(e => e.RuleId).HasColumnName("rule_id");
-            entity.Property(e => e.UpdatedAt)
-                .HasPrecision(3)
-                .HasDefaultValueSql("(sysutcdatetime())", "DF_ResponsePolicy_UpdatedAt")
-                .HasColumnName("updated_at");
-            entity.Property(e => e.Version)
-                .HasDefaultValue(1, "DF_ResponsePolicy_Version")
-                .HasColumnName("version");
-
-            entity.HasOne(d => d.Rule).WithMany(p => p.ResponsePolicies)
-                .HasForeignKey(d => d.RuleId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_ResponsePolicy_Rule");
-        });
-
-        modelBuilder.Entity<ResponsePolicyAction>(entity =>
-        {
-            entity.HasKey(e => e.ActionId);
-
-            entity.ToTable("ResponsePolicyAction");
-
-            entity.Property(e => e.ActionId)
-                .HasDefaultValueSql("(newsequentialid())", "DF_ResponsePolicyAction_Id")
-                .HasColumnName("action_id");
-            entity.Property(e => e.ActionParametersJson).HasColumnName("action_parameters_json");
-            entity.Property(e => e.ActionType)
-                .HasMaxLength(60)
-                .HasColumnName("action_type");
-            entity.Property(e => e.ConditionJson).HasColumnName("condition_json");
-            entity.Property(e => e.CreatedAt)
-                .HasPrecision(3)
-                .HasDefaultValueSql("(sysutcdatetime())", "DF_ResponsePolicyAction_CreatedAt")
-                .HasColumnName("created_at");
-            entity.Property(e => e.ExecutionMode)
-                .HasMaxLength(40)
-                .HasColumnName("execution_mode");
-            entity.Property(e => e.IsEnabled)
-                .HasDefaultValue(true, "DF_ResponsePolicyAction_Enabled")
-                .HasColumnName("is_enabled");
-            entity.Property(e => e.PolicyId).HasColumnName("policy_id");
-            entity.Property(e => e.TargetRoleId).HasColumnName("target_role_id");
-            entity.Property(e => e.UpdatedAt)
-                .HasPrecision(3)
-                .HasDefaultValueSql("(sysutcdatetime())", "DF_ResponsePolicyAction_UpdatedAt")
-                .HasColumnName("updated_at");
-
-            entity.HasOne(d => d.Policy).WithMany(p => p.ResponsePolicyActions)
-                .HasForeignKey(d => d.PolicyId)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("FK_ResponsePolicyAction_Policy");
-
-            entity.HasOne(d => d.TargetRole).WithMany(p => p.ResponsePolicyActions)
-                .HasForeignKey(d => d.TargetRoleId)
-                .HasConstraintName("FK_ResponsePolicyAction_TargetRole");
-        });
-
         modelBuilder.Entity<Role>(entity =>
         {
             entity.ToTable("Role");
@@ -1213,10 +1132,6 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.IncidentTypeId, "IX_SLAPolicy_IncidentTypeId").HasFilter("([incident_type_id] IS NOT NULL)");
 
-            entity.HasIndex(e => new { e.EventTypeId, e.PriorityCode }, "UX_SLAPolicy_Enabled_EventScope_Priority")
-                .IsUnique()
-                .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'OPERATIONAL_EVENT')");
-
             entity.HasIndex(e => e.ProblemDomain, "UX_SLAPolicy_Enabled_IncidentFallback")
                 .IsUnique()
                 .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'INCIDENT' AND [incident_type_id] IS NULL)");
@@ -1228,6 +1143,10 @@ public partial class AppDbContext : DbContext
             entity.HasIndex(e => e.IncidentTypeId, "UX_SLAPolicy_Enabled_IncidentType")
                 .IsUnique()
                 .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'INCIDENT' AND [incident_type_id] IS NOT NULL)");
+
+            entity.HasIndex(e => e.EventTypeId, "UX_SLAPolicy_Enabled_OperationalEventType")
+                .IsUnique()
+                .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'OPERATIONAL_EVENT')");
 
             entity.Property(e => e.PolicyId)
                 .HasDefaultValueSql("(newsequentialid())", "DF_SLAPolicy_Id")
@@ -1261,8 +1180,8 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValue(80, "DF_SLAPolicy_WarningPercent")
                 .HasColumnName("warning_percent");
 
-            entity.HasOne(d => d.EventType).WithMany(p => p.Slapolicies)
-                .HasForeignKey(d => d.EventTypeId)
+            entity.HasOne(d => d.EventType).WithOne(p => p.Slapolicy)
+                .HasForeignKey<Slapolicy>(d => d.EventTypeId)
                 .HasConstraintName("FK_SLAPolicy_EventType");
 
             entity.HasOne(d => d.IncidentType).WithOne(p => p.Slapolicy)

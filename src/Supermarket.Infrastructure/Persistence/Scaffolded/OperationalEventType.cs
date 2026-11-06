@@ -25,5 +25,5 @@ public partial class OperationalEventType
 
     public virtual ICollection<OperationalEvent> OperationalEvents { get; set; } = new List<OperationalEvent>();
 
-    public virtual ICollection<Slapolicy> Slapolicies { get; set; } = new List<Slapolicy>();
+    public virtual Slapolicy? Slapolicy { get; set; }
 }
