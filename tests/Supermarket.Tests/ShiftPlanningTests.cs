@@ -215,11 +215,13 @@ public sealed class ShiftPlanningTests
         public Zone Produce { get; } = new() { ZoneId = Guid.NewGuid(), Code = "C", Name = "Zone C · Produce", MinStaff = 0 };
         private readonly SwapPlanner planner;
         private readonly TaskNotifier notifier;
+        private readonly Guid specialtyId = Guid.NewGuid();
 
         public World()
         {
             foreach (var role in new[] { "ADMIN", "OPERATOR", "MANAGER", "STAFF" }) Store.Values.Add(new Role { RoleId = Guid.NewGuid(), Name = role });
-            Store.Values.AddRange([new Supermarket.Domain.Supermarket { SupermarketId = Guid.NewGuid(), Name = "Central" }, Morning, Evening, Checkout, Produce]);
+            Store.Values.AddRange([new Supermarket.Domain.Supermarket { SupermarketId = Guid.NewGuid(), Name = "Central" }, Morning, Evening, Checkout, Produce,
+                new StaffSpecialty { SpecialtyId = specialtyId, Code = "SPC-01", Name = "Checkout" }]);
             planner = new SwapPlanner(Store, Calendar);
             notifier = new TaskNotifier(Store, Clock);
         }
@@ -230,7 +232,12 @@ public sealed class ShiftPlanningTests
             Store.Values.Add(user);
             return user.UserId;
         }
-        public Guid Staff(string name) => User("STAFF", name);
+        public Guid Staff(string name)
+        {
+            var id = User("STAFF", name);
+            Store.Values.OfType<UserAccount>().Single(u => u.UserId == id).SpecialtyId = specialtyId;
+            return id;
+        }
         public Guid[] Recipients(string type)
         {
             var ids = Store.Values.OfType<Notification>().Where(n => n.NotificationType == type).Select(n => n.NotificationId).ToHashSet();

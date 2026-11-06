@@ -249,6 +249,8 @@ Yêu cầu evidence (BR-26): task origin `INCIDENT` bắt buộc ảnh after; n�
 
 ### MF-04 đổi ca SWAP/COVER
 
+Specialty eligibility (06/11/2026): cả SWAP và COVER yêu cầu hai Staff có cùng `UserAccount.specialty_id` khác null/rỗng. Hai tài khoản cùng thiếu specialty không được xem là tương thích. Shared check `SPECIALTY_COMPATIBLE` được dùng cho peer/Manager candidate, create, peer accept, Manager approve, assign-cover và manager-direct; recheck giá trị hiện tại để chặn account thay specialty sau khi gửi request. Candidate không phù hợp bị ẩn; mutation trả 409 `SWAP_NOT_ALLOWED` với lý do specialty; Manager detail có `checks[]` tương ứng. Decline/cancel/reject vẫn hoạt động để kết thúc yêu cầu không còn phù hợp. Không đổi request/response DTO.
+
 Cần ERD V6: `ShiftSwapRequest` (V4) với `expires_at` và `cancelled_*` (V5), `StaffUnavailability`, `Zone.min_staff`. Nếu thiếu, các route dưới đây trả 503 `SWAP_SCHEMA_NOT_READY`.
 
 Luồng peer: Staff A gửi yêu cầu cho một ca tương lai của mình → `PENDING_PEER` → Staff B đồng ý (`PENDING_MANAGER`) hoặc từ chối (`DECLINED_BY_PEER`) → Manager `APPROVED` / `REJECTED`. `SWAP` đổi ca của A với một ca của B; `COVER` chuyển ca của A cho B. Nếu A không tìm được đồng nghiệp, A có thể nhờ Manager: request được lưu `PENDING_MANAGER` với `targetUserId = null`; Manager chọn Staff đủ điều kiện và chỉ định COVER, không cần peer acceptance. Manager cũng có thể trực tiếp COVER/SWAP trên lịch tương lai; lý do bắt buộc và request `APPROVED` được lưu làm audit. A huỷ được khi còn `PENDING_*`; B rút được khi đang `PENDING_MANAGER`; sau khi duyệt thì không huỷ. Chỉ hành động cuối của Manager mới đổi `ShiftAssignment.user_id` trong transaction; `StaffZoneAssignment` đi theo slot ca nên số Staff mỗi Zone giữ nguyên. Từ chối, huỷ, hết hạn: lịch giữ nguyên.
@@ -301,3 +303,6 @@ Luật: Work Shift dài 4, 6 hoặc 8 giờ (BR-33; giờ kết thúc ≤ giờ 
 | MANAGER | `DELETE /staff-unavailability/{id}` | 204. |
 
 Notification types: `SHIFT_PUBLISHED`, `SHIFT_CHANGED`, `SHIFT_CANCELLED` (in-app). Copy tuần chỉ copy cấu hình Work Shift; Manager vẫn chủ động xếp Staff và publish từng tuần. Chưa làm: lặp assignment tự động, giới hạn giờ/tuần qua `SystemSetting`, Staff tự gửi đơn nghỉ.
+## Operational SLA compatibility cutover (2026-11-06)
+
+The existing `/api/monitoring-rules/{ruleId}/response-policies` routes are retained, backed by `SLAPolicy`/`SLAPolicyAction`, not legacy response-policy tables. Rules sharing an EventType share the enabled SLA policy and version. WARNING manages a notification action only; CRITICAL manages a task action with explicit `taskTypeCode`. Missing/ambiguous SLA configuration fails closed; the API does not fabricate priorities or deadlines. Runtime configuration exceptions notify Operators with an event-linked `OPERATIONAL_SLA_CONFIGURATION_EXCEPTION` notification. Tasks retain operational alert priority while their immutable SLA snapshot stores the distinct SLA priority and deadlines.

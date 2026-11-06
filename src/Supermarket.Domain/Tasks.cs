@@ -106,25 +106,6 @@ public sealed class StaffZoneAssignment : Entity
     public DateTime AssignedAt { get; set; }
     public DateTime? UnassignedAt { get; set; }
 }
-public sealed class ResponsePolicy : TrackedEntity
-{
-    public Guid PolicyId { get; set; }
-    public Guid RuleId { get; set; }
-    public string EventPriority { get; set; } = "WARNING";
-    public bool IsEnabled { get; set; } = true;
-    public int Version { get; set; } = 1;
-}
-public sealed class ResponsePolicyAction : TrackedEntity
-{
-    public Guid ActionId { get; set; }
-    public Guid PolicyId { get; set; }
-    public string ActionType { get; set; } = "";
-    public Guid? TargetRoleId { get; set; }
-    public string ExecutionMode { get; set; } = "AUTOMATIC";
-    public string? ConditionJson { get; set; }
-    public string? ActionParametersJson { get; set; }
-    public bool IsEnabled { get; set; } = true;
-}
 public sealed class Notification : Entity
 {
     public Guid NotificationId { get; set; }

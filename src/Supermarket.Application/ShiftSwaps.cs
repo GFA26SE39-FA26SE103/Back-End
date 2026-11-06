@@ -76,6 +76,10 @@ public sealed class SwapPlanner(ISetupStore store, StoreCalendar calendar)
 
         Add("ACTIVE_STAFF", context.Staff.ContainsKey(plan.RequesterId) && context.Staff.ContainsKey(plan.TargetId) && plan.RequesterId != plan.TargetId,
             "Both people must be different, active Staff members.");
+        var requesterSpecialty = context.Staff.GetValueOrDefault(plan.RequesterId)?.SpecialtyId;
+        var targetSpecialty = context.Staff.GetValueOrDefault(plan.TargetId)?.SpecialtyId;
+        Add("SPECIALTY_COMPATIBLE", requesterSpecialty is { } specialty && specialty != Guid.Empty && targetSpecialty == specialty,
+            "Both Staff members must have the same assigned specialty to swap or cover a shift.");
         var slots = new[] { plan.RequesterSlot, plan.TargetSlot }.OfType<SwapSlot>().ToArray();
         Add("FUTURE_SHIFT", slots.All(s => s.StartsAt > now && s.Assignment.CheckInAt is null && s.Assignment.Status == ShiftAssignmentStatus.Scheduled),
             "Every affected shift must be published, still in the future and not checked in.");

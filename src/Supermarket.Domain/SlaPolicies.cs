@@ -1,5 +1,17 @@
 namespace Supermarket.Domain;
 
+public sealed class SlaPolicyAction : TrackedEntity
+{
+    public Guid ActionId { get; set; }
+    public Guid PolicyId { get; set; }
+    public string ActionType { get; set; } = "";
+    public Guid? TargetRoleId { get; set; }
+    public string ExecutionMode { get; set; } = "";
+    public string? ConditionJson { get; set; }
+    public string? ActionParametersJson { get; set; }
+    public bool IsEnabled { get; set; }
+}
+
 public sealed class SlaPolicy : TrackedEntity
 {
     public Guid PolicyId { get; set; }

@@ -22,6 +22,8 @@ Workflow không tự tạo/cập nhật DB, không upload `api.env`, không cấ
 
 ## Context chung khi clone backend
 
+MF-04 specialty update (06/11/2026): SWAP/COVER chỉ giữa Staff có cùng primary specialty đã gán. Candidate và mọi bước accept/approve/Manager cover/direct đều kiểm lại specialty hiện tại; thiếu/khác specialty trả `SWAP_NOT_ALLOWED` và không chuyển ca. Admin cần gán specialty trước khi dùng đổi ca. Không đổi DTO/schema; xem MF-04 trong API.md.
+
 - Đọc [AGENTS.md](AGENTS.md) trước khi làm việc; đây là hướng dẫn ngắn ở root để coding agent tự nạp khi mở repo backend.
 - Đọc [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) đầy đủ trước khi triển khai. File này là snapshot triển khai được đồng bộ trong repository, gồm MF-01..MF-04, BR, kiến trúc, ERD v3 facts, các quyết định còn mở và link RP1/RP2/BR/ERD. Các Mainflow sau là context thiết kế; phần đang tập trung triển khai là MF-01.
 - Đối chiếu phần đã triển khai và các gap trong README, [API contract](docs/API.md), [OpenAPI](docs/openapi.json) và source liên quan. [VALIDATION.md](docs/VALIDATION.md) là bằng chứng kiểm tra tại ngày ghi trong file.

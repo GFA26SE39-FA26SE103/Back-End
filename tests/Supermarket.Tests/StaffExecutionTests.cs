@@ -62,7 +62,7 @@ public sealed class StaffExecutionTests
     public async Task DemoRetrySettingsOfferThreeTimesTenSecondsApartThenAskTheOperatorOnce()
     {
         // MF-02 contract baseline: retry_interval_sec = 10, max_retry_count = 2 → three offers in total.
-        var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia"); w.Policy(offerTimeoutSec: 10);
         w.Setting(TaskRules.RetryIntervalSetting, "10"); w.Setting(TaskRules.MaxRetryCountSetting, "2");
         await w.Raise();
         var task = Assert.Single(w.Store.Values.OfType<WorkTask>());
@@ -87,7 +87,7 @@ public sealed class StaffExecutionTests
     [Fact]
     public async Task WithNoEligibleStaffNobodyIsAssignedAndRetriesReachStaffWhoCheckInLater()
     {
-        var w = new World(); var late = w.Staff("An", checkedIn: false); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        var w = new World(); var late = w.Staff("An", checkedIn: false); var op = w.User("OPERATOR", "Olivia"); w.Policy(offerTimeoutSec: 10);
         w.Setting(TaskRules.RetryIntervalSetting, "10"); w.Setting(TaskRules.MaxRetryCountSetting, "2");
         await w.Raise();
         var task = Assert.Single(w.Store.Values.OfType<WorkTask>());
@@ -174,18 +174,21 @@ public sealed class StaffExecutionTests
             return assignment.ShiftAssignmentId;
         }
 
-        public void Policy()
+        public void Policy(int offerTimeoutSec = 60)
         {
-            var policy = new ResponsePolicy { PolicyId = Guid.NewGuid(), RuleId = ruleId, EventPriority = "WARNING" };
+            var policy = new SlaPolicy { PolicyId = Guid.NewGuid(), EventTypeId = eventTypeId, ProblemDomain = "OPERATIONAL_EVENT",
+                IsEnabled = true, Version = 1, PriorityCode = "MEDIUM", ResponseTargetSec = 300, ResolutionTargetSec = 3600,
+                OfferTimeoutSec = offerTimeoutSec, WarningPercent = 80 };
             Store.Values.Add(policy);
-            Store.Values.Add(new ResponsePolicyAction { ActionId = Guid.NewGuid(), PolicyId = policy.PolicyId, ActionType = "CREATE_OPERATIONAL_TASK", ExecutionMode = "AUTOMATIC",
-                ActionParametersJson = """{"title":"Clear the queue","instructions":"Open one more counter"}""" });
+            Store.Values.Add(new SlaPolicyAction { ActionId = Guid.NewGuid(), PolicyId = policy.PolicyId, ActionType = "CREATE_OPERATIONAL_TASK", ExecutionMode = "AUTOMATIC",
+                ConditionJson = """{"alert_level":"CRITICAL"}""", IsEnabled = true,
+                ActionParametersJson = """{"title":"Clear the queue","instructions":"Open one more counter","taskTypeCode":"TT-01"}""" });
         }
 
         public async Task Raise()
         {
             var ev = new OperationalEvent { EventId = Guid.NewGuid(), CameraId = camera.CameraId, ZoneId = zone.ZoneId, RuleId = ruleId, EventTypeId = eventTypeId,
-                Priority = "WARNING", MetricValue = 7, DetectedAt = Clock.UtcNow, LastObservedAt = Clock.UtcNow, Status = "ACTIVE",
+                Priority = "CRITICAL", MetricValue = 7, DetectedAt = Clock.UtcNow, LastObservedAt = Clock.UtcNow, Status = "ACTIVE",
                 MetadataJson = """{"measurementMode":"QUEUE_LENGTH","thresholdUnit":"PEOPLE"}""" };
             Store.Values.Add(ev);
             await dispatch.Raised(ev, null, default);
