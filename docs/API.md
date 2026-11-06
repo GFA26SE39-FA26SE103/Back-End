@@ -305,6 +305,8 @@ Luật: Work Shift dài 4, 6 hoặc 8 giờ (BR-33; giờ kết thúc ≤ giờ 
 Notification types: `SHIFT_PUBLISHED`, `SHIFT_CHANGED`, `SHIFT_CANCELLED` (in-app). Copy tuần chỉ copy cấu hình Work Shift; Manager vẫn chủ động xếp Staff và publish từng tuần. Chưa làm: lặp assignment tự động, giới hạn giờ/tuần qua `SystemSetting`, Staff tự gửi đơn nghỉ.
 ## Manager analytics (WF-05 / FE-09–10)
 
+Operational Event drill-down is available through read-only `GET /api/operational-events`, `/api/operational-events/zones` and `/api/operational-events/{eventId}` for ADMIN/OPERATOR/MANAGER. Includes All/status/priority/Zone/date filters, SQL paging and linked Tasks. [Event history contract and verification](OPERATIONAL_EVENTS_API.md).
+
 MANAGER-only `GET /api/manager/analytics/overview`, `/trends`, `/zones` accept `from`, `to` (local dates, inclusive, at most 93 days) and optional `zoneId`. They return SQL-aggregated recorded Event/Incident/Task KPIs, sample-weighted durations and snapshot-deadline SLA results. Empty samples/rates are null; unavailable SQL returns 503, not successful zeros. Cohorts use detection/creation dates with current statuses, not historical end-of-day snapshots. Full schemas, KPI definitions, examples and limits: [Manager analytics API](MANAGER_ANALYTICS_API.md).
 
 ## Operational SLA compatibility cutover (2026-11-06)
