@@ -19,12 +19,12 @@ public sealed class StaffTaskTests
         var busy = w.Staff("Em", checkedIn: true); w.ActiveTasks(busy, 2);
         var wrongSpecialty = w.Staff("Giang", checkedIn: true);
         w.Store.Values.OfType<UserAccount>().Single(u => u.UserId == wrongSpecialty).SpecialtyId = Guid.NewGuid();
-        w.Policy("WARNING");
+        w.Policy();
 
-        var ev = await w.Raise("WARNING");
+        var ev = await w.Raise("CRITICAL");
 
         var task = Assert.Single(w.Tasks, t => t.EventId == ev.EventId);
-        Assert.Equal((WorkTaskStatus.Offered, TaskOrigin.OperationalEvent, "WARNING", w.Zone.ZoneId), (task.Status, task.OriginType, task.Priority, task.ZoneId));
+        Assert.Equal((WorkTaskStatus.Offered, TaskOrigin.OperationalEvent, "CRITICAL", w.Zone.ZoneId), (task.Status, task.OriginType, task.Priority, task.ZoneId));
         Assert.Equal("Clear the queue", task.Title); Assert.Equal("Open one more counter", task.Description);
         Assert.Equal(new[] { a, b }.Order(), w.Offers(task).Select(o => o.StaffUserId).Order());
         Assert.DoesNotContain(w.Offers(task), o => o.StaffUserId == otherZone || o.StaffUserId == notCheckedIn || o.StaffUserId == busy || o.StaffUserId == wrongSpecialty);
@@ -39,9 +39,9 @@ public sealed class StaffTaskTests
         var staff = w.Staff("An", checkedIn: true);
         w.Store.Values.OfType<UserAccount>().Single(u => u.UserId == staff).SpecialtyId = Guid.NewGuid();
         var op = w.User("OPERATOR", "Olivia");
-        w.Policy("WARNING");
+        w.Policy();
 
-        await w.Raise("WARNING");
+        await w.Raise("CRITICAL");
 
         var task = Assert.Single(w.Tasks);
         Assert.Empty(w.Offers(task));
@@ -52,10 +52,10 @@ public sealed class StaffTaskTests
     public async Task NoPolicyOrApprovalRequiredActionCreatesNoTask()
     {
         var w = new World(); w.Staff("An", checkedIn: true);
-        await w.Raise("WARNING");
+        await w.Raise("CRITICAL");
         Assert.Empty(w.Tasks);
-        w.Policy("WARNING", mode: "APPROVAL_REQUIRED");
-        await w.Raise("WARNING");
+        w.Policy(mode: "APPROVAL_REQUIRED");
+        await w.Raise("CRITICAL");
         Assert.Empty(w.Tasks);
     }
 
@@ -64,11 +64,11 @@ public sealed class StaffTaskTests
     [InlineData(true, "DRAFT")]
     public async Task AutomaticPolicyDoesNotDispatchWhenItsRuleIsDisabledOrConfigurationInactive(bool ruleEnabled, string configurationStatus)
     {
-        var w = new World(); w.Staff("An", checkedIn: true); w.Policy("WARNING");
+        var w = new World(); w.Staff("An", checkedIn: true); w.Policy();
         Assert.Single(w.Store.Values.OfType<MonitoringRule>()).Enabled = ruleEnabled;
         Assert.Single(w.Store.Values.OfType<MonitoringConfiguration>()).Status = configurationStatus;
 
-        await w.Raise("WARNING");
+        await w.Raise("CRITICAL");
 
         Assert.Empty(w.Tasks);
     }
@@ -76,12 +76,13 @@ public sealed class StaffTaskTests
     [Fact]
     public async Task AmbiguousAutomaticTaskActionsDoNotDispatch()
     {
-        var w = new World(); w.Staff("An", checkedIn: true); w.Policy("WARNING");
-        var policy = Assert.Single(w.Store.Values.OfType<ResponsePolicy>());
-        w.Store.Values.Add(new ResponsePolicyAction { ActionId = Guid.NewGuid(), PolicyId = policy.PolicyId, ActionType = ResponsePolicyRules.CreateOperationalTask,
-            ExecutionMode = ResponsePolicyRules.Automatic, ActionParametersJson = "{}", IsEnabled = true });
+        var w = new World(); w.Staff("An", checkedIn: true); w.Policy();
+        var policy = Assert.Single(w.Store.Values.OfType<SlaPolicy>());
+        w.Store.Values.Add(new SlaPolicyAction { ActionId = Guid.NewGuid(), PolicyId = policy.PolicyId, ActionType = "CREATE_OPERATIONAL_TASK",
+            ExecutionMode = "AUTOMATIC", ConditionJson = """{"alert_level":"CRITICAL"}""",
+            ActionParametersJson = """{"taskTypeCode":"TT-01"}""", IsEnabled = true });
 
-        await w.Raise("WARNING");
+        await w.Raise("CRITICAL");
 
         Assert.Empty(w.Tasks);
     }
@@ -89,36 +90,49 @@ public sealed class StaffTaskTests
     [Fact]
     public async Task PolicyAttachedToANonOperationalRuleDoesNotDispatch()
     {
-        var w = new World(); w.Staff("An", checkedIn: true); w.Policy("WARNING");
+        var w = new World(); w.Staff("An", checkedIn: true); w.Policy();
         var rule = Assert.Single(w.Store.Values.OfType<MonitoringRule>());
         rule.OutcomeType = "INCIDENT"; rule.EventTypeId = null; rule.IncidentTypeId = Guid.NewGuid();
 
-        await w.Raise("WARNING");
+        await w.Raise("CRITICAL");
 
         Assert.Empty(w.Tasks);
     }
 
     [Fact]
-    public async Task EscalationUpdatesTheSameTaskInsteadOfCreatingAnother()
+    public async Task EscalationNotifiesAtWarningThenCreatesOneCriticalTask()
     {
-        var w = new World(); var a = w.Staff("An", checkedIn: true); w.Policy("WARNING"); w.Policy("CRITICAL");
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy();
         var ev = await w.Raise("WARNING");
+        await w.Dispatch.Raised(ev, "WARNING", default);
+        Assert.Empty(w.Tasks);
+        Assert.Empty(w.Store.Values.OfType<TaskOffer>());
+        var warning = Assert.Single(w.Store.Values.OfType<Notification>());
+        Assert.Equal((ev.EventId, "WARNING", (Guid?)null), (warning.EventId, warning.Severity, warning.TaskId));
+        Assert.Equal([op], w.Recipients(warning));
+
         ev.Priority = "CRITICAL";
         await w.Dispatch.Raised(ev, "WARNING", default);
+        await w.Dispatch.Raised(ev, "CRITICAL", default);
         var task = Assert.Single(w.Tasks);
         Assert.Equal("CRITICAL", task.Priority);
-        Assert.Single(w.Notifications(task, TaskNotifier.PriorityRaised));
+        Assert.Equal(ev.EventId, task.EventId);
+        Assert.Empty(w.Notifications(task, TaskNotifier.PriorityRaised));
+        Assert.Single(w.Notifications(task, TaskNotifier.Offer));
+        Assert.Single(w.Offers(task));
+        Assert.Single(w.Store.Values.OfType<Notification>(), n => n.TaskId is null && n.EventId == ev.EventId);
         var offer = Assert.Single(await w.StaffTasks(a).Offers(true, default));
         Assert.Equal("CRITICAL", offer.Priority);
         var view = Assert.Single(await w.Views.Tasks([task], default));
-        Assert.Equal("WARNING", view.RaisedFrom);
+        Assert.Equal("CRITICAL", view.Priority);
+        Assert.Null(view.RaisedFrom);
     }
 
     [Fact]
     public async Task FirstValidAcceptanceWinsAndOtherOffersAreWithdrawn()
     {
-        var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true); w.Policy("WARNING");
-        await w.Raise("WARNING");
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true); w.Policy();
+        await w.Raise("CRITICAL");
         var offerA = w.OfferFor(a); var offerB = w.OfferFor(b);
 
         var result = await w.StaffTasks(a).Respond(offerA.OfferId, new(TaskResponse.HandleNow, null, null), default);
@@ -135,8 +149,8 @@ public sealed class StaffTaskTests
     [Fact]
     public async Task HandleLaterKeepsResponsibilityWithAPlannedStartInsideTheShift()
     {
-        var w = new World(); var a = w.Staff("An", checkedIn: true); w.Policy("WARNING");
-        await w.Raise("WARNING");
+        var w = new World(); var a = w.Staff("An", checkedIn: true); w.Policy();
+        await w.Raise("CRITICAL");
         var offer = w.OfferFor(a); var staff = w.StaffTasks(a);
 
         foreach (var invalid in new DateTime?[] { null, Now.AddMinutes(-1), Now.AddHours(7) })
@@ -155,8 +169,8 @@ public sealed class StaffTaskTests
     [Fact]
     public async Task CannotHandleNeedsAReasonAndAllDeclinedGoesToTheOperator()
     {
-        var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy("WARNING");
-        await w.Raise("WARNING");
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        await w.Raise("CRITICAL");
         Assert.Equal("REASON_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() => w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.CannotHandle, null, " "), default))).Code);
 
         Assert.Null((await w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.CannotHandle, null, "Helping a customer"), default)).Task);
@@ -171,8 +185,8 @@ public sealed class StaffTaskTests
     [Fact]
     public async Task AcceptingRequiresACurrentCheckInAndRespectsTheWorkloadLimit()
     {
-        var w = new World(); var a = w.Staff("An", checkedIn: true); w.Policy("WARNING");
-        await w.Raise("WARNING");
+        var w = new World(); var a = w.Staff("An", checkedIn: true); w.Policy();
+        await w.Raise("CRITICAL");
         w.ActiveTasks(a, 2);
         Assert.Equal("WORKLOAD_LIMIT", (await Assert.ThrowsAsync<AppError>(() => w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.HandleNow, null, null), default))).Code);
         foreach (var task in w.Store.Values.OfType<WorkTask>().Where(t => t.CurrentAssigneeUserId == a).ToList())
@@ -184,8 +198,8 @@ public sealed class StaffTaskTests
     [Fact]
     public async Task RetryReoffersEachIntervalThenExpiresAndAsksTheOperatorOnce()
     {
-        var w = new World(); var a = w.Staff("An", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy("WARNING");
-        await w.Raise("WARNING");
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        await w.Raise("CRITICAL");
         var task = Assert.Single(w.Tasks);
         Assert.Equal(0, await w.Dispatch.Tick(default));
 
@@ -210,13 +224,16 @@ public sealed class StaffTaskTests
     }
 
     [Fact]
-    public async Task RetryUsesSystemSettingsWhenPresent()
+    public async Task RetryUsesPolicyTimeoutAndSystemMaxRetryCountWhenPresent()
     {
-        var w = new World(); w.Staff("An", checkedIn: true); w.Policy("WARNING");
-        w.Store.Values.Add(new SystemSetting { SettingId = Guid.NewGuid(), SettingKey = TaskRules.RetryIntervalSetting, SettingValue = "30", ValueType = "INTEGER", UpdatedAt = Now });
+        var w = new World(); var a = w.Staff("An", checkedIn: true); w.Policy(offerTimeoutSec: 30);
+        w.Store.Values.Add(new SystemSetting { SettingId = Guid.NewGuid(), SettingKey = TaskRules.RetryIntervalSetting, SettingValue = "10", ValueType = "INTEGER", UpdatedAt = Now });
         w.Store.Values.Add(new SystemSetting { SettingId = Guid.NewGuid(), SettingKey = TaskRules.MaxRetryCountSetting, SettingValue = "1", ValueType = "INTEGER", UpdatedAt = Now });
-        await w.Raise("WARNING");
+        await w.Raise("CRITICAL");
         var task = Assert.Single(w.Tasks);
+        var first = Assert.Single(await w.StaffTasks(a).Offers(true, default));
+        Assert.Equal((2, Now.AddSeconds(30)), (first.MaxAttempts, first.NextAlertAt));
+        w.Clock.UtcNow = Now.AddSeconds(10); Assert.Equal(0, await w.Dispatch.Tick(default));
         w.Clock.UtcNow = Now.AddSeconds(30); await w.Dispatch.Tick(default);
         w.Clock.UtcNow = Now.AddSeconds(60); await w.Dispatch.Tick(default);
         Assert.Equal(2, w.Notifications(task, TaskNotifier.Offer).Count);
@@ -224,11 +241,29 @@ public sealed class StaffTaskTests
     }
 
     [Fact]
+    public async Task RetryUsesSystemSettingsForLegacyTasksWithoutSlaMetadata()
+    {
+        var w = new World(); w.Staff("An", checkedIn: true); w.Policy();
+        w.Store.Values.Add(new SystemSetting { SettingId = Guid.NewGuid(), SettingKey = TaskRules.RetryIntervalSetting, SettingValue = "30", ValueType = "INTEGER", UpdatedAt = Now });
+        w.Store.Values.Add(new SystemSetting { SettingId = Guid.NewGuid(), SettingKey = TaskRules.MaxRetryCountSetting, SettingValue = "1", ValueType = "INTEGER", UpdatedAt = Now });
+        await w.Raise("CRITICAL");
+        var task = Assert.Single(w.Tasks);
+        Assert.Equal(60, await w.Dispatch.OfferTimeout(task, default));
+
+        // Tasks persisted before SLA cutover have neither a policy link nor a timing snapshot.
+        task.SlaSnapshotJson = null;
+        task.SlaPolicyId = null;
+
+        Assert.Equal(30, await w.Dispatch.OfferTimeout(task, default));
+        Assert.Equal((30, 2), await w.Dispatch.Retry(default));
+    }
+
+    [Fact]
     public async Task ClearedEventWithdrawsOpenOffersButKeepsAcceptedTasks()
     {
-        var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true); w.Policy("WARNING");
-        var open = await w.Raise("WARNING");
-        var accepted = await w.Raise("WARNING", w.OtherCamera);
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true); w.Policy();
+        var open = await w.Raise("CRITICAL");
+        var accepted = await w.Raise("CRITICAL", w.OtherCamera);
         var acceptedTask = w.Tasks.Single(t => t.EventId == accepted.EventId);
         await w.StaffTasks(a).Respond(w.Offers(acceptedTask).Single(o => o.StaffUserId == a).OfferId, new(TaskResponse.HandleLater, Now.AddMinutes(10), null), default);
 
@@ -281,8 +316,8 @@ public sealed class StaffTaskTests
     [Fact]
     public async Task OperatorAssignsManuallyAtAcceptedAndStaffOnlySeeOwnData()
     {
-        var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true, zone: w.OtherZone); var op = w.User("OPERATOR", "Olivia"); w.Policy("WARNING");
-        await w.Raise("WARNING");
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true, zone: w.OtherZone); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        await w.Raise("CRITICAL");
         var task = Assert.Single(w.Tasks);
 
         var candidates = await w.Operator(op).AssignableStaff(task.TaskId, default);
@@ -307,8 +342,8 @@ public sealed class StaffTaskTests
     [Fact]
     public async Task OperatorAssignmentRejectsAStaleTaskWithoutChangingItsAssigneeOrOffers()
     {
-        var w = new World(); var a = w.Staff("An", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy("WARNING");
-        await w.Raise("WARNING");
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        await w.Raise("CRITICAL");
         var task = Assert.Single(w.Tasks);
         var staleVersion = task.UpdatedAt;
         // A Staff acceptance occurs after the Operator loaded the board.
@@ -323,7 +358,7 @@ public sealed class StaffTaskTests
     public async Task OutsideZoneAssignmentAndReassignmentRequireAnAuditReason()
     {
         var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true, zone: w.OtherZone);
-        var op = w.User("OPERATOR", "Olivia"); w.Policy("WARNING"); await w.Raise("WARNING");
+        var op = w.User("OPERATOR", "Olivia"); w.Policy(); await w.Raise("CRITICAL");
         var task = Assert.Single(w.Tasks);
         Assert.Equal("REASON_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() => w.Operator(op).Assign(task.TaskId, new(b, " ", task.UpdatedAt), default))).Code);
         Assert.Null(task.CurrentAssigneeUserId);
@@ -356,7 +391,7 @@ public sealed class StaffTaskTests
     public async Task OperatorCannotReassignWorkAlreadyInProgressEvenWithTheCurrentVersion()
     {
         var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true);
-        var op = w.User("OPERATOR", "Olivia"); w.Policy("WARNING"); await w.Raise("WARNING");
+        var op = w.User("OPERATOR", "Olivia"); w.Policy(); await w.Raise("CRITICAL");
         var task = Assert.Single(w.Tasks);
         await w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.HandleNow, null, null), default);
         Assert.Equal("TASK_NOT_ASSIGNABLE", (await Assert.ThrowsAsync<AppError>(() => w.Operator(op).Assign(task.TaskId, new(b, "Change Staff", task.UpdatedAt), default))).Code);
@@ -367,23 +402,23 @@ public sealed class StaffTaskTests
     [Fact]
     public async Task MissingTaskSchemaDisablesDispatchButNotMonitoring()
     {
-        var w = new World(schemaReady: false); w.Staff("An", checkedIn: true); w.Policy("WARNING");
-        await w.Raise("WARNING");
+        var w = new World(schemaReady: false); w.Staff("An", checkedIn: true); w.Policy();
+        await w.Raise("CRITICAL");
         Assert.Empty(w.Tasks);
         Assert.Equal(0, await w.Dispatch.Tick(default));
         Assert.Equal("TASK_SCHEMA_NOT_READY", (await Assert.ThrowsAsync<AppError>(() => w.StaffTasks(w.Store.Values.OfType<UserAccount>().First().UserId).Offers(true, default))).Code);
     }
 
     [Fact]
-    public async Task EpisodeWriterOpensOneTaskAndRaisesItsPriorityOnEscalation()
+    public async Task EpisodeWriterNotifiesAtWarningThenCreatesOneCriticalTask()
     {
-        var w = new World(); var a = w.Staff("An", checkedIn: true);
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var op = w.User("OPERATOR", "Olivia");
         var eventTypeId = Guid.NewGuid(); var configId = Guid.NewGuid();
         var rule = new MonitoringRuleSnapshot(Guid.NewGuid(), Guid.NewGuid(), "LONG_QUEUE", "Queue", "QUEUE_LENGTH", "PEOPLE", 1, 2, 1, 10, eventTypeId, "LONG_QUEUE", 1);
         w.Store.Values.Add(new MonitoringConfiguration { ConfigId = configId, ZoneId = w.Zone.ZoneId, Name = "Episode monitoring", Status = "ACTIVE" });
         w.Store.Values.Add(new MonitoringRule { RuleId = rule.RuleId, ConfigId = configId, EventTypeId = eventTypeId, OutcomeType = "OPERATIONAL_EVENT", Enabled = true });
         w.Store.Values.Add(new OperationalEventType { EventTypeId = eventTypeId, Code = "LONG_QUEUE", Name = "Long queue", MeasurementType = "QUEUE_LENGTH" });
-        w.Policy("WARNING", rule.RuleId); w.Policy("CRITICAL", rule.RuleId);
+        w.Policy(rule.RuleId);
         var writer = new MonitoringIncidentWriter(w.Store, new Snapshots(), new Queries(), w.Clock, w.Dispatch);
         var zone = new MonitoringZoneSnapshot(w.Zone.ZoneId, w.Zone.Name, configId, Now, [], .5m, [rule]);
         var snapshot = new MonitoringCameraSnapshot(w.Camera.CameraId, new(), "f", [zone]);
@@ -396,12 +431,23 @@ public sealed class StaffTaskTests
         }
         await writer.Apply(Command(1, 1, "WARNING"), default);
         await writer.Apply(Command(2, 1, "WARNING"), default);
+        Assert.Empty(w.Tasks);
+        Assert.Empty(w.Store.Values.OfType<TaskOffer>());
+        var warning = Assert.Single(w.Store.Values.OfType<Notification>());
+        Assert.Equal("WARNING", warning.Severity);
+        Assert.Equal(Assert.Single(w.Store.Values.OfType<OperationalEvent>()).EventId, warning.EventId);
+        Assert.Null(warning.TaskId);
+        Assert.Equal([op], w.Recipients(warning));
         await writer.Apply(Command(3, 3, "CRITICAL"), default);
+        await writer.Apply(Command(4, 3, "CRITICAL"), default);
         var task = Assert.Single(w.Tasks);
         Assert.Equal("CRITICAL", task.Priority);
+        Assert.Equal(warning.EventId, task.EventId);
+        Assert.Empty(w.Notifications(task, TaskNotifier.PriorityRaised));
+        Assert.Single(w.Notifications(task, TaskNotifier.Offer));
         Assert.Single(w.Offers(task));
         await w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.HandleNow, null, null), default);
-        await writer.Apply(Command(4, 0, null, true), default);
+        await writer.Apply(Command(5, 0, null, true), default);
         Assert.Equal(WorkTaskStatus.InProgress, task.Status);
         Assert.Single(w.Notifications(task, TaskNotifier.EventCleared));
     }
@@ -467,12 +513,17 @@ public sealed class StaffTaskTests
             for (var i = 0; i < count; i++)
                 Store.Values.Add(new WorkTask { TaskId = Guid.NewGuid(), ZoneId = Zone.ZoneId, Title = "Busy", Status = WorkTaskStatus.InProgress, CurrentAssigneeUserId = user });
         }
-        public void Policy(string priority, Guid? rule = null, string mode = "AUTOMATIC")
+        public void Policy(Guid? rule = null, string mode = "AUTOMATIC", int offerTimeoutSec = 60)
         {
-            var policy = new ResponsePolicy { PolicyId = Guid.NewGuid(), RuleId = rule ?? ruleId, EventPriority = priority };
+            var policy = new SlaPolicy { PolicyId = Guid.NewGuid(), EventTypeId = Store.Values.OfType<MonitoringRule>().Single(r => r.RuleId == (rule ?? ruleId)).EventTypeId,
+                ProblemDomain = "OPERATIONAL_EVENT", IsEnabled = true, Version = 1, PriorityCode = "MEDIUM",
+                ResponseTargetSec = 300, ResolutionTargetSec = 3600, OfferTimeoutSec = offerTimeoutSec, WarningPercent = 80 };
             Store.Values.Add(policy);
-            Store.Values.Add(new ResponsePolicyAction { ActionId = Guid.NewGuid(), PolicyId = policy.PolicyId, ActionType = "CREATE_OPERATIONAL_TASK", ExecutionMode = mode,
-                ActionParametersJson = """{"title":"Clear the queue","instructions":"Open one more counter"}""" });
+            Store.Values.Add(new SlaPolicyAction { ActionId = Guid.NewGuid(), PolicyId = policy.PolicyId, ActionType = "NOTIFY_OPERATOR", ExecutionMode = "AUTOMATIC",
+                ConditionJson = """{"alert_level":"WARNING"}""", IsEnabled = true });
+            Store.Values.Add(new SlaPolicyAction { ActionId = Guid.NewGuid(), PolicyId = policy.PolicyId, ActionType = "CREATE_OPERATIONAL_TASK", ExecutionMode = mode,
+                ConditionJson = """{"alert_level":"CRITICAL"}""", IsEnabled = true,
+                ActionParametersJson = """{"title":"Clear the queue","instructions":"Open one more counter","taskTypeCode":"TT-01"}""" });
         }
         public async Task<OperationalEvent> Raise(string priority, Camera? camera = null)
         {

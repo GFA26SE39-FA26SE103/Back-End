@@ -1,5 +1,9 @@
 # FA26SE103 MF-01 backend
 
+**Manager analytics API (06/11/2026):** Three MANAGER-only read endpoints provide overview, daily cohorts and per-zone Event/Incident/Task KPIs from grouped SQL queries. Includes duration sample counts, nullable averages and Task SLA reporting from stored deadlines. See [contract and KPI definitions](docs/MANAGER_ANALYTICS_API.md). Dashboard UI, exports, recommendations and staging performance acceptance remain separate work; no schema/data migration is required.
+
+**Response-policy TaskType selection (06/11/2026):** Admin can read the fixed catalog through `GET /api/task-types` (code, name, description and required specialty ID). The web editor selects a catalog entry rather than requiring a memorized code. No schema change or catalog-write API is introduced.
+
 Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.md](AGENTS.md) và [context đầy đủ của team](docs/PROJECT_CONTEXT.md), đồng bộ SRS/BR/diagram V2 và ERD V6 ngày **23/10/2026** trên baseline Mainflow 02/10/2026. SQL Server là nguồn dữ liệu chính. Backend có API setup, floor-plan upload, upload MP4 và AI preview; mức độ nối frontend cần đối chiếu với checkout frontend hiện tại. Phạm vi chính là **MF-01**, kèm các subset MF-02/MF-04 được ghi rõ bên dưới.
 
 ## MF-02 Task readiness — checked 25/10/2026
@@ -21,6 +25,8 @@ Backend Dev đang chạy tại `https://supermarket-api-dev.kitsuracloud.com`; h
 Workflow không tự tạo/cập nhật DB, không upload `api.env`, không cấu hình DNS/NPM/Tailscale/SSH lần đầu, không backup dữ liệu, không deploy frontend/Python AI và không tự bật camera-health/monitoring worker. Frontend local dùng `.env.local` bị Git ignore với `VITE_API_URL=https://supermarket-api-dev.kitsuracloud.com`; frontend Production sau này phải truyền URL lúc build và backend phải thêm đúng public origin vào CORS.
 
 ## Context chung khi clone backend
+
+MF-04 specialty update (06/11/2026): SWAP/COVER chỉ giữa Staff có cùng primary specialty đã gán. Candidate và mọi bước accept/approve/Manager cover/direct đều kiểm lại specialty hiện tại; thiếu/khác specialty trả `SWAP_NOT_ALLOWED` và không chuyển ca. Admin cần gán specialty trước khi dùng đổi ca. Không đổi DTO/schema; xem MF-04 trong API.md.
 
 - Đọc [AGENTS.md](AGENTS.md) trước khi làm việc; đây là hướng dẫn ngắn ở root để coding agent tự nạp khi mở repo backend.
 - Đọc [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) đầy đủ trước khi triển khai. File này là snapshot triển khai được đồng bộ trong repository, gồm MF-01..MF-04, BR, kiến trúc, ERD v3 facts, các quyết định còn mở và link RP1/RP2/BR/ERD. Các Mainflow sau là context thiết kế; phần đang tập trung triển khai là MF-01.

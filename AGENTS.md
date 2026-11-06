@@ -52,6 +52,8 @@ Do not use the superseded four-Mainflow model or assume the backend is MF-01-onl
 - Offer concurrently inside one ring; advance when the ring is exhausted; do not impose a fixed global retry count.
 - Handle Now, Handle Later and Cannot Handle are explicit responses. Cannot Handle requires BUSY/UNAVAILABLE/NOT_QUALIFIED/OTHER.
 - First valid acceptance wins atomically; other offers become CANCELLED; unanswered offers become EXPIRED.
+- The current backend persists operational response through `SLAPolicy` matched by EventType and `SLAPolicyAction` matched by alert-level condition. Treat LOW/MEDIUM/HIGH/CRITICAL and fixed Same-Zone retry behavior in that implementation as migration gaps, not the target contract.
+- `Task` has exactly one origin type: `OPERATIONAL_EVENT`, `INCIDENT`, `STAFF_REPORT`, or `MANUAL`, with exclusive nullable source FKs.
 
 ### Task execution and closure
 
@@ -69,6 +71,7 @@ Do not use the superseded four-Mainflow model or assume the backend is MF-01-onl
 
 - SWAP/COVER is approved scope: Staff A request → Staff B response → Manager validation/decision.
 - Enforce availability, overlap, specialty, 48-hour weekly maximum and started/checked-in immutability.
+- Both Staff in a SWAP/COVER transfer must have the same non-null primary `UserAccount.specialty_id`; revalidate it for candidate selection, request, peer acceptance and Manager decision/assisted/direct transfer.
 - Analytics keep OperationalEvent and Incident categories separate.
 - Recommendations are advisory records; acceptance never directly changes shifts, tasks, policies or monitoring configuration.
 

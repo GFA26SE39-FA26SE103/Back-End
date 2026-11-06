@@ -160,6 +160,10 @@ builder.Services.AddSingleton<MonitoringCameraCoordinator>();
 builder.Services.AddSingleton<IMonitoringRuntimeState>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());
 builder.Services.AddSingleton<IMonitoringSessionOwnership>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());
 builder.Services.AddScoped<SetupOverview>();
+builder.Services.AddScoped<IAnalyticsQueries, EfAnalyticsQueries>();
+builder.Services.AddScoped<ManagerAnalytics>();
+builder.Services.AddScoped<IOperationalEventQueries, EfOperationalEventQueries>();
+builder.Services.AddScoped<OperationalEventHistory>();
 builder.Services.AddScoped<CameraHealth>();
 builder.Services.AddSingleton(services =>
 {

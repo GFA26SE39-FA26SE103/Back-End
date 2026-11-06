@@ -359,3 +359,47 @@ Branch `feature/mf03-task-evidence` was updated from `origin/dev` at `d0a3b24`. 
 - `git diff --check`: **PASS** after conflict resolution.
 
 No shared SQL data/schema, deployment, credential, push-provider configuration or generated scaffold was changed. The implementation uses the existing V6 `TaskEvidence` table and `Task.rejection_count`. SQL/API acceptance with the deployed database and real Cloudinary credentials remains a pre-deployment smoke check; StaffReport and independent Incident closure remain outside this increment.
+## SWAP/COVER specialty eligibility — 2026-11-06
+
+Implemented on existing `feature/after-review-backend-sync` at baseline `0aeceea`. The shared planner requires the requester and replacement to have the same non-null/non-empty primary specialty. This applies to Staff/Manager candidates, create, peer acceptance, approval, assisted cover and Manager direct changes. Account specialty changes are rechecked before transfer. Candidate mismatches are hidden; mutations return `SWAP_NOT_ALLOWED`; Manager detail includes `SPECIALTY_COMPATIBLE`. The schema readiness check now requires existing `UserAccount.specialty_id`. No schema, DTO or endpoint changes.
+
+- Focused scheduling/SWAP suite: **34 passed, 0 failed, 0 skipped**.
+- Full `dotnet test Supermarket.sln --no-restore -m:1 --filter "Category!=SqlIntegration" --verbosity minimal`: **482 passed, 0 failed, 0 skipped**; build completed successfully.
+- Added 12 regression cases covering SWAP/COVER mismatch/missing specialty, stale eligibility at peer/Manager decisions, Manager-assisted candidates and stale assignment, Manager-direct rejection without cancelling pending requests, and two missing specialties. Existing matching-specialty happy paths remain covered. Test fixtures now seed Staff specialties.
+- Tests run outside the Windows sandbox to avoid its previously observed build/testhost hangs. SQL integration and Web/Mobile staging acceptance were not run. No shared Staff data was backfilled.
+
+## Operational SLA cutover V11 — 2026-11-06
+
+Branches: `feature/operational-sla-cutover` in Backend and Database; no worktree, commit, push or merge.
+
+- Baseline focused suite: **48 passed** before changes. Final `dotnet test Supermarket.sln -c Release --no-restore --filter "Category!=SqlIntegration" --verbosity quiet`: **467 passed, 0 failed, 0 skipped**.
+- Release build and API publish: **PASS**. Runtime/EF dependency scan: no legacy policy/action table reads or readiness checks; scaffold regenerated with SLA-only table selection. Existing API route names remain for compatibility.
+- Tests exercise WARNING notification deduplication, WARNING → CRITICAL one-task transition, missing/ambiguous/invalid policy/action exception routing, explicit task types, immutable offer timeout/deadlines, specialty eligibility/retry/acceptance and SLA mapper round trips. An independent review found oversized task instructions could fail SQL persistence; a failing regression test was added, then fixed with fail-closed parameter validation.
+- Live SQL Server: V11 default preview **PASS/ROLLED_BACK**. After user-confirmed backup and stopped backend, apply/drop **COMMITTED**. Both legacy table object IDs are NULL; four enabled operational policies and eight enabled actions persisted. Existing codes retained: LONG_QUEUE HIGH/TT-01, EXCESSIVE_WAIT MEDIUM/TT-02, CONGESTION CRITICAL/TT-03, CHECKOUT_CAPACITY MEDIUM/TT-05.
+- Preserved row counts before/after: **OperationalEvent 863, Incident 0, TaskAssignmentHistory 11**. New operational unique index has only `event_type_id` as its key. Incident unique indexes remain intact.
+- Post-drop V11 rollback rerun: **PASS**, same policy/action IDs and policy version 1, four/eight persisted rows, no static binding errors for dropped objects.
+
+The SQL-backed historical integration suite was not used: it requires an absent old schema file and creates temporary databases, contrary to this task's constraints. No temporary database or committed synthetic measurements were created. HTTP/camera/AI end-to-end acceptance and SLA warning/breach escalation workers are not claimed by this verification.
+
+## Response-policy TaskType catalog — 2026-11-06
+
+- Added read-only `GET /api/task-types`, restricted to ADMIN at HTTP and application boundaries, using the existing TaskType store. Returns code, name, description and required specialty ID for the web selector.
+- Non-SQL backend suite: **486 passed** after adding catalog use-case/authorization tests. After adding five HTTP role/response cases, the focused ResponsePolicyTests suite: **42 passed**.
+- Frontend ResponsePolicies tests: **9 passed**; production build passed. Covers code/name selection, selected description, catalog load failure/retry, retained drafts and the unchanged versioned save contract.
+- Edge visual check used mocked API catalog/policy data at 1440×1000: select displays code/name and description, stacked layout has no horizontal overflow. This is not live database or deployed end-to-end acceptance.
+- No schema, seed data, shared database or deployment changes. OpenAPI snapshot and API documentation updated for the additive endpoint.
+
+## Manager analytics API and KPI definitions — 2026-11-06
+
+- Added MANAGER-only read endpoints `/api/manager/analytics/overview`, `/trends`, `/zones`, with inclusive local-date and optional Zone filters; default seven days, maximum 93 days. Cohort/current-status semantics and KPI denominators are defined in [MANAGER_ANALYTICS_API.md](MANAGER_ANALYTICS_API.md).
+- EF SQL Server queries aggregate Events, Incidents and Tasks in SQL. No raw-feed cap or manually fabricated historical measurements. SLA reporting uses persisted Task deadlines; dismissed Incidents are excluded from incident totals; absent duration/rate samples are null.
+- Focused analytics suite: **19 passed**. Includes default/range/zone validation, empty cohorts, weighted durations, dismissed reconciliation, SLA denominator counts, zero-filled trends, empty zones, DST boundaries, all endpoint roles/no-store, unavailable-data HTTP error, EF SQL translation, 93-day SQL CASE nesting and generated Swagger contracts.
+- Full non-SQL backend suite: **510 passed, 0 failed, 0 skipped**. Release publish: **PASS**. `git diff --check`: PASS. OpenAPI additions were captured from the compiled API test host and merged into the existing snapshot, preserving unrelated paths.
+- No schema, seed, generated-scaffold or shared-data change; no commit/push/deployment performed. SQL translation was verified without executing against a live SQL Server. Staging SQL result correctness, representative latency/NFR-02, Manager frontend, export and recommendations remain unverified or out of this increment's scope. The complete WF-05 E2E/commitment is not claimed finished.
+
+## Operational Event history and drill-down — 2026-11-06
+
+- Added read-only Event list, Zone catalog and detail endpoints for ADMIN, OPERATOR and MANAGER. List queries support All/status/priority/Zone/inclusive store-local date filters and bounded SQL paging; detail returns up to 100 recent linked Tasks without coupling Event clear state to Task verification.
+- Focused backend Event history suite: **16 passed, 0 failed, 0 skipped**. Full non-SQL backend suite from the completed implementation run: **526 passed, 0 failed, 0 skipped**; backend build passed. SQL translation and bounded projection were verified without executing against a live SQL Server.
+- Frontend adds Operator/Manager Event history and detail, Analytics drill-down preserving date/Zone filters, and an **All tasks** option covering all six Task statuses. Focused Event/Task/Analytics suite: **21 passed, 0 failed**; production build passed. Edge interaction checks used mocked API responses.
+- `git diff --check`: **PASS** for both repositories. No schema, seed, generated scaffold, shared-data write, deployment, live SQL result check or staging end-to-end acceptance was performed.

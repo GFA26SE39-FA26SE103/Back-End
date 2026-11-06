@@ -272,6 +272,103 @@ public sealed class ShiftSwapTests
         Assert.Equal(an, mine.UserId);
     }
 
+    [Theory]
+    [InlineData("SWAP", false)]
+    [InlineData("COVER", false)]
+    [InlineData("SWAP", true)]
+    [InlineData("COVER", true)]
+    public async Task SpecialtyMismatchOrMissingSpecialtyHidesCandidatesAndRejectsRequests(string type, bool missing)
+    {
+        var w = new World();
+        var a = w.Staff("An"); var mine = w.Assign(a, w.Evening, Fri);
+        var b = w.Staff("Binh"); var theirs = w.Assign(b, w.Morning, Sat);
+        w.SetSpecialty(b, missing ? null : Guid.NewGuid());
+        var candidates = await w.Swaps(a).Candidates(mine.ShiftAssignmentId, type, default);
+        Assert.Empty(candidates.Candidates);
+        Assert.Equal(1, candidates.HiddenCount);
+        var error = await Assert.ThrowsAsync<AppError>(() => w.Swaps(a).Create(
+            new(mine.ShiftAssignmentId, type, b, type == SwapType.Swap ? theirs.ShiftAssignmentId : null, null, null), default));
+        Assert.Equal("SWAP_NOT_ALLOWED", error.Code);
+        Assert.Contains("same assigned specialty", error.Message);
+        Assert.Empty(w.Store.Values.OfType<ShiftSwapRequest>());
+        Assert.Equal((a, b), (mine.UserId, theirs.UserId));
+    }
+
+    [Theory]
+    [InlineData("SWAP", false)]
+    [InlineData("COVER", false)]
+    [InlineData("SWAP", true)]
+    [InlineData("COVER", true)]
+    public async Task SpecialtyChangeIsRecheckedAtPeerAcceptanceAndManagerApproval(string type, bool changeBeforeApproval)
+    {
+        var w = new World();
+        var a = w.Staff("An"); var mine = w.Assign(a, w.Evening, Fri);
+        var b = w.Staff("Binh"); var theirs = w.Assign(b, w.Morning, Sat);
+        var manager = w.User("MANAGER", "Lan");
+        var id = (await w.Swaps(a).Create(new(mine.ShiftAssignmentId, type, b,
+            type == SwapType.Swap ? theirs.ShiftAssignmentId : null, null, null), default)).SwapRequestId;
+        if (changeBeforeApproval) await w.Swaps(b).Respond(id, new(true), default);
+        // Account edits after the request must invalidate both peer and Manager decisions.
+        w.SetSpecialty(a, null);
+        var error = await Assert.ThrowsAsync<AppError>(() => changeBeforeApproval
+            ? w.Swaps(manager).Approve(id, new(null), default)
+            : w.Swaps(b).Respond(id, new(true), default));
+        Assert.Equal("SWAP_NOT_ALLOWED", error.Code);
+        Assert.Equal((a, b), (mine.UserId, theirs.UserId));
+        var detail = await w.Swaps(manager).Get(id, default);
+        Assert.Equal(changeBeforeApproval ? SwapStatus.PendingManager : SwapStatus.PendingPeer, detail.Status);
+        Assert.Contains(detail.Checks, c => c.Code == "SPECIALTY_COMPATIBLE" && !c.Passed);
+        Assert.Empty(w.Recipients(ShiftSwaps.Approved));
+    }
+
+    [Fact]
+    public async Task ManagerAssistedCoverFiltersAndRechecksSpecialtyBeforeChangingTheSchedule()
+    {
+        var w = new World();
+        var a = w.Staff("An"); var mine = w.Assign(a, w.Evening, Fri);
+        var b = w.Staff("Binh"); var manager = w.User("MANAGER", "Lan");
+        var id = (await w.Swaps(a).RequestManagerHelp(new(mine.ShiftAssignmentId, null, null), default)).SwapRequestId;
+        Assert.Single((await w.Swaps(manager).ManagerCandidates(id, default)).Candidates);
+        w.SetSpecialty(b, Guid.NewGuid());
+        Assert.Empty((await w.Swaps(manager).ManagerCandidates(id, default)).Candidates);
+        Assert.Equal("SWAP_NOT_ALLOWED", (await Assert.ThrowsAsync<AppError>(() =>
+            w.Swaps(manager).AssignCover(id, new(b, "Cover absence"), default))).Code);
+        Assert.Equal(a, mine.UserId);
+        var request = Assert.Single(w.Store.Values.OfType<ShiftSwapRequest>());
+        Assert.Null(request.TargetUserId);
+        Assert.Equal(SwapStatus.PendingManager, request.Status);
+    }
+
+    [Theory]
+    [InlineData("SWAP")]
+    [InlineData("COVER")]
+    public async Task ManagerDirectCannotBypassSpecialtyOrCancelAnExistingRequestOnFailure(string type)
+    {
+        var w = new World();
+        var a = w.Staff("An"); var mine = w.Assign(a, w.Evening, Fri);
+        var b = w.Staff("Binh"); var theirs = w.Assign(b, w.Morning, Sat);
+        var manager = w.User("MANAGER", "Lan");
+        var pending = await w.Swaps(a).RequestManagerHelp(new(mine.ShiftAssignmentId, null, null), default);
+        w.SetSpecialty(b, Guid.NewGuid());
+        var error = await Assert.ThrowsAsync<AppError>(() => w.Swaps(manager).Direct(
+            new(type, mine.ShiftAssignmentId, b, type == SwapType.Swap ? theirs.ShiftAssignmentId : null, "Urgent cover"), default));
+        Assert.Equal("SWAP_NOT_ALLOWED", error.Code);
+        Assert.Equal((a, b), (mine.UserId, theirs.UserId));
+        Assert.Equal(pending.SwapRequestId, Assert.Single(w.Store.Values.OfType<ShiftSwapRequest>()).SwapRequestId);
+        Assert.Equal(SwapStatus.PendingManager, (await w.Swaps(manager).Get(pending.SwapRequestId, default)).Status);
+    }
+
+    [Fact]
+    public async Task TwoStaffWithoutSpecialtiesAreNotCompatible()
+    {
+        var w = new World(); var a = w.Staff("An"); var b = w.Staff("Binh");
+        var mine = w.Assign(a, w.Evening, Fri);
+        w.SetSpecialty(a, null); w.SetSpecialty(b, null);
+        Assert.Empty((await w.Swaps(a).Candidates(mine.ShiftAssignmentId, SwapType.Cover, default)).Candidates);
+        Assert.Equal("SWAP_NOT_ALLOWED", (await Assert.ThrowsAsync<AppError>(() => w.Swaps(a).Create(
+            new(mine.ShiftAssignmentId, SwapType.Cover, b, null, null, null), default))).Code);
+    }
+
     private sealed class World
     {
         public MonitoringSetupTests.MemoryStore Store { get; } = new();
@@ -282,11 +379,12 @@ public sealed class ShiftSwapTests
         private readonly Zone zone = new() { ZoneId = Guid.NewGuid(), Code = "B", Name = "Zone B · Checkout", MinStaff = 1 };
         private readonly SwapPlanner planner;
         private readonly TaskNotifier notifier;
+        private readonly Guid specialtyId = Guid.NewGuid();
 
         public World()
         {
             foreach (var role in new[] { "ADMIN", "OPERATOR", "MANAGER", "STAFF" }) Store.Values.Add(new Role { RoleId = Guid.NewGuid(), Name = role });
-            Store.Values.AddRange([Morning, Evening, zone]);
+            Store.Values.AddRange([Morning, Evening, zone, new StaffSpecialty { SpecialtyId = specialtyId, Code = "SPC-01", Name = "Checkout" }]);
             planner = new SwapPlanner(Store, Calendar);
             notifier = new TaskNotifier(Store, Clock);
         }
@@ -297,7 +395,14 @@ public sealed class ShiftSwapTests
             Store.Values.Add(user);
             return user.UserId;
         }
-        public Guid Staff(string name) => User("STAFF", name);
+        public Guid Staff(string name)
+        {
+            var id = User("STAFF", name);
+            SetSpecialty(id, specialtyId);
+            return id;
+        }
+        public void SetSpecialty(Guid userId, Guid? specialty)
+            => Store.Values.OfType<UserAccount>().Single(u => u.UserId == userId).SpecialtyId = specialty;
         public ShiftAssignment Assign(Guid user, Shift shift, DateOnly day)
         {
             var assignment = new ShiftAssignment { ShiftAssignmentId = Guid.NewGuid(), UserId = user, ShiftId = shift.ShiftId, WorkDate = day };

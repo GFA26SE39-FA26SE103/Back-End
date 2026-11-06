@@ -1,5 +1,13 @@
 # PROJECT_CONTEXT.md — FA26SE103 Implementation Snapshot
 
+## Operational SLA cutover — 2026-11-06
+
+This increment supersedes historical ResponsePolicy runtime descriptions below. Match exactly one enabled `SLAPolicy` by `OPERATIONAL_EVENT + event_type_id`, never by alert level or SLA priority. Strict `condition_json.alert_level` selects WARNING → `NOTIFY_OPERATOR` or CRITICAL → `CREATE_OPERATIONAL_TASK`. Missing/ambiguous/invalid configuration produces an event-linked Operator exception notification, not an invented policy or an Incident. Task creation snapshots policy version, SLA priority, timings and UTC deadlines once; offer retries use the snapshotted timeout. Repeated observations cannot create a second Task for the same EventId.
+
+Approved seeds use the existing catalog codes: `LONG_QUEUE` → HIGH / TT-01; `EXCESSIVE_WAIT` → MEDIUM / TT-02; `CONGESTION` → CRITICAL / TT-03; `CHECKOUT_CAPACITY` → MEDIUM / TT-05. These correspond to the agreed long queue, excessive waiting time, overcrowding/congestion and checkout capacity issue concepts. Do not rename persisted codes. HIGH timing is 180/1800/45 seconds; MEDIUM 300/3600/60; CRITICAL 60/900/20 (response/resolution/offer timeout). SLA counts continuously, independently of operating hours.
+
+The existing `/api/monitoring-rules/{ruleId}/response-policies` route remains a compatibility facade over shared EventType SLA storage. It must not invent policy timing when a seed is missing. This changes the meaning of WARNING to notification-only; it is not task-ready. Incident matching, task audit history and event history remain independent. V11 SQL defaults to rollback preview. Live cutover completed on 2026-11-06 after backup and stopped-writer confirmation: four operational policies, eight actions, both legacy tables absent. Event/audit row counts were preserved. The scaffold was regenerated using the explicit SLA-only table selection; legacy EF sets, relationships and generated files are removed. This does not assert that physical legacy tables have already been dropped. SLA warning/breach workers and frontend redesign are not implemented by this increment.
+
 > **Project:** AI-Powered Smart Supermarket Operations Monitoring System
 > **Project code:** FA26SE103
 > **Group:** GFA26SE39
@@ -38,7 +46,7 @@ OperationalEvent NEVER creates, converts into, references or escalates into Inci
 - A CRITICAL Event is **not** automatically an Incident. Model confidence filters detections; it is not an Incident-routing approval gate.
 - Current backend persistence and writer code separate Event and Incident outcomes. The INCIDENT runtime remains disabled until a validated safety measurement/model contract exists; see §§36 and 39–40.
 - **Working Post-Review 2 scope:** the demo baseline is four camera/rule OperationalEvents (Long Queue, Excessive Waiting Time, Overcrowding/Congestion, Checkout Capacity Issue) and five StaffReport IncidentTypes (Spills, Equipment Faults, Pathway Obstruction, Cleanliness Problems, Safety Hazards). This does **not** mean AI automatically detects all five IncidentTypes.
-- **Current policy boundary:** `SLAPolicy` now physically stores response/resolution timing. Exact enabled IncidentType policy matching and immutable Incident snapshots are implemented on the current feature branch. Existing `ResponsePolicy` operational actions remain separate and must not be deleted or silently treated as migrated SLA actions.
+- **Current policy boundary:** `SLAPolicy` now physically stores response/resolution timing. Exact enabled IncidentType policy matching and immutable Incident snapshots are implemented on the current feature branch. Operational response execution now uses one enabled `SLAPolicy` per EventType and alert-conditioned `SLAPolicyAction`; V11 seeds this path. V11 was applied on 2026-11-06 after user-confirmed backup and stopped backend; both legacy tables are removed.
 - An ERD shows structure. Do **not** load it with SQL constraints/business-logic descriptions merely to represent workflow rules.
 
 ---
@@ -144,7 +152,7 @@ Observed measurements + rule context
 - Incident qualification requires approved risk/safety criteria and confirmed source. Facility faults, spills and cleanliness matters are staff-reported unless a specific validated AI capability exists.
 - A distinct confirmed StaffReport can produce an Incident or a routine Task; it does not pass through camera tracking and is not an OperationalEvent.
 - Operator inspection/intervention is allowed for exceptions, but universal Operator pre-dispatch approval is not required.
-- MonitoringRule outcomes are mutually exclusive; `ResponsePolicy` operational actions remain to be mapped into the planned `SLAPolicy` without silently deleting them.
+- MonitoringRule outcomes are mutually exclusive; Operational actions use `SLAPolicy` matched by EventType; WARNING notifies Operator and CRITICAL creates one Task with a continuous wall-clock SLA snapshot.
 
 ## MF-03 — Staff Task Execution & Evidence
 
@@ -188,6 +196,7 @@ Manager operational intervention
 ```
 
 - SWAP exchanges affected A/B assignments; COVER transfers coverage for A's shift using an eligible B.
+- SWAP/COVER requires the two Staff members to have the same non-null, non-empty primary specialty. Recheck current specialties for candidate selection, request, peer acceptance and every Manager approval/assisted/direct path. Two missing specialties are not compatible; rejection/cancellation remains possible.
 - A may cancel while pending. B may decline before acceptance, or withdraw/cancel while awaiting Manager. No cancellation after final approval.
 - Unresolved requests **expire exactly when 24 hours remain before the earliest affected shift begins**. For SWAP use the earlier of both shifts; for COVER use A's shift. This is **not** 24h after request creation.
 - Recheck future start, overlap, availability, weekly hours, relevant zone coverage and permissions **at approval time**; preserve original assignments on rejection, cancellation or expiry.
@@ -205,7 +214,7 @@ Manager operational intervention
 | **Measurement** | Aggregated count, waiting time, flow, density or utilization over validated camera/zone/time context. |
 | **MonitoringRule** | One configurable condition with `outcome_type`: `OPERATIONAL_EVENT` **or** `INCIDENT`. |
 | **OperationalEvent** | Sustained operational condition/episode and operational priority (`WARNING`/`CRITICAL` as applicable). |
-| **ResponsePolicy/Action** | Configured response to OperationalEvents, not an independent Incident generator. |
+| **SLAPolicy/SLAPolicyAction** | EventType-matched operational response with alert-conditioned actions; never an Event-to-Incident converter. Legacy ResponsePolicy tables were removed by V11. |
 | **Incident** | Qualified safety/corrective issue, sourced directly from one approved INCIDENT rule or one confirmed StaffReport. |
 | **StaffReport** | Explicitly confirmed staff-origin input after human review of AI extraction. |
 | **Task** | Work assignment from one of four origins, separate from notification and evidence. |
@@ -258,7 +267,7 @@ The schema supports many camera-zone mappings. **Current ROI runtime does not ye
 | Incident / reports | `IncidentType`, `Incident`, `IncidentMedia`, `StaffReport`, `StaffReportMedia` |
 | Tasks | `Task`, `TaskType`, `TaskOffer`, `TaskAssignmentHistory`, `TaskEvidence` |
 | Staff / scheduling | `StaffSpecialty`, `Shift`, `ShiftAssignment`, `StaffZoneAssignment`, `StaffUnavailability`, `ShiftSwapRequest`, `ZoneAdjacency` |
-| Notifications / policies | `Notification`, `NotificationRecipient`, `UserDevice`, `ResponsePolicy`, `ResponsePolicyAction`, `SLAPolicy`, `SLAPolicyAction` |
+| Notifications / policies | `Notification`, `NotificationRecipient`, `UserDevice`, `SLAPolicy`, `SLAPolicyAction` |
 | Administration / analytics | `Recommendation`, `AuditLog`, **`ServiceHealthEvent`**, **`SystemSetting`** |
 
 ## 9.2 V6 changes from V5
@@ -267,7 +276,7 @@ The schema supports many camera-zone mappings. **Current ROI runtime does not ye
 
 **Added** `ServiceHealthEvent` (service name/status/error and detection/recovery timestamps), `SystemSetting` (unique key, value, type, updater and timestamp).
 
-**V7 synchronization:** Database V9 adds `StaffSpecialty`, `TaskType`, `TaskOffer`, `SLAPolicy`, `SLAPolicyAction`, `UserAccount.specialty_id`, Task/Incident SLA fields, `MonitoringRule.clear_duration_sec`, `StaffReport.location_description`, and Rule+Zone active-event uniqueness. It removes `Incident.severity` and `IncidentType.default_severity`. Database V10 seeds seven specialties, sixteen TaskTypes and five exact IncidentType SLA policies. `ResponsePolicy`, `ResponsePolicyAction` and `TaskAssignmentHistory` remain for compatibility; their behavior is not automatically replaced by the new tables.
+**V7 synchronization:** Database V9 adds `StaffSpecialty`, `TaskType`, `TaskOffer`, `SLAPolicy`, `SLAPolicyAction`, `UserAccount.specialty_id`, Task/Incident SLA fields, `MonitoringRule.clear_duration_sec`, `StaffReport.location_description`, and Rule+Zone active-event uniqueness. It removes `Incident.severity` and `IncidentType.default_severity`. Database V10 seeds seven specialties, sixteen TaskTypes and five exact IncidentType SLA policies. V9/V10 retained `ResponsePolicy`, `ResponsePolicyAction` and `TaskAssignmentHistory` for compatibility. V11 now removes only the two response-policy tables after the explicit SLA cutover; `TaskAssignmentHistory` remains audit history.
 
 **Added attributes:**
 
@@ -288,7 +297,7 @@ The schema supports many camera-zone mappings. **Current ROI runtime does not ye
 
 - Exactly one `MonitoringRule.outcome_type`; its Event/Incident type reference follows the chosen outcome.
 - Event and Incident are **parallel** branches; `OperationalEvent` has no target `incident_id` FK in V6.
-- `ResponsePolicy` / `ResponsePolicyAction` apply to operational Event action routing.
+- `SLAPolicy` / `SLAPolicyAction` apply to operational Event action routing. The old response-policy API route is a compatibility facade, not legacy-table storage.
 - `Task.origin_type ∈ {OPERATIONAL_EVENT, INCIDENT, STAFF_REPORT, MANUAL}`; populate only the corresponding origin FK (none for MANUAL).
 - `ShiftSwapRequest`: A requester, B colleague, their applicable future assignment(s), decision maker and cancellation actor; Manager approval applies changes.
 - `NotificationRecipient` is user-level delivery summary; `UserDevice` is an active push token/device record. `NotificationRecipient` retry counters **do not represent a permanent per-device send-attempt audit table**.
@@ -583,7 +592,7 @@ These require scoped decisions rather than a coding agent's invention:
 
 1. **Safety Incident feasibility:** validated detection models, safety qualification and approval for INCIDENT-targeting rules, not inferred from Event confidence.
 2. **Multi-camera coverage:** source selection, failover and count aggregation without duplicate persons; preserve schema N:M while runtime remains limited.
-3. **Operational-event SLA execution:** approved EventType/priority policy mapping, `SLAPolicyAction` execution, warning/breach workers and reporting acceptance remain incomplete.
+3. **Operational-event SLA execution:** EventType-only matching, alert-conditioned actions and task snapshots are implemented in the V11 increment. SLA warning/breach workers and reporting acceptance remain incomplete.
 4. **Dispatch expansion/escalation:** target-Zone specialty eligibility and V7 TaskOffer runtime are implemented on the current feature branch; adjacency/ring expansion and SLA warning/breach escalation still require an approved bounded design.
 5. **Task rejection history:** minimal `Task.rejection_count` + existing `TaskEvidence` evidence status/reject reason sufficient for agreed workflow; check actual query/audit needs during build.
 6. **Notification delivery:** recipient-level counters/status are approved; provider/device acceptance semantics and transient log retention still need engineering definition.
@@ -601,7 +610,7 @@ The working planning document **KẾ HOẠCH CẬP NHẬT SAU REVIEW 2** remains
 
 - **Baseline scope:** nine demo problem types: four camera/MonitoringRule OperationalEvents — Long Queue, Excessive Waiting Time, Overcrowding/Congestion and Checkout Capacity Issue — plus five StaffReport IncidentTypes — Spills, Equipment Faults, Pathway Obstruction, Cleanliness Problems and Safety Hazards. “Other Materially Disruptive Situations” is outside the demo baseline.
 - **AI boundary:** AI produces measurements or StaffReport suggestions; it does not directly create an OperationalEvent or automatically classify all five IncidentTypes. MonitoringRule threshold/persistence/clear/cooldown evaluation remains the business gate for OperationalEvents. Staff confirmation must use structured IncidentType/Zone and description inputs; Incident severity no longer exists.
-- **SLA policy:** V7 `SLAPolicy` stores response/resolution targets, offer timeout and warning percent. Incident SLA matching uses only an exact enabled IncidentType policy; no scenario inference or global fallback. The applied policy/deadlines are snapshotted once. SLA uses continuous UTC wall-clock elapsed time and never pauses for Store Operating Hours. Existing `ResponsePolicy` operational actions remain separate.
+- **SLA policy:** V7 `SLAPolicy` stores response/resolution targets, offer timeout and warning percent. Incident SLA matching uses only an exact enabled IncidentType policy; no scenario inference or global fallback. The applied policy/deadlines are snapshotted once. SLA uses continuous UTC wall-clock elapsed time and never pauses for Store Operating Hours. Operational actions now use SLA policy/action storage; physical legacy cleanup requires the guarded V11 cutover.
 - **Current seeds:** V10 supplies approved LOW/HIGH/CRITICAL mappings for the five current IncidentType codes, with 80% warning configuration. These are project configuration, not universal industry standards.
 - **Specialty/task catalog:** V7 contains seven fixed StaffSpecialties and sixteen fixed TaskTypes. A Staff has one primary specialty; each TaskType has one fixed RequiredSpecialty. This is distinct from Role/RBAC. The current feature branch enforces the mapping for target-Zone dispatch and exposes the catalog/account specialty fields; unrestricted catalog CRUD is not implied.
 - **Dispatch:** current feature code is automatic and specialty-aware for `SAME_ZONE`: Correct Specialty + checked-in/on-shift + Zone + workload capacity. Runtime offers use `TaskOffer`; timeout is EXPIRED, not Declined; first valid acceptance wins atomically; no active duplicate task/staff offer is created. The planning document's Adjacent Zones → remaining Zones → nearest Floors expansion remains unresolved. The current retry-count settings are a compatibility fallback, not the final no-fixed-retry target.
@@ -665,7 +674,8 @@ Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a 
 | MF-04 SWAP/COVER and shift planning | `ShiftSwaps`, `ShiftPlanning`, controllers, workers and tests | **Merged to `dev`** with the bounded behavior in §42. |
 | Camera playback/editing | `CameraPlayback`, `MediaMtxGateway`, `CameraSetup`, camera tests | Dynamic MediaMTX playback paths, sanitized WHEP URLs and preserve-password editing are present; see §43. |
 | MF-03 Task evidence and verification | `TaskEvidenceWork`, Task routes/storage and focused tests | **Implemented on `feature/mf03-task-evidence`**: upload, submit, verify/reject, rework and reassign-after-two-rejections. The new AUTO/MANUAL, evidence-or-note, P1/safety and automatic Incident-closure target is not yet proven by this snapshot. |
-| Confirmed StaffReport, complete analytics | No complete application flow established | **Do not claim implemented**. |
+| Manager analytics API (WF-05 / FE-09–10 subset) | `ManagerAnalytics`, `EfAnalyticsQueries`, Manager analytics controller | Read-only overview, daily cohorts and Zone aggregates for recorded Event/Incident/Task data. Task SLA reporting uses stored deadlines. [Contract/KPI definitions](MANAGER_ANALYTICS_API.md); UI, export, recommendations, staging latency and end-to-end acceptance remain open. |
+| Confirmed StaffReport, complete analytics | No complete application flow established | **Do not claim complete**; the bounded analytics API above is only a subset. |
 | `SystemSetting`, `ServiceHealthEvent`, V6 zone staffing fields | V6 scaffold plus focused application reads | MF-02 consumes two retry settings; Admin manages the four approved notification policy keys. Other settings and service-health workflows remain unimplemented unless separately verified. |
 | Deployment health / CI results | Historical README, workflow and VALIDATION docs | **Dated evidence only**, no live deployment check performed for this synchronization. |
 
@@ -698,7 +708,7 @@ A reviewer sees: authorized Admin prepares floor/zone/camera/ROI and monitoring 
 - Separate `OPERATIONAL_EVENT` and `INCIDENT` MonitoringRule outcomes; direct staff-confirmed Incidents.
 - Exactly four Task origins, explicit first-valid acceptance and verification by the planned AUTO/MANUAL mode.
 - The Post-Review 2 working target narrows the demo to four camera/rule OperationalEvents and five StaffReport IncidentTypes; it does not claim five IncidentTypes are AI-detected.
-- `SLAPolicy` is the V7 SLA/timing persistence layer. Exact IncidentType policy selection and Incident snapshots are implemented on the current feature branch; operational-event SLA actions/escalation remain incomplete. Existing operational response actions must survive any mapping from `ResponsePolicy`.
+- `SLAPolicy` is the V7 SLA/timing persistence layer. Exact IncidentType policy selection and Incident snapshots are implemented on the current feature branch; operational-event policy/action matching and task SLA snapshots are implemented by the V11 cutover increment; warning/breach escalation workers remain incomplete. Legacy data is removed only during backup-confirmed V11 cleanup.
 - Seven fixed StaffSpecialties and sixteen fixed TaskTypes are present in V7/V10. The current feature branch uses them for target-Zone eligibility and exposes Staff specialty assignment through the Admin account contract.
 - Ring expansion, 80/100% SLA escalation and cross-zone return-to-Home-Zone remain future MF-02 work. Offer expiry and exception-based Operator involvement are implemented for the current `SAME_ZONE` scope.
 - Monitoring episodes require configurable Persistence, ClearDuration and Cooldown. A brief clear interval keeps the same episode and does not create a duplicate Task; accepted/in-progress Task SLA clocks are not reset by Event clear.
@@ -784,6 +794,7 @@ The 29/10 mentor clarification adds two Manager-owned exception paths without a 
 - A cancels while pending; B withdraws only while awaiting the Manager; actor, time and reason use the V5 cancellation columns.
 - `expires_at` is the earliest affected local shift start minus 24 hours, stored in UTC. A background worker sets EXPIRED; reads and actions already treat past-deadline requests as expired.
 - Rules are re-checked on request, peer acceptance and Manager action: active Staff, future and not checked-in shifts, decision deadline for peer flow, different shifts for SWAP, one pending request per shift (application check, no DB unique index), no overlap, `StaffUnavailability`, hard limit 48 h per local Monday–Sunday week, and Zone coverage (informational, because zone rows move with the assignment). Candidate DTOs flag `recommended=true` through 40 h; 40–48 h remains eligible but is shown as high workload.
+- `SPECIALTY_COMPATIBLE` additionally enforces matching assigned primary specialty in that shared rule path, including Manager candidates/direct intervention. Missing specialty blocks transfers until account configuration is corrected. This uses existing V7 `UserAccount.specialty_id`; no schema or DTO change.
 - Notifications are in-app only. `Notification` has no swap-request reference column, so clients open the caller's request list.
 
 Manager shift planning has subsequently been extended by Database V7 Weekly Work Shifts:

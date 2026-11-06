@@ -7,6 +7,9 @@ namespace Supermarket.Api.Controllers;
 [ApiController, Authorize(Roles = AccessRoles.Admin), Route("api/monitoring-rules/{ruleId:guid}/response-policies")]
 public sealed class ResponsePoliciesController(OperationalResponsePolicies policies) : ControllerBase
 {
+    [HttpGet("/api/task-types")]
+    public Task<List<ResponseTaskTypeView>> TaskTypes(CancellationToken ct) => policies.ListTaskTypes(ct);
+
     [HttpGet]
     public Task<List<ResponsePolicyView>> List(Guid ruleId, CancellationToken ct) => policies.List(ruleId, ct);
 
