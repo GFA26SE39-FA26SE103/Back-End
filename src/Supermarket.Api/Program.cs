@@ -129,6 +129,8 @@ builder.Services.AddScoped<IOperationalEventResponder>(s => s.GetRequiredService
 builder.Services.AddScoped<TaskViews>();
 builder.Services.AddScoped<StaffTasks>();
 builder.Services.AddScoped<OperatorTasks>();
+builder.Services.AddScoped<IncidentTypeCatalog>();
+builder.Services.AddScoped<IncidentSlaPolicies>();
 builder.Services.AddScoped<LocalTaskEvidenceStorage>();
 builder.Services.AddHttpClient<CloudinaryTaskEvidenceStorage>(client => client.Timeout = Timeout.InfiniteTimeSpan)
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });

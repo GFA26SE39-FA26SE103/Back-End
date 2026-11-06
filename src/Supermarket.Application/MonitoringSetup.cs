@@ -9,15 +9,19 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
         var eventTypes = await store.List<OperationalEventType>(ct: ct);
         return (await store.List<IncidentType>(ct: ct)).OrderBy(t => t.Code).Select(t => (Type: t,
             EventType: eventTypes.SingleOrDefault(e => e.Code == MonitoringPolicy.OperationalEventCode(t.Code))))
-            .Where(x => x.EventType is not null).Select(x =>
+            .Select(x =>
         {
-            var t=x.Type; var eventType=x.EventType!; var d = MonitoringPolicy.Definition(eventType);
-            var supported=eventType.Code=="LONG_QUEUE" && eventType.MeasurementType=="QUEUE_LENGTH";
+            var t=x.Type;
+            if (x.EventType is null)
+                return new IncidentTypeView(t.IncidentTypeId,t.Code,t.Name,t.Description,"STAFF_REPORTED",null,t.Status,
+                    true,null,null,null,null,null,t.RequiresBeforePhoto);
+            var eventType=x.EventType; var d = MonitoringPolicy.Definition(eventType);
+            var supported=t.Status=="ACTIVE" && eventType.Status=="ACTIVE" && eventType.Code=="LONG_QUEUE" && eventType.MeasurementType=="QUEUE_LENGTH";
             var options=eventType.Code=="CONGESTION" && eventType.MeasurementType=="CROWD_DENSITY"
                 ? new[] { new MonitoringMeasurementOptionView("PEOPLE_COUNT","PEOPLE",true,"Temporary count mode; enter whole-person thresholds."),new MonitoringMeasurementOptionView("CROWD_DENSITY","PEOPLE_PER_M2",false,"Physical density runtime is deferred.",d?.Warning,d?.Critical) }
                 : new[] { new MonitoringMeasurementOptionView(eventType.MeasurementType,d?.Unit??"PENDING",supported,supported?null:"Measurement runtime is not yet implemented.",d?.Warning,d?.Critical) };
-            return new IncidentTypeView(t.IncidentTypeId,t.Code,t.Name,t.Description,"AI_DETECTED",eventType.MeasurementType,eventType.Status,
-                supported,d?.Unit,d?.Warning,d?.Critical,supported?null:"Select a supported measurement mode or keep this rule disabled in Draft.",options);
+            return new IncidentTypeView(t.IncidentTypeId,t.Code,t.Name,t.Description,"AI_DETECTED",eventType.MeasurementType,t.Status,
+                supported,d?.Unit,d?.Warning,d?.Critical,supported?null:"Select a supported measurement mode or keep this rule disabled in Draft.",options,t.RequiresBeforePhoto);
         }).ToArray();
     }
     public async Task<MonitoringConfigurationView> Get(Guid zoneId, CancellationToken ct)
@@ -50,6 +54,7 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             foreach (var r in input)
             {
                 var type = UseCase.Found(await store.Find<IncidentType>(r.IncidentTypeId, ct));
+                Rules.Require(type.Status == "ACTIVE", "INCIDENT_TYPE_INACTIVE", "An inactive IncidentType cannot be added to monitoring.");
                 var eventCode=MonitoringPolicy.OperationalEventCode(type)
                     ?? throw new ApplicationException("OPERATIONAL_EVENT_TYPE_UNSUPPORTED","This incident type has no operational event mapping.",400);
                 var eventType=(await store.List<OperationalEventType>(t=>t.Code==eventCode && t.Status=="ACTIVE",ct)).SingleOrDefault()
