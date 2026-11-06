@@ -380,3 +380,11 @@ Branches: `feature/operational-sla-cutover` in Backend and Database; no worktree
 - Post-drop V11 rollback rerun: **PASS**, same policy/action IDs and policy version 1, four/eight persisted rows, no static binding errors for dropped objects.
 
 The SQL-backed historical integration suite was not used: it requires an absent old schema file and creates temporary databases, contrary to this task's constraints. No temporary database or committed synthetic measurements were created. HTTP/camera/AI end-to-end acceptance and SLA warning/breach escalation workers are not claimed by this verification.
+
+## Response-policy TaskType catalog — 2026-11-06
+
+- Added read-only `GET /api/task-types`, restricted to ADMIN at HTTP and application boundaries, using the existing TaskType store. Returns code, name, description and required specialty ID for the web selector.
+- Non-SQL backend suite: **486 passed** after adding catalog use-case/authorization tests. After adding five HTTP role/response cases, the focused ResponsePolicyTests suite: **42 passed**.
+- Frontend ResponsePolicies tests: **9 passed**; production build passed. Covers code/name selection, selected description, catalog load failure/retry, retained drafts and the unchanged versioned save contract.
+- Edge visual check used mocked API catalog/policy data at 1440×1000: select displays code/name and description, stacked layout has no horizontal overflow. This is not live database or deployed end-to-end acceptance.
+- No schema, seed data, shared database or deployment changes. OpenAPI snapshot and API documentation updated for the additive endpoint.

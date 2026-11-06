@@ -14,6 +14,14 @@ public sealed class OperationalResponsePolicies(ISetupStore store, ICurrentUser 
     private static readonly string[] AlertLevels = ["CRITICAL", "WARNING"];
     private sealed record TaskParameters(string? Title, string? Instructions, string? TaskTypeCode);
 
+    public async Task<List<ResponseTaskTypeView>> ListTaskTypes(CancellationToken ct)
+    {
+        UseCase.Admin(currentUser);
+        var types = await store.List<TaskType>(ct: ct);
+        return types.OrderBy(type => type.Code, StringComparer.Ordinal)
+            .Select(type => new ResponseTaskTypeView(type.TaskTypeId, type.Code, type.Name, type.Description, type.RequiredSpecialtyId)).ToList();
+    }
+
     public async Task<List<ResponsePolicyView>> List(Guid ruleId, CancellationToken ct)
     {
         UseCase.Admin(currentUser);

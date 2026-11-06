@@ -1,5 +1,7 @@
 namespace Supermarket.Application;
 
+public sealed record ResponseTaskTypeView(Guid TaskTypeId, string Code, string Name, string? Description, Guid RequiredSpecialtyId);
+
 public sealed record AutomaticTaskPolicyRequest(bool IsEnabled, string? Title, string? Instructions, string? TaskTypeCode = null);
 public sealed record ResponsePolicySaveRequest(bool IsEnabled, int? ExpectedVersion, AutomaticTaskPolicyRequest? Action);
 public sealed record ResponsePolicyDeleteRequest(int ExpectedVersion);
