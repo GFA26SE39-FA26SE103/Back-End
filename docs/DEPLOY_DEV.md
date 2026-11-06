@@ -158,7 +158,7 @@ For the first rollout, either merge to `dev` or run **Actions → Deploy backend
 
 `api.env` must already exist on the VM. The workflow never uploads, prints or overwrites it. A temporary Docker config handles private GHCR authentication and is removed at exit.
 
-The existing `MF-01 backend` CI remains unchanged, including its separately configured optional isolated SQL integration job. The deploy workflow's test selection does not run SQL integration against the team database. Passing `/health/ready` proves connectivity to the selected DB, **not schema/seed correctness**; verify MF-01 endpoints after deployment.
+The `Backend CI` workflow includes a separately configured optional isolated SQL integration job. The deploy workflow's test selection does not run SQL integration against the team database. Passing `/health/ready` proves connectivity to the selected DB, **not schema/seed correctness**; verify the relevant API endpoints after deployment.
 
 Check from the VM after a successful run:
 

@@ -1,4 +1,4 @@
-name: MF-01 backend
+name: Backend CI
 on: [push, pull_request, workflow_dispatch]
 jobs:
   verify:
