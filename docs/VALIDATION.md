@@ -403,3 +403,10 @@ The SQL-backed historical integration suite was not used: it requires an absent 
 - Focused backend Event history suite: **16 passed, 0 failed, 0 skipped**. Full non-SQL backend suite from the completed implementation run: **526 passed, 0 failed, 0 skipped**; backend build passed. SQL translation and bounded projection were verified without executing against a live SQL Server.
 - Frontend adds Operator/Manager Event history and detail, Analytics drill-down preserving date/Zone filters, and an **All tasks** option covering all six Task statuses. Focused Event/Task/Analytics suite: **21 passed, 0 failed**; production build passed. Edge interaction checks used mocked API responses.
 - `git diff --check`: **PASS** for both repositories. No schema, seed, generated scaffold, shared-data write, deployment, live SQL result check or staging end-to-end acceptance was performed.
+
+## D1 five-ring Task dispatch — 2026-11-09
+
+- Automatic TaskOffer dispatch now advances through `SAME_ZONE`, `ADJACENT_SAME_FLOOR`, `REMAINING_SAME_FLOOR`, `ADJACENT_FLOOR`, then `OTHER_FLOOR`. Same-Floor adjacency uses the Administrator-managed `ZoneAdjacency` links; the adjacent-Floor ring selects the nearest existing `Floor.floor_number` in the same Supermarket.
+- A non-empty ring waits one immutable Task `offer_timeout_sec`; empty rings advance immediately. A Staff member is not offered the same Task twice, legacy `task_offer.max_retry_count` no longer controls dispatch, and exhaustion creates one Operator exception without duplicating the Task or resetting its SLA snapshot/deadlines.
+- Focused Staff/dispatch/ZoneAdjacency suite: **44 passed, 0 failed, 0 skipped**. Full non-SQL backend regression: **542 passed, 0 failed, 0 skipped**. `git diff --check`: **PASS**.
+- No schema, seed, generated scaffold, shared database, deployment or live device acceptance was changed or executed. L5 ZoneAdjacency was integrated from the existing team commit before D1.

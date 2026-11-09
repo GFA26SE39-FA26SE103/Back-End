@@ -190,7 +190,7 @@ public sealed class TaskEvidenceTests
             roster = new StaffRoster(Store, calendar);
             notifier = new TaskNotifier(Store, Clock);
             Dispatch = new TaskDispatch(Store, roster, notifier, Clock, schema);
-            views = new TaskViews(Store, Dispatch);
+            views = new TaskViews(Store);
         }
 
         public Guid User(string role, string name)

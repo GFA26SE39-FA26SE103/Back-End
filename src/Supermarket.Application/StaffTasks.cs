@@ -105,10 +105,20 @@ public sealed class StaffTasks(ISetupStore store, ICurrentUser current, IClock c
                     offer.Status = TaskOfferStatus.Declined; offer.RespondedAt = now; offer.DeclineReasonCode = request.Reason!.Trim();
                     await store.Update(offer, ct);
                     await dispatch.Audit(offer, OfferStatus.Declined, offer.DeclineReasonCode, now, ct);
+                    foreach (var expired in await store.List<TaskOffer>(a => a.TaskId == task.TaskId && a.Status == TaskOfferStatus.Pending
+                        && a.ExpiresAt <= now, ct))
+                    {
+                        expired.Status = TaskOfferStatus.Expired; expired.RespondedAt = now; expired.DeclineReasonCode = "NO_RESPONSE";
+                        await store.Update(expired, ct);
+                        await dispatch.Audit(expired, OfferStatus.Expired, "NO_RESPONSE", now, ct);
+                    }
                     var stillOpen = (await store.List<TaskOffer>(a => a.TaskId == task.TaskId && a.Status == TaskOfferStatus.Pending, ct))
-                        .Any(a => a.OfferId != offer.OfferId);
+                        .Any(a => a.OfferId != offer.OfferId && a.ExpiresAt > now);
                     if (!stillOpen && task.CurrentAssigneeUserId is null)
-                        await dispatch.NeedsOperator(task, manual ? "The manually selected Staff member declined the task." : "Every offered Staff member answered Cannot handle.", ct);
+                    {
+                        if (manual) await dispatch.NeedsOperator(task, "The manually selected Staff member declined the task.", ct);
+                        else await dispatch.Advance(task, null, ct);
+                    }
                     return false;
                 }
                 var me = (await roster.OnShift(now, ct)).SingleOrDefault(s => s.User.UserId == current.UserId)

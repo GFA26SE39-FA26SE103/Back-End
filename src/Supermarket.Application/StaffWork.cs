@@ -54,10 +54,13 @@ public sealed class StaffRoster(ISetupStore store, StoreCalendar calendar)
             .ToList();
     }
     public async Task<List<OnShiftStaff>> Eligible(WorkTask task, DateTime now, CancellationToken ct)
+        => await Eligible(task, now, [task.ZoneId], ct);
+
+    public async Task<List<OnShiftStaff>> Eligible(WorkTask task, DateTime now, IReadOnlyCollection<Guid> zoneIds, CancellationToken ct)
     {
         var taskType = task.TaskTypeId is { } taskTypeId ? await store.Find<TaskType>(taskTypeId, ct) : null;
         if (taskType is null) return [];
-        return (await OnShift(now, ct)).Where(s => s.ZoneIds.Contains(task.ZoneId)
+        return (await OnShift(now, ct)).Where(s => s.ZoneIds.Any(zoneIds.Contains)
             && s.ActiveTasks < TaskRules.MaxActiveTasks
             && s.User.SpecialtyId == taskType.RequiredSpecialtyId).ToList();
     }
@@ -79,7 +82,7 @@ public sealed class StaffRoster(ISetupStore store, StoreCalendar calendar)
 /// <summary>Writes Notification + in-app NotificationRecipient rows.</summary>
 public sealed class TaskNotifier(ISetupStore store, IClock clock)
 {
-    public const string Offer = "TASK_OFFER", OfferWithdrawn = "TASK_OFFER_WITHDRAWN", Assigned = "TASK_ASSIGNED", NeedsAssignment = "TASK_NEEDS_ASSIGNMENT",
+    public const string Offer = "TASK_OFFER", DispatchRing = "TASK_DISPATCH_RING", OfferWithdrawn = "TASK_OFFER_WITHDRAWN", Assigned = "TASK_ASSIGNED", NeedsAssignment = "TASK_NEEDS_ASSIGNMENT",
         PriorityRaised = "TASK_PRIORITY_RAISED", EventCleared = "EVENT_CLEARED";
     public async Task<Notification> Send(string type, string title, string message, WorkTask task, IEnumerable<Guid> recipients, string reason, CancellationToken ct, Guid? cameraId = null)
     {
@@ -199,7 +202,7 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
             SlaPolicyId = policy.PolicyId, SlaSnapshotJson = JsonSerializer.Serialize(snapshot, Json),
             ResponseDeadlineAt = snapshot.ResponseDeadlineAt, ResolutionDeadlineAt = snapshot.ResolutionDeadlineAt };
         await store.Add(task, ct);
-        await OfferRound(task, ev.CameraId, ct);
+        await Advance(task, ev.CameraId, ct);
     }
 
     /// <summary>
@@ -233,7 +236,7 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
     }
     private async Task<int> RetryRound(CancellationToken ct)
     {
-        var now = clock.UtcNow; var (_, maxAttempts) = await Retry(ct); var changedTasks = new HashSet<Guid>();
+        var now = clock.UtcNow; var changedTasks = new HashSet<Guid>();
         foreach (var task in await store.List<WorkTask>(t => t.Status == WorkTaskStatus.Offered || t.Status == WorkTaskStatus.Accepted, ct))
         {
             var waitsForOperator = (await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId
@@ -261,29 +264,16 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
             }
             // A Task rejected twice waits for the Operator to reassign it (BR-28); it is not automatically re-offered.
             if (waitsForOperator) continue;
-            var rounds = await store.List<Notification>(n => n.TaskId == task.TaskId && n.NotificationType == TaskNotifier.Offer, ct);
-            if (rounds.Count == 0) continue;
-            var timeout = await OfferTimeout(task, ct);
-            if (now < rounds.Max(n => n.CreatedAt).AddSeconds(timeout)) continue;
-            if (rounds.Count < maxAttempts)
-            {
-                await OfferRound(task, null, ct);
-                changedTasks.Add(task.TaskId);
-                continue;
-            }
-            if (await NeedsOperator(task, "Nobody accepted the task after every TaskOffer dispatch cycle.", ct)) changedTasks.Add(task.TaskId);
+            if (await Advance(task, null, ct)) changedTasks.Add(task.TaskId);
         }
         return changedTasks.Count;
     }
 
     public async Task<(int IntervalSec, int MaxAttempts)> Retry(CancellationToken ct)
     {
-        var keys = new[] { TaskRules.RetryIntervalSetting, TaskRules.MaxRetryCountSetting };
-        var settings = await store.List<SystemSetting>(s => keys.Contains(s.SettingKey), ct);
+        var settings = await store.List<SystemSetting>(s => s.SettingKey == TaskRules.RetryIntervalSetting, ct);
         var interval = PositiveInt(settings, TaskRules.RetryIntervalSetting, TaskRules.DefaultRetryIntervalSec);
-        var retries = NonNegativeInt(settings, TaskRules.MaxRetryCountSetting, TaskRules.DefaultMaxAttempts - 1);
-        // max_retry_count counts re-notifications after the first offer.
-        return (interval, 1 + retries);
+        return (interval, TaskDispatchScope.Automatic.Length);
     }
 
     private static int PositiveInt(IEnumerable<SystemSetting> settings, string key, int fallback)
@@ -291,37 +281,69 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
         var value = LatestInt(settings, key);
         return value is > 0 ? value.Value : fallback;
     }
-    private static int NonNegativeInt(IEnumerable<SystemSetting> settings, string key, int fallback)
-    {
-        var value = LatestInt(settings, key);
-        return value is >= 0 ? value.Value : fallback;
-    }
     private static int? LatestInt(IEnumerable<SystemSetting> settings, string key)
         => int.TryParse(settings.Where(s => s.SettingKey == key).OrderByDescending(s => s.UpdatedAt).FirstOrDefault()?.SettingValue, out var value) ? value : null;
 
-    /// <summary>Creates one V7 SAME_ZONE dispatch cycle. Active duplicate task/staff offers are forbidden.</summary>
-    private async Task OfferRound(WorkTask task, Guid? cameraId, CancellationToken ct)
+    /// <summary>Advances through empty topology rings immediately and opens the first ring with eligible Staff.</summary>
+    public async Task<bool> Advance(WorkTask task, Guid? cameraId, CancellationToken ct)
     {
+        if (task.Status != WorkTaskStatus.Offered || task.CurrentAssigneeUserId is not null) return false;
         var now = clock.UtcNow;
-        var timeout = await OfferTimeout(task, ct);
-        var cycleId = Guid.NewGuid();
         var offers = await store.List<TaskOffer>(a => a.TaskId == task.TaskId, ct);
+        if (offers.Any(o => o.Status == TaskOfferStatus.Pending && o.ExpiresAt > now)) return true;
+        var timeout = await OfferTimeout(task, ct);
         var rejectedTwice = (await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId && a.Reason == TaskEvidenceRules.RejectedTwiceReason, ct))
             .Select(a => a.StaffUserId).ToHashSet();
-        foreach (var staff in await roster.Eligible(task, now, ct))
+        var previouslyOffered = offers.Where(o => o.DispatchScope != TaskDispatchScope.Manual).Select(o => o.StaffUserId).ToHashSet();
+        var markers = await store.List<Notification>(n => n.TaskId == task.TaskId && n.NotificationType == TaskNotifier.DispatchRing, ct);
+        var completedWaves = Math.Max(markers.Count, offers.Where(o => o.DispatchScope != TaskDispatchScope.Manual).Select(o => o.WaveNumber).DefaultIfEmpty(0).Max());
+        for (var wave = completedWaves + 1; wave <= TaskDispatchScope.Automatic.Length; wave++)
         {
-            if (rejectedTwice.Contains(staff.User.UserId)
-                || offers.Any(o => o.StaffUserId == staff.User.UserId && o.Status is TaskOfferStatus.Pending or TaskOfferStatus.Declined)) continue;
-            var offer = new TaskOffer { OfferId = Guid.NewGuid(), TaskId = task.TaskId, StaffUserId = staff.User.UserId,
-                DispatchCycleId = cycleId, WaveNumber = 1, DispatchScope = TaskDispatchScope.SameZone,
-                Status = TaskOfferStatus.Pending, OfferedAt = now, ExpiresAt = now.AddSeconds(timeout) };
-            await store.Add(offer, ct);
-            offers.Add(offer);
+            var scope = TaskDispatchScope.Automatic[wave - 1];
+            await notifier.Send(TaskNotifier.DispatchRing, $"Dispatch ring {wave}", scope, task, [], $"RING_{wave}", ct, cameraId);
+            var zoneIds = await RingZoneIds(task.ZoneId, scope, ct);
+            var candidates = (await roster.Eligible(task, now, zoneIds, ct))
+                .Where(s => !previouslyOffered.Contains(s.User.UserId) && !rejectedTwice.Contains(s.User.UserId)).ToList();
+            if (candidates.Count == 0) continue;
+            var cycleId = Guid.NewGuid();
+            foreach (var staff in candidates)
+            {
+                var offer = new TaskOffer { OfferId = Guid.NewGuid(), TaskId = task.TaskId, StaffUserId = staff.User.UserId,
+                    DispatchCycleId = cycleId, WaveNumber = wave, DispatchScope = scope,
+                    Status = TaskOfferStatus.Pending, OfferedAt = now, ExpiresAt = now.AddSeconds(timeout) };
+                await store.Add(offer, ct);
+                offers.Add(offer);
+                previouslyOffered.Add(staff.User.UserId);
+            }
+            var recipients = candidates.Select(s => s.User.UserId).Distinct().ToList();
+            await notifier.Send(TaskNotifier.Offer, $"{task.Priority} · New task", task.Title, task, recipients, scope, ct, cameraId);
+            return true;
         }
-        var open = offers.Where(o => o.Status == TaskOfferStatus.Pending && o.ExpiresAt > now).Select(o => o.StaffUserId).Distinct().ToList();
-        await notifier.Send(TaskNotifier.Offer, $"{task.Priority} · New task", task.Title, task, open, "ELIGIBLE_ZONE_STAFF", ct, cameraId);
-        if (open.Count == 0)
-            await NeedsOperator(task, "No eligible Staff has the required specialty, current check-in, Zone assignment and workload capacity.", ct);
+        return await NeedsOperator(task, "No eligible Staff accepted the task after all Zone and Floor dispatch rings were exhausted.", ct);
+    }
+
+    private async Task<Guid[]> RingZoneIds(Guid taskZoneId, string scope, CancellationToken ct)
+    {
+        var target = await store.Find<Zone>(taskZoneId, ct);
+        if (target is null) return [];
+        if (scope == TaskDispatchScope.SameZone) return [target.ZoneId];
+        var floor = await store.Find<Floor>(target.FloorId, ct);
+        if (floor is null) return [];
+        var sameFloor = await store.List<Zone>(z => z.FloorId == floor.FloorId && z.Status == "ACTIVE", ct);
+        var links = await store.List<ZoneAdjacency>(a => a.ZoneId == target.ZoneId || a.AdjacentZoneId == target.ZoneId, ct);
+        var adjacent = links.Select(a => a.ZoneId == target.ZoneId ? a.AdjacentZoneId : a.ZoneId).ToHashSet();
+        if (scope == TaskDispatchScope.AdjacentSameFloor)
+            return sameFloor.Where(z => adjacent.Contains(z.ZoneId)).Select(z => z.ZoneId).ToArray();
+        if (scope == TaskDispatchScope.RemainingSameFloor)
+            return sameFloor.Where(z => z.ZoneId != target.ZoneId && !adjacent.Contains(z.ZoneId)).Select(z => z.ZoneId).ToArray();
+
+        var otherFloors = (await store.List<Floor>(f => f.SupermarketId == floor.SupermarketId && f.FloorId != floor.FloorId, ct)).ToList();
+        if (otherFloors.Count == 0) return [];
+        var nearestDistance = otherFloors.Min(f => Math.Abs((long)f.FloorNumber - floor.FloorNumber));
+        var selectedFloors = scope == TaskDispatchScope.AdjacentFloor
+            ? otherFloors.Where(f => Math.Abs((long)f.FloorNumber - floor.FloorNumber) == nearestDistance).Select(f => f.FloorId).ToHashSet()
+            : otherFloors.Where(f => Math.Abs((long)f.FloorNumber - floor.FloorNumber) != nearestDistance).Select(f => f.FloorId).ToHashSet();
+        return (await store.List<Zone>(z => selectedFloors.Contains(z.FloorId) && z.Status == "ACTIVE", ct)).Select(z => z.ZoneId).ToArray();
     }
 
     /// <summary>Notifies Operators once per task that it needs manual assignment.</summary>

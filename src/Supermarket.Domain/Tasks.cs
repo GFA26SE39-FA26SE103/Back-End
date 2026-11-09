@@ -167,8 +167,10 @@ public static class TaskOfferStatus
 }
 public static class TaskDispatchScope
 {
-    // Zone expansion is deliberately not implemented until the ZoneAdjacency rule is approved.
-    public const string SameZone = "SAME_ZONE", Manual = "MANUAL";
+    public const string SameZone = "SAME_ZONE", AdjacentSameFloor = "ADJACENT_SAME_FLOOR",
+        RemainingSameFloor = "REMAINING_SAME_FLOOR", AdjacentFloor = "ADJACENT_FLOOR",
+        OtherFloor = "OTHER_FLOOR", Manual = "MANUAL";
+    public static readonly string[] Automatic = [SameZone, AdjacentSameFloor, RemainingSameFloor, AdjacentFloor, OtherFloor];
 }
 public static class TaskResponse
 {
@@ -186,9 +188,10 @@ public static class TaskRules
     /// <summary>Check-in opens this long before the shift starts.</summary>
     public static readonly TimeSpan CheckInOpensBefore = TimeSpan.FromMinutes(15);
     public const string RetryIntervalSetting = "task_offer.retry_interval_sec";
+    /// <summary>Legacy key retained for configuration compatibility; ring dispatch no longer reads it.</summary>
     public const string MaxRetryCountSetting = "task_offer.max_retry_count";
-    /// <summary>BR-22 baseline when SystemSetting has no valid override: re-notify every 60 s, 3 attempts in total.</summary>
-    public const int DefaultRetryIntervalSec = 60, DefaultMaxAttempts = 3;
+    /// <summary>Fallback offer timeout when the Task has no SLA policy or snapshot.</summary>
+    public const int DefaultRetryIntervalSec = 60;
 
     public static int Rank(string priority) => priority switch { "CRITICAL" => 2, "WARNING" => 1, _ => 0 };
 
