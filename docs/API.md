@@ -6,7 +6,7 @@ Quyền đọc cho màn vận hành (Operator floor map, camera live):
 
 | Quyền | Endpoints |
 |---|---|
-| ADMIN, OPERATOR, MANAGER | `GET /supermarkets`, `GET /supermarkets/{id}`, `GET /supermarkets/{id}/floors`, `GET /floors/{id}`, `GET /floors/{id}/map`, `GET /floors/{id}/zones`, `GET /zones/{id}`, `GET /floors/{id}/cameras`, `GET /cameras/{id}`, `GET /cameras/{id}/zones`, `GET /cameras/{id}/preview`, `POST /cameras/{id}/playback` |
+| ADMIN, OPERATOR, MANAGER | `GET /supermarkets`, `GET /supermarkets/{id}`, `GET /supermarkets/{id}/floors`, `GET /floors/{id}`, `GET /floors/{id}/map`, `GET /floors/{id}/zones`, `GET /zones/{id}`, `GET /zones/{id}/adjacent-zones`, `GET /floors/{id}/cameras`, `GET /cameras/{id}`, `GET /cameras/{id}/zones`, `GET /cameras/{id}/preview`, `POST /cameras/{id}/playback` |
 | ADMIN, OPERATOR | `/cameras/{id}/ai-preview/start`, `status`, `frame`, `frame/next`, `stop` (mỗi Start thành công cấp một viewer lease; nhiều viewer dùng chung worker của cùng camera; tối đa hai camera worker) |
 | Chỉ ADMIN | Mọi setup mutation không được liệt kê riêng ở hai dòng trên; `GET /cameras/{id}/connection` (có stream URI), `POST .../connection/test`, accounts, monitoring, camera health |
 
@@ -18,7 +18,7 @@ Controller và use case cùng kiểm tra quyền; STAFF không đọc được d
 | Accounts | GET/POST /users; PATCH /users/{id}; POST /users/{id}/enable hoặc disable; GET /roles; GET /staff-specialties |
 | Supermarket | GET/POST /supermarkets; GET/PATCH /supermarkets/{id} |
 | Floors | GET/POST /supermarkets/{id}/floors; GET/PATCH /floors/{id}; PATCH /floors/{id}/details; POST/GET /floors/{id}/map |
-| Zones | GET/POST /floors/{id}/zones; GET/PATCH /zones/{id}; normalized polygon, optional `colorHex`/`areaM2`, and Zone-level `minStaff >= 0` configured by Admin for Manager coverage planning |
+| Zones | GET/POST /floors/{id}/zones; GET/PATCH /zones/{id}; GET/PUT /zones/{id}/adjacent-zones; normalized polygon, optional `colorHex`/`areaM2`, and Zone-level `minStaff >= 0` configured by Admin for Manager coverage planning |
 | Cameras | GET/POST /floors/{id}/cameras; GET/PATCH /cameras/{id} |
 | Connection | GET/PUT /cameras/{id}/connection; POST .../test, .../enable, .../disable |
 | Preview | GET /cameras/{id}/preview: image/svg+xml cho demo, image/jpeg cho FFmpeg |
@@ -101,6 +101,12 @@ Ví dụ mapping:
 `POST /api/supermarkets/{id}/floors` (ADMIN) dùng `FloorRequest` hiện có. Store Layout gửi `floorNumber`, `name` và `mapAssetUrl/mapWidth/mapHeight: null`; tạo floor trước, upload map sau. Store là default store từ seed, không thêm flow tạo/chọn store.
 
 `PATCH /api/floors/{id}/details` (ADMIN) nhận `{"floorNumber":2,"name":"Upper floor"}`. Name trim, bắt buộc, tối đa 100 ký tự; floorNumber là int và unique trong cùng store (409 `DUPLICATE` nếu trùng). Không giới hạn tầng phải dương; tầng 0 hoặc tầng âm được phép. Endpoint chỉ thay name/number, giữ floorId, storeId và metadata map hiện tại đọc từ DB, cùng các zone/camera/mapping. Không gửi lại map URL cũ từ lúc mở form. Response là Floor. Full `PATCH /floors/{id}` vẫn giữ contract cũ; upload map dùng endpoint riêng.
+
+### Zone adjacency
+
+`GET /api/zones/{zoneId}/adjacent-zones` dành cho ADMIN, OPERATOR và MANAGER; trả các Zone kề trực tiếp theo `code`, không trả hàng liên kết nội bộ. `PUT /api/zones/{zoneId}/adjacent-zones` chỉ ADMIN, nhận `{"adjacentZoneIds":["<zone UUID>"]}` và thay toàn bộ tập Zone kề của Zone nguồn trong một transaction. Gửi mảng rỗng để bỏ toàn bộ liên kết của Zone nguồn.
+
+Mỗi quan hệ được lưu hai chiều. API xóa cả hai chiều của liên kết cũ trước khi tạo tập mới, nhưng không chạm vào quan hệ giữa các Zone khác. Zone nguồn/đích phải tồn tại, khác nhau và cùng Floor; ID lặp trả 422 `ZONE_ADJACENCY_DUPLICATE`, tự nối trả 422 `ZONE_ADJACENCY_SELF`, khác Floor trả 422 `ZONE_ADJACENCY_CROSS_FLOOR`. Quan hệ này chỉ là dữ liệu không gian được Admin xác nhận cho dispatch; API không tự suy ra từ polygon hoặc vị trí trên bản đồ.
 
 ### Monitoring Draft / Review / Activate / Delete
 

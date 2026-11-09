@@ -115,6 +115,7 @@ builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddScoped<ITokenIssuer, TokenIssuer>();
 builder.Services.AddScoped<Accounts>();
 builder.Services.AddScoped<StoreSetup>();
+builder.Services.AddScoped<ZoneAdjacencies>();
 builder.Services.AddScoped<CameraSetup>();
 builder.Services.AddScoped<CameraPlayback>();
 builder.Services.AddScoped<MonitoringSetup>();
