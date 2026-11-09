@@ -205,7 +205,8 @@ public sealed class TaskEvidenceTests
 
         public TaskEvidenceWork Evidence(Guid user) => new(Store, Current(user), Clock, notifier, schema, Files);
         public StaffTasks StaffTasks(Guid user) => new(Store, Current(user), Clock, calendar, roster, Dispatch, views, schema);
-        public OperatorTasks Operator(Guid user) => new(Store, Current(user), Clock, roster, Dispatch, notifier, views, schema, new StaffTaskTests.OperatorQueries(Store));
+        public OperatorTasks Operator(Guid user) => new(Store, Current(user), Clock, roster, Dispatch, notifier, views, schema,
+            new StaffTaskTests.OperatorQueries(Store), new StandaloneTaskSlaPolicyService(Store, Clock));
 
         private User Current(Guid id)
         {

@@ -398,9 +398,9 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => new { e.ZoneId, e.IncidentTypeId, e.ClosedAt }, "IX_Incident_Zone_Type_Closed");
 
-            entity.HasIndex(e => new { e.ZoneId, e.IncidentTypeId }, "UX_Incident_Open_Zone_Type")
+            entity.HasIndex(e => new { e.MonitoringRuleId, e.ZoneId, e.IncidentTypeId }, "UX_Incident_Open_MonitoringRule_Zone_Type")
                 .IsUnique()
-                .HasFilter("([closed_at] IS NULL)");
+                .HasFilter("([closed_at] IS NULL AND [monitoring_rule_id] IS NOT NULL)");
 
             entity.HasIndex(e => e.StaffReportId, "UX_Incident_StaffReport")
                 .IsUnique()
@@ -1132,6 +1132,10 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.IncidentTypeId, "IX_SLAPolicy_IncidentTypeId").HasFilter("([incident_type_id] IS NOT NULL)");
 
+            entity.HasIndex(e => e.TaskTypeId, "UX_SLAPolicy_Enabled_StandaloneTaskType")
+                .IsUnique()
+                .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'STANDALONE_TASK' AND [task_type_id] IS NOT NULL)");
+
             entity.HasIndex(e => e.ProblemDomain, "UX_SLAPolicy_Enabled_IncidentFallback")
                 .IsUnique()
                 .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'INCIDENT' AND [incident_type_id] IS NULL)");
@@ -1157,6 +1161,7 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("created_at");
             entity.Property(e => e.EventTypeId).HasColumnName("event_type_id");
             entity.Property(e => e.IncidentTypeId).HasColumnName("incident_type_id");
+            entity.Property(e => e.TaskTypeId).HasColumnName("task_type_id");
             entity.Property(e => e.IsEnabled)
                 .HasDefaultValue(true, "DF_SLAPolicy_Enabled")
                 .HasColumnName("is_enabled");
@@ -1187,6 +1192,10 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.IncidentType).WithOne(p => p.Slapolicy)
                 .HasForeignKey<Slapolicy>(d => d.IncidentTypeId)
                 .HasConstraintName("FK_SLAPolicy_IncidentType");
+
+            entity.HasOne(d => d.TaskType).WithMany()
+                .HasForeignKey(d => d.TaskTypeId)
+                .HasConstraintName("FK_SLAPolicy_TaskType");
         });
 
         modelBuilder.Entity<SlapolicyAction>(entity =>
@@ -1240,13 +1249,12 @@ public partial class AppDbContext : DbContext
 
             entity.ToTable("StaffReport");
 
+            entity.HasIndex(e => e.IncidentTypeId, "IX_StaffReport_IncidentType");
+
             entity.Property(e => e.ReportId)
                 .HasDefaultValueSql("(newsequentialid())", "DF_StaffReport_Id")
                 .HasColumnName("report_id");
             entity.Property(e => e.AiExtractedJson).HasColumnName("ai_extracted_json");
-            entity.Property(e => e.Classification)
-                .HasMaxLength(100)
-                .HasColumnName("classification");
             entity.Property(e => e.ClassifiedAt)
                 .HasPrecision(3)
                 .HasColumnName("classified_at");
@@ -1260,14 +1268,15 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.Description)
                 .HasMaxLength(4000)
                 .HasColumnName("description");
+            entity.Property(e => e.IncidentTypeId).HasColumnName("incident_type_id");
             entity.Property(e => e.LocationDescription)
                 .HasMaxLength(1000)
                 .HasColumnName("location_description");
             entity.Property(e => e.OriginalInputJson).HasColumnName("original_input_json");
-            entity.Property(e => e.ReportCategory)
-                .HasMaxLength(100)
-                .HasColumnName("report_category");
             entity.Property(e => e.ReportedByUserId).HasColumnName("reported_by_user_id");
+            entity.Property(e => e.ReportCategory)
+                .HasMaxLength(32)
+                .HasColumnName("report_category");
             entity.Property(e => e.Status)
                 .HasMaxLength(40)
                 .HasColumnName("status");
@@ -1279,6 +1288,10 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValueSql("(sysutcdatetime())", "DF_StaffReport_UpdatedAt")
                 .HasColumnName("updated_at");
             entity.Property(e => e.ZoneId).HasColumnName("zone_id");
+
+            entity.HasOne(d => d.IncidentType).WithMany(p => p.StaffReports)
+                .HasForeignKey(d => d.IncidentTypeId)
+                .HasConstraintName("FK_StaffReport_IncidentType");
 
             entity.HasOne(d => d.ReportedByUser).WithMany(p => p.StaffReports)
                 .HasForeignKey(d => d.ReportedByUserId)

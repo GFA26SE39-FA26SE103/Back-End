@@ -33,7 +33,7 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
             if(outcome=="INCIDENT")
             {
                 var incidentTypeId=rule.IncidentTypeId!.Value;
-                var existing=(await store.List<Incident>(i=>i.ZoneId==zone.ZoneId && i.IncidentTypeId==incidentTypeId && i.ClosedAt==null,ct)).SingleOrDefault();
+                var existing=(await store.List<Incident>(i=>i.MonitoringRuleId==rule.RuleId && i.ZoneId==zone.ZoneId && i.IncidentTypeId==incidentTypeId && i.ClosedAt==null,ct)).SingleOrDefault();
                 if(evaluation.ShouldClear || evaluation.EligibleSeverity is null)
                     return new(true,false,false,existing?.IncidentId,evaluation.Reason);
 

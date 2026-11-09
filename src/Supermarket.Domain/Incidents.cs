@@ -6,6 +6,7 @@ public sealed class Incident : TrackedEntity
     public Guid IncidentTypeId { get; set; }
     public Guid ZoneId { get; set; }
     public Guid? MonitoringRuleId { get; set; }
+    public Guid? StaffReportId { get; set; }
     public Guid? ReportedByUserId { get; set; }
     public string SourceType { get; set; } = "AI_DETECTED";
     public string Title { get; set; } = "";

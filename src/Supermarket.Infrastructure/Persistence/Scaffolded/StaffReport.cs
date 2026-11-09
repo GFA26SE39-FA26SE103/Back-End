@@ -11,8 +11,6 @@ public partial class StaffReport
 
     public Guid ZoneId { get; set; }
 
-    public string ReportCategory { get; set; } = null!;
-
     public string Title { get; set; } = null!;
 
     public string? Description { get; set; }
@@ -20,8 +18,6 @@ public partial class StaffReport
     public string? OriginalInputJson { get; set; }
 
     public string? AiExtractedJson { get; set; }
-
-    public string? Classification { get; set; }
 
     public string Status { get; set; } = null!;
 
@@ -35,7 +31,13 @@ public partial class StaffReport
 
     public string? LocationDescription { get; set; }
 
+    public Guid? IncidentTypeId { get; set; }
+
+    public string? ReportCategory { get; set; }
+
     public virtual Incident? Incident { get; set; }
+
+    public virtual IncidentType? IncidentType { get; set; }
 
     public virtual UserAccount ReportedByUser { get; set; } = null!;
 
