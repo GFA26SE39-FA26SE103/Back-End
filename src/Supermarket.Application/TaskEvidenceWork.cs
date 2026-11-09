@@ -72,7 +72,9 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
         UseCase.Staff(current);
         await schema.Require(ct);
         var requestedNote = request.Note?.Trim();
+        var missingPhotoReason = request.MissingPhotoReason?.Trim();
         Rules.Optional(requestedNote, TaskEvidenceRules.MaxNoteLength, "Completion note");
+        Rules.Optional(missingPhotoReason, TaskEvidenceRules.MaxMissingPhotoReasonLength, "Missing photo reason");
         await store.Transaction(async () =>
         {
             var task = await Assigned(taskId, ct);
@@ -87,6 +89,12 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
                 : Rules.Text(requestedNote, TaskEvidenceRules.MaxNoteLength, "Completion note");
             if (task.OriginType == TaskOrigin.Incident && note is null && !hasAfterPhoto)
                 throw new ApplicationException("EVIDENCE_REQUIRED", "An Incident task needs an after photo or a completion note.", 422);
+            if (task.OriginType == TaskOrigin.Incident && !hasAfterPhoto)
+                Rules.Require(!string.IsNullOrWhiteSpace(missingPhotoReason), "MISSING_PHOTO_REASON_REQUIRED",
+                    "Explain why the required after photo is unavailable.");
+            else
+                Rules.Require(string.IsNullOrWhiteSpace(missingPhotoReason), "MISSING_PHOTO_REASON_NOT_APPLICABLE",
+                    "A missing photo reason is only accepted for an Incident task submitted without an after photo.");
             var now = clock.UtcNow;
             foreach (var draft in drafts)
             {
@@ -95,6 +103,10 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
             }
             await store.Add(new TaskEvidence { EvidenceId = Guid.NewGuid(), TaskId = taskId, SubmittedByUserId = current.UserId, EvidenceType = TaskEvidenceType.CompletionNote,
                 Note = note, ReviewStatus = TaskEvidenceReview.Pending, CreatedAt = now }, ct);
+            if (missingPhotoReason is not null)
+                await store.Add(new TaskEvidence { EvidenceId = Guid.NewGuid(), TaskId = taskId, SubmittedByUserId = current.UserId,
+                    EvidenceType = TaskEvidenceType.MissingPhotoReason, Note = missingPhotoReason,
+                    ReviewStatus = TaskEvidenceReview.Pending, CreatedAt = now }, ct);
             task.Status = WorkTaskStatus.Submitted; task.SubmittedAt = now;
             await store.Update(task, ct);
             await notifier.Send(Submitted, "Task waiting for verification", $"{task.Title}: {Name(await store.Find<UserAccount>(current.UserId, ct))} submitted the work.",
@@ -112,11 +124,15 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
         {
             var (task, submission) = await Reviewable(taskId, request.ExpectedUpdatedAt, ct);
             var photos = (await Photos(task.TaskId, ct)).Where(e => e.ReviewStatus == TaskEvidenceReview.Pending).ToList();
+            var missingReason = (await MissingPhotoReasons(task.TaskId, ct)).SingleOrDefault(e => e.ReviewStatus == TaskEvidenceReview.Pending);
             if (task.OriginType == TaskOrigin.Incident && string.IsNullOrWhiteSpace(submission.Note)
                 && photos.All(e => e.EvidenceType != TaskEvidenceType.AfterPhoto))
                 throw new ApplicationException("EVIDENCE_REQUIRED", "The Incident submission needs an after photo or a completion note.", 422);
+            if (task.OriginType == TaskOrigin.Incident && photos.All(e => e.EvidenceType != TaskEvidenceType.AfterPhoto)
+                && string.IsNullOrWhiteSpace(missingReason?.Note))
+                throw new ApplicationException("MISSING_PHOTO_REASON_REQUIRED", "The Incident submission must explain why the after photo is unavailable.", 422);
             var now = clock.UtcNow;
-            foreach (var row in photos.Append(submission))
+            foreach (var row in photos.Append(submission).Concat(missingReason is null ? [] : [missingReason]))
             {
                 row.ReviewStatus = TaskEvidenceReview.Verified;
                 await store.Update(row, ct);
@@ -140,7 +156,9 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
         {
             var (task, submission) = await Reviewable(taskId, request.ExpectedUpdatedAt, ct);
             var now = clock.UtcNow;
-            foreach (var row in (await Photos(task.TaskId, ct)).Where(e => e.ReviewStatus == TaskEvidenceReview.Pending).Append(submission))
+            var reviewRows = (await Photos(task.TaskId, ct)).Where(e => e.ReviewStatus == TaskEvidenceReview.Pending).Append(submission)
+                .Concat((await MissingPhotoReasons(task.TaskId, ct)).Where(e => e.ReviewStatus == TaskEvidenceReview.Pending));
+            foreach (var row in reviewRows)
             {
                 row.ReviewStatus = TaskEvidenceReview.Rejected; row.RejectReason = reason;
                 await store.Update(row, ct);
@@ -248,10 +266,14 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
     private static EvidenceRequirement Requirement(WorkTask task) => EvidenceRequirement.For(task);
 
     private Task<List<TaskEvidence>> Drafts(Guid taskId, CancellationToken ct)
-        => store.List<TaskEvidence>(e => e.TaskId == taskId && e.ReviewStatus == TaskEvidenceReview.Draft && e.EvidenceType != TaskEvidenceType.CompletionNote, ct);
+        => store.List<TaskEvidence>(e => e.TaskId == taskId && e.ReviewStatus == TaskEvidenceReview.Draft
+            && TaskEvidenceType.Photos.Contains(e.EvidenceType), ct);
 
     private Task<List<TaskEvidence>> Photos(Guid taskId, CancellationToken ct)
-        => store.List<TaskEvidence>(e => e.TaskId == taskId && e.EvidenceType != TaskEvidenceType.CompletionNote, ct);
+        => store.List<TaskEvidence>(e => e.TaskId == taskId && TaskEvidenceType.Photos.Contains(e.EvidenceType), ct);
+
+    private Task<List<TaskEvidence>> MissingPhotoReasons(Guid taskId, CancellationToken ct)
+        => store.List<TaskEvidence>(e => e.TaskId == taskId && e.EvidenceType == TaskEvidenceType.MissingPhotoReason, ct);
 
     private static string Name(UserAccount? user) => user?.FullName is { Length: > 0 } name ? name : "The Staff member";
 
@@ -265,18 +287,22 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
         TaskEvidencePhotoView Photo(TaskEvidence e) => new(e.EvidenceId, e.EvidenceType, $"/api/tasks/{task.TaskId}/evidence/{e.EvidenceId}/image", e.CreatedAt);
 
         var notes = rows.Where(e => e.EvidenceType == TaskEvidenceType.CompletionNote).OrderBy(e => e.CreatedAt).ToList();
-        var photos = rows.Where(e => e.EvidenceType != TaskEvidenceType.CompletionNote && e.ReviewStatus != TaskEvidenceReview.Draft).OrderBy(e => e.CreatedAt).ToList();
+        var photos = rows.Where(e => TaskEvidenceType.Photos.Contains(e.EvidenceType) && e.ReviewStatus != TaskEvidenceReview.Draft).OrderBy(e => e.CreatedAt).ToList();
+        var missingReasons = rows.Where(e => e.EvidenceType == TaskEvidenceType.MissingPhotoReason).OrderBy(e => e.CreatedAt).ToList();
         var submissions = new List<TaskSubmissionView>();
         DateTime? previous = null;
         foreach (var note in notes)
         {
             // A submission's photos were uploaded after the previous note and before this one.
             var own = photos.Where(p => p.SubmittedByUserId == note.SubmittedByUserId && (previous is null || p.CreatedAt > previous) && p.CreatedAt <= note.CreatedAt);
+            var missingReason = missingReasons.LastOrDefault(e => e.SubmittedByUserId == note.SubmittedByUserId
+                && (previous is null || e.CreatedAt > previous) && e.CreatedAt <= note.CreatedAt);
             submissions.Add(new(note.EvidenceId, note.SubmittedByUserId, names.GetValueOrDefault(note.SubmittedByUserId), note.Note ?? "", note.CreatedAt,
-                note.ReviewStatus, note.RejectReason, own.Select(Photo).ToArray()));
+                note.ReviewStatus, note.RejectReason, missingReason?.Note, own.Select(Photo).ToArray()));
             previous = note.CreatedAt;
         }
-        var drafts = rows.Where(e => e.ReviewStatus == TaskEvidenceReview.Draft && e.EvidenceType != TaskEvidenceType.CompletionNote).OrderBy(e => e.CreatedAt).Select(Photo).ToArray();
+        var drafts = rows.Where(e => e.ReviewStatus == TaskEvidenceReview.Draft && TaskEvidenceType.Photos.Contains(e.EvidenceType))
+            .OrderBy(e => e.CreatedAt).Select(Photo).ToArray();
         return new(task.TaskId, task.Status, requirement.BeforePhoto, requirement.AfterPhoto, task.RejectionCount, drafts,
             submissions.OrderByDescending(s => s.SubmittedAt).ToArray());
     }

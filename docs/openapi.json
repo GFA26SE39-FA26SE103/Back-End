@@ -9084,6 +9084,10 @@
             "type": "string",
             "nullable": true
           },
+          "missingPhotoReason": {
+            "type": "string",
+            "nullable": true
+          },
           "photos": {
             "type": "array",
             "items": {
@@ -9104,6 +9108,11 @@
           "expectedUpdatedAt": {
             "type": "string",
             "format": "date-time",
+            "nullable": true
+          },
+          "missingPhotoReason": {
+            "type": "string",
+            "description": "Required only for an Incident task submitted without an after photo. Maximum 1000 characters.",
             "nullable": true
           }
         },

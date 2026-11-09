@@ -59,10 +59,16 @@ public sealed class TaskEvidenceTests
         Assert.False(evidence.RequiresBeforePhoto);
         Assert.False(evidence.RequiresAfterPhoto);
 
-        var result = await staff.Submit(task.TaskId, new("Mopped and dried"), default);
+        Assert.Equal("MISSING_PHOTO_REASON_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() =>
+            staff.Submit(task.TaskId, new("Mopped and dried"), default))).Code);
+        var result = await staff.Submit(task.TaskId,
+            new("Mopped and dried", MissingPhotoReason: "The aisle camera was blocked by the cleanup barrier"), default);
         Assert.Equal(WorkTaskStatus.Submitted, result.Status);
-        Assert.Empty(Assert.Single(result.Evidence.Submissions).Photos);
+        var submission = Assert.Single(result.Evidence.Submissions);
+        Assert.Empty(submission.Photos);
+        Assert.Equal("The aisle camera was blocked by the cleanup barrier", submission.MissingPhotoReason);
         Assert.Equal(WorkTaskStatus.Verified, (await w.Evidence(op).Verify(task.TaskId, new(), default)).Status);
+        Assert.All(w.Store.Values.OfType<TaskEvidence>(), e => Assert.Equal(TaskEvidenceReview.Verified, e.ReviewStatus));
     }
 
     [Fact]
@@ -81,6 +87,20 @@ public sealed class TaskEvidenceTests
         Assert.Equal("", submission.Note);
         Assert.Equal(TaskEvidenceType.AfterPhoto, Assert.Single(submission.Photos).EvidenceType);
         Assert.Equal(WorkTaskStatus.Verified, (await w.Evidence(op).Verify(task.TaskId, new(), default)).Status);
+    }
+
+    [Fact]
+    public async Task MissingPhotoReasonIsRejectedWhenAnAfterPhotoExistsOrTheTaskIsNotAnIncident()
+    {
+        var w = new World(); var a = w.Staff("An");
+        var incident = await w.InProgress(a, incidentRequiresBefore: false);
+        await w.Upload(a, incident, TaskEvidenceType.AfterPhoto);
+        Assert.Equal("MISSING_PHOTO_REASON_NOT_APPLICABLE", (await Assert.ThrowsAsync<DomainException>(() => w.Evidence(a).Submit(
+            incident.TaskId, new("Done", MissingPhotoReason: "Camera unavailable"), default))).Code);
+
+        var routine = await w.InProgress(a);
+        Assert.Equal("MISSING_PHOTO_REASON_NOT_APPLICABLE", (await Assert.ThrowsAsync<DomainException>(() => w.Evidence(a).Submit(
+            routine.TaskId, new("Done", MissingPhotoReason: "No photo"), default))).Code);
     }
 
     [Fact]

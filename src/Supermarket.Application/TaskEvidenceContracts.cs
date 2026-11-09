@@ -9,9 +9,9 @@ public sealed record TaskEvidencePhotoView(Guid EvidenceId, string EvidenceType,
 
 /// <summary>A submitted completion record: the note, its photos and the Operator's decision.</summary>
 public sealed record TaskSubmissionView(Guid SubmissionId, Guid SubmittedByUserId, string? SubmittedByName, string Note, DateTime SubmittedAt,
-    string ReviewStatus, string? RejectReason, TaskEvidencePhotoView[] Photos);
+    string ReviewStatus, string? RejectReason, string? MissingPhotoReason, TaskEvidencePhotoView[] Photos);
 
-public sealed record TaskSubmitRequest(string? Note, DateTime? ExpectedUpdatedAt = null);
+public sealed record TaskSubmitRequest(string? Note, DateTime? ExpectedUpdatedAt = null, string? MissingPhotoReason = null);
 public sealed record TaskVerifyRequest(DateTime? ExpectedUpdatedAt = null);
 public sealed record TaskRejectRequest(string Reason, DateTime? ExpectedUpdatedAt = null);
 

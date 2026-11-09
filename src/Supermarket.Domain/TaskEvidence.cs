@@ -17,7 +17,8 @@ public sealed class TaskEvidence : Entity
 
 public static class TaskEvidenceType
 {
-    public const string BeforePhoto = "BEFORE_PHOTO", AfterPhoto = "AFTER_PHOTO", CompletionNote = "COMPLETION_NOTE";
+    public const string BeforePhoto = "BEFORE_PHOTO", AfterPhoto = "AFTER_PHOTO", CompletionNote = "COMPLETION_NOTE",
+        MissingPhotoReason = "MISSING_PHOTO_REASON";
     public static readonly string[] Photos = [BeforePhoto, AfterPhoto];
 }
 
@@ -45,6 +46,7 @@ public sealed record EvidenceRequirement(bool BeforePhoto, bool AfterPhoto)
 public static class TaskEvidenceRules
 {
     public const int MaxNoteLength = 2000;
+    public const int MaxMissingPhotoReasonLength = 1000;
     /// <summary>After this many rejected submissions by the same Staff member the Task goes to someone else (BR-28).</summary>
     public const int RejectionsBeforeReassignment = 2;
     /// <summary>Marks the assignment ended by the second rejection, so that Staff member is not offered or assigned the Task again.</summary>
