@@ -173,10 +173,14 @@ public sealed class StaffTaskTests
         await w.Raise("CRITICAL");
         Assert.Equal("REASON_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() => w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.CannotHandle, null, " "), default))).Code);
 
-        Assert.Null((await w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.CannotHandle, null, "Helping a customer"), default)).Task);
+        Assert.Equal("INVALID_DECLINE_REASON", (await Assert.ThrowsAsync<DomainException>(() => w.StaffTasks(a).Respond(
+            w.OfferFor(a).OfferId, new(TaskResponse.CannotHandle, null, "Helping a customer"), default))).Code);
+
+        Assert.Null((await w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.CannotHandle, null, $" {TaskDeclineReason.Busy} "), default)).Task);
+        Assert.Equal(TaskDeclineReason.Busy, w.OfferFor(a).DeclineReasonCode);
         var task = Assert.Single(w.Tasks);
         Assert.Empty(w.Notifications(task, TaskNotifier.NeedsAssignment));
-        await w.StaffTasks(b).Respond(w.OfferFor(b).OfferId, new(TaskResponse.CannotHandle, null, "On break"), default);
+        await w.StaffTasks(b).Respond(w.OfferFor(b).OfferId, new(TaskResponse.CannotHandle, null, TaskDeclineReason.Unavailable), default);
         Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment))));
         Assert.Equal(WorkTaskStatus.Offered, task.Status);
         Assert.True(Assert.Single(await w.Operator(op).List(null, true, default)).NeedsAssignment);

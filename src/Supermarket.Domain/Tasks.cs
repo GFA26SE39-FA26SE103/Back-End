@@ -174,6 +174,11 @@ public static class TaskResponse
 {
     public const string HandleNow = "HANDLE_NOW", HandleLater = "HANDLE_LATER", CannotHandle = "CANNOT_HANDLE";
 }
+public static class TaskDeclineReason
+{
+    public const string Busy = "BUSY", Unavailable = "UNAVAILABLE", NotQualified = "NOT_QUALIFIED", Other = "OTHER";
+    public static readonly string[] Allowed = [Busy, Unavailable, NotQualified, Other];
+}
 public static class TaskRules
 {
     /// <summary>BR-23 default active-task limit per Staff member.</summary>
@@ -191,7 +196,11 @@ public static class TaskRules
     {
         Rules.Status(response ?? "", TaskResponse.HandleNow, TaskResponse.HandleLater, TaskResponse.CannotHandle);
         if (response == TaskResponse.CannotHandle)
+        {
             Rules.Require(!string.IsNullOrWhiteSpace(reason), "REASON_REQUIRED", "A reason is required when the task cannot be handled.");
+            Rules.Require(TaskDeclineReason.Allowed.Contains(reason!.Trim()), "INVALID_DECLINE_REASON",
+                $"The decline reason must be one of: {string.Join(", ", TaskDeclineReason.Allowed)}.");
+        }
         Rules.Optional(reason, 200, "Reason");
     }
     /// <summary>A deferred start keeps responsibility with the Staff member; it must be in the future and inside the current shift.</summary>

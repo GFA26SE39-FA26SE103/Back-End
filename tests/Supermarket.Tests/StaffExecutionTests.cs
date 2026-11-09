@@ -23,7 +23,8 @@ public sealed class StaffExecutionTests
         Assert.Equal((first.TaskId, WorkTaskStatus.InProgress, a), (retry.TaskId, retry.Status, retry.AssigneeUserId));
         Assert.Equal(first.StartedAt, retry.StartedAt);
         // Declining a task I already hold is not a retry.
-        Assert.Equal("OFFER_CLOSED", (await Assert.ThrowsAsync<AppError>(() => staff.Respond(offer.OfferId, new(TaskResponse.CannotHandle, null, "Busy"), default))).Code);
+        Assert.Equal("OFFER_CLOSED", (await Assert.ThrowsAsync<AppError>(() => staff.Respond(offer.OfferId,
+            new(TaskResponse.CannotHandle, null, TaskDeclineReason.Busy), default))).Code);
         Assert.Equal(a, Assert.Single(w.Store.Values.OfType<WorkTask>()).CurrentAssigneeUserId);
     }
 

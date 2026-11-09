@@ -9028,6 +9028,13 @@
           },
           "reason": {
             "type": "string",
+            "description": "Required for CANNOT_HANDLE. Allowed values: BUSY, UNAVAILABLE, NOT_QUALIFIED, OTHER.",
+            "enum": [
+              "BUSY",
+              "UNAVAILABLE",
+              "NOT_QUALIFIED",
+              "OTHER"
+            ],
             "nullable": true
           }
         },
