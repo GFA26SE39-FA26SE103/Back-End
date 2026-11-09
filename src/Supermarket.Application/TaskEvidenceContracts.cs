@@ -11,7 +11,7 @@ public sealed record TaskEvidencePhotoView(Guid EvidenceId, string EvidenceType,
 public sealed record TaskSubmissionView(Guid SubmissionId, Guid SubmittedByUserId, string? SubmittedByName, string Note, DateTime SubmittedAt,
     string ReviewStatus, string? RejectReason, TaskEvidencePhotoView[] Photos);
 
-public sealed record TaskSubmitRequest(string Note, DateTime? ExpectedUpdatedAt = null);
+public sealed record TaskSubmitRequest(string? Note, DateTime? ExpectedUpdatedAt = null);
 public sealed record TaskVerifyRequest(DateTime? ExpectedUpdatedAt = null);
 public sealed record TaskRejectRequest(string Reason, DateTime? ExpectedUpdatedAt = null);
 

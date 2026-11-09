@@ -2,8 +2,8 @@ using Supermarket.Domain;
 namespace Supermarket.Application;
 
 /// <summary>
-/// MF-03 Task completion (Report 3 §3.7.4–3.7.5, §3.9.4–3.9.5): the assigned Staff member uploads photos and submits a
-/// completion note; an Operator who did not perform the work verifies it or rejects it for rework (BR-25–BR-28).
+/// MF-03 Task completion (Report 3 §3.7.4–3.7.5, §3.9.4–3.9.5): the assigned Staff member submits the required
+/// completion evidence; an Operator who did not perform the work verifies it or rejects it for rework (BR-25–BR-28).
 /// </summary>
 /// <remarks>
 /// A submission has no own table: it is the COMPLETION_NOTE row, and its photos are the rows uploaded after the
@@ -71,7 +71,8 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
     {
         UseCase.Staff(current);
         await schema.Require(ct);
-        var note = Rules.Text(request.Note, TaskEvidenceRules.MaxNoteLength, "Completion note");
+        var requestedNote = request.Note?.Trim();
+        Rules.Optional(requestedNote, TaskEvidenceRules.MaxNoteLength, "Completion note");
         await store.Transaction(async () =>
         {
             var task = await Assigned(taskId, ct);
@@ -80,11 +81,12 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
             Workable(task);
             Fresh(task, request.ExpectedUpdatedAt);
             var drafts = await Drafts(taskId, ct);
-            var requirement = await Requirement(task, ct);
-            if (requirement.BeforePhoto && drafts.All(e => e.EvidenceType != TaskEvidenceType.BeforePhoto))
-                throw new ApplicationException("EVIDENCE_REQUIRED", "This task needs a before photo.", 422);
-            if (requirement.AfterPhoto && drafts.All(e => e.EvidenceType != TaskEvidenceType.AfterPhoto))
-                throw new ApplicationException("EVIDENCE_REQUIRED", "This task needs an after photo taken when the work is done.", 422);
+            var hasAfterPhoto = drafts.Any(e => e.EvidenceType == TaskEvidenceType.AfterPhoto);
+            var note = task.OriginType == TaskOrigin.Incident
+                ? string.IsNullOrWhiteSpace(requestedNote) ? null : requestedNote
+                : Rules.Text(requestedNote, TaskEvidenceRules.MaxNoteLength, "Completion note");
+            if (task.OriginType == TaskOrigin.Incident && note is null && !hasAfterPhoto)
+                throw new ApplicationException("EVIDENCE_REQUIRED", "An Incident task needs an after photo or a completion note.", 422);
             var now = clock.UtcNow;
             foreach (var draft in drafts)
             {
@@ -109,11 +111,10 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
         await store.Transaction(async () =>
         {
             var (task, submission) = await Reviewable(taskId, request.ExpectedUpdatedAt, ct);
-            var requirement = await Requirement(task, ct);
             var photos = (await Photos(task.TaskId, ct)).Where(e => e.ReviewStatus == TaskEvidenceReview.Pending).ToList();
-            if ((requirement.BeforePhoto && photos.All(e => e.EvidenceType != TaskEvidenceType.BeforePhoto))
-                || (requirement.AfterPhoto && photos.All(e => e.EvidenceType != TaskEvidenceType.AfterPhoto)))
-                throw new ApplicationException("EVIDENCE_REQUIRED", "The submission is missing evidence required for this task.", 422);
+            if (task.OriginType == TaskOrigin.Incident && string.IsNullOrWhiteSpace(submission.Note)
+                && photos.All(e => e.EvidenceType != TaskEvidenceType.AfterPhoto))
+                throw new ApplicationException("EVIDENCE_REQUIRED", "The Incident submission needs an after photo or a completion note.", 422);
             var now = clock.UtcNow;
             foreach (var row in photos.Append(submission))
             {
@@ -244,13 +245,7 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
         }
     }
 
-    private async Task<EvidenceRequirement> Requirement(WorkTask task, CancellationToken ct)
-    {
-        IncidentType? type = null;
-        if (task.IncidentId is { } incidentId && await store.Find<Incident>(incidentId, ct) is { } incident)
-            type = await store.Find<IncidentType>(incident.IncidentTypeId, ct);
-        return EvidenceRequirement.For(task, type);
-    }
+    private static EvidenceRequirement Requirement(WorkTask task) => EvidenceRequirement.For(task);
 
     private Task<List<TaskEvidence>> Drafts(Guid taskId, CancellationToken ct)
         => store.List<TaskEvidence>(e => e.TaskId == taskId && e.ReviewStatus == TaskEvidenceReview.Draft && e.EvidenceType != TaskEvidenceType.CompletionNote, ct);
@@ -264,7 +259,7 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
     {
         var rows = await store.List<TaskEvidence>(e => e.TaskId == task.TaskId, ct);
         if (current.Role == "STAFF") rows = rows.Where(e => e.SubmittedByUserId == current.UserId).ToList();
-        var requirement = await Requirement(task, ct);
+        var requirement = Requirement(task);
         var people = rows.Select(e => e.SubmittedByUserId).Distinct().ToList();
         var names = (await store.List<UserAccount>(u => people.Contains(u.UserId), ct)).ToDictionary(u => u.UserId, u => u.FullName);
         TaskEvidencePhotoView Photo(TaskEvidence e) => new(e.EvidenceId, e.EvidenceType, $"/api/tasks/{task.TaskId}/evidence/{e.EvidenceId}/image", e.CreatedAt);

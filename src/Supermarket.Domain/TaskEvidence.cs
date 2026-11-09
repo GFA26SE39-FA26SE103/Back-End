@@ -30,15 +30,16 @@ public static class TaskEvidenceReview
     public const string Draft = "DRAFT", Pending = "PENDING", Verified = "VERIFIED", Rejected = "REJECTED";
 }
 
-/// <summary>What a Task needs before it can be submitted (BR-26).</summary>
+/// <summary>Strict photo requirements exposed to clients before a Task can be submitted (BR-26).</summary>
 public sealed record EvidenceRequirement(bool BeforePhoto, bool AfterPhoto)
 {
     /// <summary>
-    /// Incident corrective Tasks need an after photo; hazard and cleanliness Incident types (RequiresBeforePhoto)
-    /// also need a before photo. Operational, StaffReport and manual Tasks need the completion note, photos optional.
+    /// Review 2 makes both photo types optional. Corrective Incident Tasks still require an after photo or a
+    /// completion note; that alternative is enforced by the submission workflow rather than represented as a
+    /// strict single-photo requirement here.
     /// </summary>
-    public static EvidenceRequirement For(WorkTask task, IncidentType? incidentType)
-        => task.OriginType == TaskOrigin.Incident ? new(incidentType?.RequiresBeforePhoto ?? false, true) : new(false, false);
+    public static EvidenceRequirement For(WorkTask task)
+        => new(false, false);
 }
 
 public static class TaskEvidenceRules

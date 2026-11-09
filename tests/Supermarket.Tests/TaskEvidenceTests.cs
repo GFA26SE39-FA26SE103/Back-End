@@ -49,24 +49,38 @@ public sealed class TaskEvidenceTests
     }
 
     [Fact]
-    public async Task AHazardIncidentTaskNeedsBeforeAndAfterPhotosAndARetriedUploadReplacesTheDraft()
+    public async Task AnIncidentTaskCanBeSubmittedWithANoteAndNoPhotos()
     {
-        var w = new World(); var a = w.Staff("An");
+        var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia");
         var task = await w.InProgress(a, incidentRequiresBefore: true);
         var staff = w.Evidence(a);
 
-        var first = await w.Upload(a, task, TaskEvidenceType.AfterPhoto);
-        Assert.True(first.RequiresBeforePhoto && first.RequiresAfterPhoto);
-        var retried = await w.Upload(a, task, TaskEvidenceType.AfterPhoto);
-        Assert.Single(retried.Drafts);
-        Assert.Single(w.Files.Deleted);
-        Assert.Equal("EVIDENCE_REQUIRED", (await Assert.ThrowsAsync<AppError>(() => staff.Submit(task.TaskId, new("Mopped"), default))).Code);
+        var evidence = await staff.Get(task.TaskId, default);
+        Assert.False(evidence.RequiresBeforePhoto);
+        Assert.False(evidence.RequiresAfterPhoto);
 
-        var withBefore = await w.Upload(a, task, TaskEvidenceType.BeforePhoto);
-        var removed = await staff.RemoveDraft(task.TaskId, withBefore.Drafts.Single(d => d.EvidenceType == TaskEvidenceType.BeforePhoto).EvidenceId, default);
-        Assert.Single(removed.Drafts);
-        await w.Upload(a, task, TaskEvidenceType.BeforePhoto);
-        Assert.Equal(WorkTaskStatus.Submitted, (await staff.Submit(task.TaskId, new("Mopped and dried"), default)).Status);
+        var result = await staff.Submit(task.TaskId, new("Mopped and dried"), default);
+        Assert.Equal(WorkTaskStatus.Submitted, result.Status);
+        Assert.Empty(Assert.Single(result.Evidence.Submissions).Photos);
+        Assert.Equal(WorkTaskStatus.Verified, (await w.Evidence(op).Verify(task.TaskId, new(), default)).Status);
+    }
+
+    [Fact]
+    public async Task AnIncidentTaskCanUseAnAfterPhotoInsteadOfANoteButCannotSubmitNeither()
+    {
+        var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia");
+        var task = await w.InProgress(a, incidentRequiresBefore: false);
+        var staff = w.Evidence(a);
+
+        Assert.Equal("EVIDENCE_REQUIRED", (await Assert.ThrowsAsync<AppError>(() => staff.Submit(task.TaskId, new(null), default))).Code);
+        await w.Upload(a, task, TaskEvidenceType.AfterPhoto);
+
+        var result = await staff.Submit(task.TaskId, new(" "), default);
+        var submission = Assert.Single(result.Evidence.Submissions);
+        Assert.Equal(WorkTaskStatus.Submitted, result.Status);
+        Assert.Equal("", submission.Note);
+        Assert.Equal(TaskEvidenceType.AfterPhoto, Assert.Single(submission.Photos).EvidenceType);
+        Assert.Equal(WorkTaskStatus.Verified, (await w.Evidence(op).Verify(task.TaskId, new(), default)).Status);
     }
 
     [Fact]
