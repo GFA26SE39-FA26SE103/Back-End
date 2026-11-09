@@ -136,7 +136,12 @@ public sealed class TaskEvidenceTests
         Assert.Empty(await w.StaffTasks(a).Offers(true, default));
         Assert.DoesNotContain(await w.Operator(op).AssignableStaff(task.TaskId, default), s => s.UserId == a);
         Assert.Equal("STAFF_REJECTED_TWICE", (await Assert.ThrowsAsync<AppError>(() => w.Operator(op).Assign(task.TaskId, new(a, "Retry"), default))).Code);
-        var reassigned = await w.Operator(op).Assign(task.TaskId, new(b, null), default);
+        var proposal = await w.Operator(op).Assign(task.TaskId, new(b, null), default);
+        Assert.Equal((WorkTaskStatus.Offered, (Guid?)null), (proposal.Status, proposal.AssigneeUserId));
+        var manualOffer = w.Store.Values.OfType<TaskOffer>().Single(o => o.TaskId == task.TaskId
+            && o.StaffUserId == b && o.DispatchScope == TaskDispatchScope.Manual);
+        var reassigned = (await w.StaffTasks(b).Respond(manualOffer.OfferId,
+            new(TaskResponse.HandleLater, w.Clock.UtcNow.AddMinutes(10), null), default)).Task!;
         Assert.Equal((WorkTaskStatus.Accepted, b), (reassigned.Status, reassigned.AssigneeUserId));
         // The former performer still sees their own submissions, the new one starts clean.
         Assert.Equal(2, (await w.Evidence(a).Get(task.TaskId, default)).Submissions.Length);

@@ -6,7 +6,7 @@ public interface IOperatorTaskQueries
     Task<Guid[]> NeedingAssignmentIds(int limit, CancellationToken ct);
 }
 
-/// <summary>Operator task board and manual assignment after escalation (BR-20, BR-22). Manual assignment enters at Accepted.</summary>
+/// <summary>Operator task board and manual assignment after escalation (BR-20, BR-22). Staff must accept a manual offer.</summary>
 public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, IClock clock, StaffRoster roster, TaskDispatch dispatch, TaskNotifier notifier, TaskViews views,
     ITaskSchema schema, IOperatorTaskQueries queries)
 {
@@ -106,18 +106,20 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
                 throw new ApplicationException("SPECIALTY_MISMATCH", "The Staff member's specialty does not match this TaskType.", 422);
             if (task.CurrentAssigneeUserId is not null || !staff.ZoneIds.Contains(task.ZoneId))
                 Rules.Require(!string.IsNullOrWhiteSpace(request.Reason), "REASON_REQUIRED", "A reason is required for reassignment or assignment outside the Task Zone.");
-            foreach (var previous in await store.List<TaskAssignmentHistory>(a => a.TaskId == taskId && a.Status == OfferStatus.Accepted && a.EndedAt == null, ct))
-            {
-                previous.EndedAt = now; previous.Reason = "REASSIGNED";
-                await store.Update(previous, ct);
-            }
             await dispatch.CloseOpenOffers(taskId, TaskOfferStatus.Cancelled, "MANUALLY_ASSIGNED", now, ct);
+            var offer = new TaskOffer
+            {
+                OfferId = Guid.NewGuid(), TaskId = taskId, StaffUserId = staff.User.UserId, DispatchCycleId = Guid.NewGuid(),
+                WaveNumber = 1, DispatchScope = TaskDispatchScope.Manual, Status = TaskOfferStatus.Pending,
+                OfferedAt = now, ExpiresAt = now.AddSeconds(await dispatch.OfferTimeout(task, ct))
+            };
+            await store.Add(offer, ct);
             await store.Add(new TaskAssignmentHistory { TaskAssignmentId = Guid.NewGuid(), TaskId = taskId, StaffUserId = staff.User.UserId, AssignedByUserId = current.UserId,
-                AssignmentType = TaskAssignmentType.Manual, Status = OfferStatus.Accepted, AssignedAt = now, RespondedAt = now, Reason = request.Reason?.Trim() }, ct);
-            task.CurrentAssigneeUserId = staff.User.UserId; task.AssignedByUserId = current.UserId; task.AssignedAt = now; task.AcceptedAt = now;
-            task.Status = WorkTaskStatus.Accepted; task.PlannedStartAt = null; task.StartedAt = null;
+                AssignmentType = TaskAssignmentType.Manual, Status = OfferStatus.Pending, AssignedAt = now, Reason = request.Reason?.Trim() }, ct);
+            // The proposal is part of the Task's assignment state; bump its concurrency version so
+            // another Operator cannot replace it using the stale board snapshot.
             await store.Update(task, ct);
-            await notifier.Send(TaskNotifier.Assigned, $"{task.Priority} · Task assigned to you", task.Title, task, [staff.User.UserId], "MANUAL_ASSIGNEE", ct);
+            await notifier.Send(TaskNotifier.Offer, $"{task.Priority} · Task assignment request", task.Title, task, [staff.User.UserId], "MANUAL_ASSIGNEE", ct);
             return 0;
         }, ct);
         return (await views.Tasks([UseCase.Found(await store.Find<WorkTask>(taskId, ct))], ct)).Single();

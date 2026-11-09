@@ -158,7 +158,7 @@ public static class TaskAssignmentType
 /// <summary>Assignment-history status; live offer state belongs to TaskOfferStatus.</summary>
 public static class OfferStatus
 {
-    public const string Accepted = "ACCEPTED", Declined = "DECLINED", Cancelled = "CANCELLED", Expired = "EXPIRED";
+    public const string Pending = "PENDING", Accepted = "ACCEPTED", Declined = "DECLINED", Cancelled = "CANCELLED", Expired = "EXPIRED";
 }
 public static class TaskOfferStatus
 {
@@ -168,7 +168,7 @@ public static class TaskOfferStatus
 public static class TaskDispatchScope
 {
     // Zone expansion is deliberately not implemented until the ZoneAdjacency rule is approved.
-    public const string SameZone = "SAME_ZONE";
+    public const string SameZone = "SAME_ZONE", Manual = "MANUAL";
 }
 public static class TaskResponse
 {

@@ -234,10 +234,10 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
     private async Task<int> RetryRound(CancellationToken ct)
     {
         var now = clock.UtcNow; var (_, maxAttempts) = await Retry(ct); var changedTasks = new HashSet<Guid>();
-        foreach (var task in await store.List<WorkTask>(t => t.Status == WorkTaskStatus.Offered && t.CurrentAssigneeUserId == null, ct))
+        foreach (var task in await store.List<WorkTask>(t => t.Status == WorkTaskStatus.Offered || t.Status == WorkTaskStatus.Accepted, ct))
         {
-            // A Task rejected twice waits for the Operator to reassign it (BR-28); it is not re-offered.
-            if ((await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId && a.Reason == TaskEvidenceRules.RejectedTwiceReason, ct)).Count > 0) continue;
+            var waitsForOperator = (await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId
+                && a.Reason == TaskEvidenceRules.RejectedTwiceReason, ct)).Count > 0;
             var offers = await store.List<TaskOffer>(o => o.TaskId == task.TaskId, ct);
             foreach (var expired in offers.Where(o => o.Status == TaskOfferStatus.Pending && o.ExpiresAt <= now))
             {
@@ -248,7 +248,19 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
                 await Audit(expired, OfferStatus.Expired, "NO_RESPONSE", now, ct);
                 changedTasks.Add(task.TaskId);
             }
+            // A manual reassignment proposal may coexist with the current accepted assignee.
+            // Expire it, but do not disturb the current assignment or restart automatic dispatch.
+            if (task.Status != WorkTaskStatus.Offered || task.CurrentAssigneeUserId is not null) continue;
             if (offers.Any(o => o.Status == TaskOfferStatus.Pending && o.ExpiresAt > now)) continue;
+            // Once an Operator has selected a Staff member, a declined/expired proposal returns to
+            // the Operator instead of silently restarting the automatic dispatch rings.
+            if (offers.Any(o => o.DispatchScope == TaskDispatchScope.Manual))
+            {
+                if (await NeedsOperator(task, "The manually selected Staff member did not accept the task.", ct)) changedTasks.Add(task.TaskId);
+                continue;
+            }
+            // A Task rejected twice waits for the Operator to reassign it (BR-28); it is not automatically re-offered.
+            if (waitsForOperator) continue;
             var rounds = await store.List<Notification>(n => n.TaskId == task.TaskId && n.NotificationType == TaskNotifier.Offer, ct);
             if (rounds.Count == 0) continue;
             var timeout = await OfferTimeout(task, ct);
@@ -357,6 +369,19 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
 
     public async Task Audit(TaskOffer offer, string status, string? reason, DateTime now, CancellationToken ct)
     {
+        if (offer.DispatchScope == TaskDispatchScope.Manual)
+        {
+            var manual = (await store.List<TaskAssignmentHistory>(a => a.TaskId == offer.TaskId && a.StaffUserId == offer.StaffUserId
+                && a.AssignmentType == TaskAssignmentType.Manual && a.Status == OfferStatus.Pending && a.EndedAt == null, ct))
+                .OrderByDescending(a => a.AssignedAt).FirstOrDefault();
+            if (manual is not null)
+            {
+                manual.Status = status; manual.RespondedAt = now;
+                if (status != OfferStatus.Accepted) manual.EndedAt = now;
+                await store.Update(manual, ct);
+                return;
+            }
+        }
         await store.Add(new TaskAssignmentHistory
         {
             TaskAssignmentId = Guid.NewGuid(), TaskId = offer.TaskId, StaffUserId = offer.StaffUserId,

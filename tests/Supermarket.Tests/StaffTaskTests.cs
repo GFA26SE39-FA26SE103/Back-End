@@ -318,7 +318,7 @@ public sealed class StaffTaskTests
     }
 
     [Fact]
-    public async Task OperatorAssignsManuallyAtAcceptedAndStaffOnlySeeOwnData()
+    public async Task OperatorManualAssignmentWaitsForStaffAcceptanceAndStaffOnlySeeOwnData()
     {
         var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true, zone: w.OtherZone); var op = w.User("OPERATOR", "Olivia"); w.Policy();
         await w.Raise("CRITICAL");
@@ -328,11 +328,23 @@ public sealed class StaffTaskTests
         Assert.Equal([a, b], candidates.Select(c => c.UserId).ToArray()); Assert.True(candidates[0].AssignedToZone); Assert.False(candidates[1].AssignedToZone);
         Assert.Equal("FORBIDDEN", (await Assert.ThrowsAsync<AppError>(() => w.Operator(a).Assign(task.TaskId, new(b, null), default))).Code);
 
-        var assigned = await w.Operator(op).Assign(task.TaskId, new(b, "Nearest free staff"), default);
-        Assert.Equal((WorkTaskStatus.Accepted, b, TaskAssignmentType.Manual, (DateTime?)null), (assigned.Status, assigned.AssigneeUserId, assigned.AssignmentType, assigned.PlannedStartAt));
+        var boardVersion = task.UpdatedAt;
+        var proposed = await w.Operator(op).Assign(task.TaskId, new(b, "Nearest free staff", boardVersion), default);
+        Assert.Equal((WorkTaskStatus.Offered, (Guid?)null, (DateTime?)null), (proposed.Status, proposed.AssigneeUserId, proposed.AcceptedAt));
+        Assert.NotEqual(boardVersion, proposed.UpdatedAt);
+        Assert.Equal("TASK_CHANGED", (await Assert.ThrowsAsync<AppError>(() => w.Operator(op).Assign(task.TaskId, new(a, null, boardVersion), default))).Code);
         Assert.Equal((TaskOfferStatus.Cancelled, "MANUALLY_ASSIGNED"), (w.OfferFor(a).Status, w.OfferFor(a).DeclineReasonCode));
-        Assert.Equal([b], w.Recipients(Assert.Single(w.Notifications(task, TaskNotifier.Assigned))));
-        Assert.Single(await w.Inbox(b).List(default), n => n.Type == TaskNotifier.Assigned);
+        var manualOffer = w.OfferFor(b);
+        Assert.Equal((TaskOfferStatus.Pending, TaskDispatchScope.Manual), (manualOffer.Status, manualOffer.DispatchScope));
+        var manualView = await w.StaffTasks(b).Offer(manualOffer.OfferId, default);
+        Assert.Equal((1, 1, (DateTime?)null, 1), (manualView.Attempt, manualView.MaxAttempts, manualView.NextAlertAt, manualView.Recipients));
+        Assert.Contains(w.Notifications(task, TaskNotifier.Offer), n => w.Recipients(n).SequenceEqual([b]));
+        Assert.Single(await w.Inbox(b).List(default), n => n.Type == TaskNotifier.Offer);
+
+        var assigned = (await w.StaffTasks(b).Respond(manualOffer.OfferId,
+            new(TaskResponse.HandleLater, Now.AddMinutes(15), null), default)).Task!;
+        Assert.Equal((WorkTaskStatus.Accepted, b, TaskAssignmentType.Manual, Now.AddMinutes(15)),
+            (assigned.Status, assigned.AssigneeUserId, assigned.AssignmentType, assigned.PlannedStartAt));
         Assert.Equal(1, await w.Inbox(b).ReadAll(default));
         Assert.All(await w.Inbox(b).List(default), n => Assert.NotNull(n.ReadAt));
 
@@ -341,6 +353,61 @@ public sealed class StaffTaskTests
         var stranger = w.Staff("Chi", checkedIn: true);
         Assert.Equal("NOT_FOUND", (await Assert.ThrowsAsync<AppError>(() => w.Operator(stranger).Get(task.TaskId, default))).Code);
         Assert.Equal("FORBIDDEN", (await Assert.ThrowsAsync<AppError>(() => w.StaffTasks(op).Tasks(null, default))).Code);
+    }
+
+    [Fact]
+    public async Task DecliningAManualAssignmentReturnsTheUnassignedTaskToTheOperator()
+    {
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        await w.Raise("CRITICAL");
+        var task = Assert.Single(w.Tasks);
+
+        await w.Operator(op).Assign(task.TaskId, new(a, null, task.UpdatedAt), default);
+        var offer = w.Offers(task).Single(o => o.DispatchScope == TaskDispatchScope.Manual);
+        Assert.Null((await w.StaffTasks(a).Respond(offer.OfferId,
+            new(TaskResponse.CannotHandle, null, TaskDeclineReason.Other), default)).Task);
+
+        Assert.Equal((WorkTaskStatus.Offered, (Guid?)null), (task.Status, task.CurrentAssigneeUserId));
+        Assert.Equal((TaskOfferStatus.Declined, TaskDeclineReason.Other), (offer.Status, offer.DeclineReasonCode));
+        var proposal = Assert.Single(w.Store.Values.OfType<TaskAssignmentHistory>(), h => h.AssignmentType == TaskAssignmentType.Manual);
+        Assert.Equal((OfferStatus.Declined, op, TaskAssignmentType.Manual), (proposal.Status, proposal.AssignedByUserId, proposal.AssignmentType));
+        Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment));
+    }
+
+    [Fact]
+    public async Task ExpiredManualAssignmentDoesNotRestartAutomaticDispatch()
+    {
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        await w.Raise("CRITICAL");
+        var task = Assert.Single(w.Tasks);
+        await w.Operator(op).Assign(task.TaskId, new(a, null, task.UpdatedAt), default);
+        var manual = w.Offers(task).Single(o => o.DispatchScope == TaskDispatchScope.Manual);
+
+        w.Clock.UtcNow = manual.ExpiresAt;
+        Assert.Equal(1, await w.Dispatch.Tick(default));
+
+        Assert.Equal((TaskOfferStatus.Expired, "NO_RESPONSE"), (manual.Status, manual.DeclineReasonCode));
+        Assert.DoesNotContain(w.Offers(task), o => o.Status == TaskOfferStatus.Pending);
+        Assert.Equal(OfferStatus.Expired, w.Store.Values.OfType<TaskAssignmentHistory>().Single(h => h.AssignmentType == TaskAssignmentType.Manual).Status);
+        Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment));
+    }
+
+    [Fact]
+    public async Task StartingTheCurrentAssignmentCancelsAPendingManualReassignment()
+    {
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true);
+        var op = w.User("OPERATOR", "Olivia"); w.Policy(); await w.Raise("CRITICAL");
+        var task = Assert.Single(w.Tasks);
+        await w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.HandleLater, Now.AddMinutes(10), null), default);
+
+        await w.Operator(op).Assign(task.TaskId, new(b, "Rebalance workload", task.UpdatedAt), default);
+        var proposal = w.Offers(task).Single(o => o.StaffUserId == b && o.DispatchScope == TaskDispatchScope.Manual);
+        await w.StaffTasks(a).Start(task.TaskId, default);
+
+        Assert.Equal((TaskOfferStatus.Cancelled, "TASK_STARTED"), (proposal.Status, proposal.DeclineReasonCode));
+        Assert.Equal("TASK_ALREADY_TAKEN", (await Assert.ThrowsAsync<AppError>(() => w.StaffTasks(b).Respond(
+            proposal.OfferId, new(TaskResponse.HandleNow, null, null), default))).Code);
+        Assert.Equal(a, task.CurrentAssigneeUserId);
     }
 
     [Fact]
@@ -367,9 +434,15 @@ public sealed class StaffTaskTests
         Assert.Equal("REASON_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() => w.Operator(op).Assign(task.TaskId, new(b, " ", task.UpdatedAt), default))).Code);
         Assert.Null(task.CurrentAssigneeUserId);
         await w.Operator(op).Assign(task.TaskId, new(a, null, task.UpdatedAt), default);
+        var offerA = w.Offers(task).Single(o => o.StaffUserId == a && o.DispatchScope == TaskDispatchScope.Manual);
+        await w.StaffTasks(a).Respond(offerA.OfferId, new(TaskResponse.HandleLater, Now.AddMinutes(10), null), default);
+        Assert.Equal(a, task.CurrentAssigneeUserId);
         Assert.Equal("REASON_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() => w.Operator(op).Assign(task.TaskId, new(b, null, task.UpdatedAt), default))).Code);
         Assert.Equal(a, task.CurrentAssigneeUserId);
-        var assigned = await w.Operator(op).Assign(task.TaskId, new(b, "Cross-zone support", task.UpdatedAt), default);
+        var proposed = await w.Operator(op).Assign(task.TaskId, new(b, "Cross-zone support", task.UpdatedAt), default);
+        Assert.Equal(a, proposed.AssigneeUserId);
+        var offerB = w.Offers(task).Single(o => o.StaffUserId == b && o.DispatchScope == TaskDispatchScope.Manual);
+        var assigned = (await w.StaffTasks(b).Respond(offerB.OfferId, new(TaskResponse.HandleNow, null, null), default)).Task!;
         Assert.Equal(b, assigned.AssigneeUserId);
         Assert.Equal("Cross-zone support", w.Store.Values.OfType<TaskAssignmentHistory>().Single(h => h.AssignmentType == TaskAssignmentType.Manual && h.StaffUserId == b).Reason);
     }

@@ -49,13 +49,16 @@ public sealed class TaskViews(ISetupStore store, TaskDispatch dispatch)
             var t = tasks[o.TaskId];
             var ev = t.EventId is { } eventId ? context.Events.GetValueOrDefault(eventId) : null;
             // Notification rows represent dispatch cycles even when a cycle found no eligible recipient.
-            var attempt = Math.Max(1, rounds.Count(n => n.TaskId == t.TaskId && n.CreatedAt <= o.OfferedAt));
-            DateTime? next = o.Status == TaskOfferStatus.Pending && attempt < maxAttempts ? o.ExpiresAt : null;
+            var manual = o.DispatchScope == TaskDispatchScope.Manual;
+            var attempt = manual ? 1 : Math.Max(1, rounds.Count(n => n.TaskId == t.TaskId && n.CreatedAt <= o.OfferedAt));
+            var offerMaxAttempts = manual ? 1 : maxAttempts;
+            DateTime? next = o.Status == TaskOfferStatus.Pending && attempt < offerMaxAttempts ? o.ExpiresAt : null;
             var camera = ev is null ? null : context.Cameras.GetValueOrDefault(ev.CameraId);
             var (mode, unit) = Measurement(ev?.MetadataJson);
             return new TaskOfferView(o.OfferId, t.TaskId, t.OriginType, SourceCode(t), ev is null ? null : context.EventTypes.GetValueOrDefault(ev.EventTypeId)?.Code,
                 t.Title, t.Description, t.Priority, t.ZoneId, context.Zones.GetValueOrDefault(t.ZoneId)?.Name ?? "", camera?.Code, camera?.Name, ev?.MetricValue, mode, unit,
-                o.OfferedAt, allOffers.Where(a => a.TaskId == t.TaskId).Select(a => a.StaffUserId).Distinct().Count(), attempt, maxAttempts, next, o.Status, o.DeclineReasonCode, ev?.ClearedAt,
+                o.OfferedAt, manual ? 1 : allOffers.Where(a => a.TaskId == t.TaskId).Select(a => a.StaffUserId).Distinct().Count(),
+                attempt, offerMaxAttempts, next, o.Status, o.DeclineReasonCode, ev?.ClearedAt,
                 o.StaffUserId, staffNames.GetValueOrDefault(o.StaffUserId), o.DispatchCycleId, o.WaveNumber, o.DispatchScope, o.ExpiresAt, o.RespondedAt);
         }).ToArray();
     }
