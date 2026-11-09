@@ -240,7 +240,7 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
         foreach (var task in await store.List<WorkTask>(t => t.Status == WorkTaskStatus.Offered || t.Status == WorkTaskStatus.Accepted, ct))
         {
             var waitsForOperator = (await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId
-                && a.Reason == TaskEvidenceRules.RejectedTwiceReason, ct)).Count > 0;
+                && TaskEvidenceRules.ReassignmentExclusionReasons.Contains(a.Reason!), ct)).Count > 0;
             var offers = await store.List<TaskOffer>(o => o.TaskId == task.TaskId, ct);
             foreach (var expired in offers.Where(o => o.Status == TaskOfferStatus.Pending && o.ExpiresAt <= now))
             {
@@ -262,8 +262,12 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
                 if (await NeedsOperator(task, "The manually selected Staff member did not accept the task.", ct)) changedTasks.Add(task.TaskId);
                 continue;
             }
-            // A Task rejected twice waits for the Operator to reassign it (BR-28); it is not automatically re-offered.
-            if (waitsForOperator) continue;
+            // After automatic reassignment, a declined/expired replacement offer returns to the Operator.
+            if (waitsForOperator)
+            {
+                if (await NeedsOperator(task, "The replacement Staff path did not complete the task.", ct)) changedTasks.Add(task.TaskId);
+                continue;
+            }
             if (await Advance(task, null, ct)) changedTasks.Add(task.TaskId);
         }
         return changedTasks.Count;
@@ -292,7 +296,8 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
         var offers = await store.List<TaskOffer>(a => a.TaskId == task.TaskId, ct);
         if (offers.Any(o => o.Status == TaskOfferStatus.Pending && o.ExpiresAt > now)) return true;
         var timeout = await OfferTimeout(task, ct);
-        var rejectedTwice = (await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId && a.Reason == TaskEvidenceRules.RejectedTwiceReason, ct))
+        var rejectedTwice = (await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId
+            && TaskEvidenceRules.ReassignmentExclusionReasons.Contains(a.Reason!), ct))
             .Select(a => a.StaffUserId).ToHashSet();
         var previouslyOffered = offers.Where(o => o.DispatchScope != TaskDispatchScope.Manual).Select(o => o.StaffUserId).ToHashSet();
         var markers = await store.List<Notification>(n => n.TaskId == task.TaskId && n.NotificationType == TaskNotifier.DispatchRing, ct);
@@ -345,6 +350,10 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
             : otherFloors.Where(f => Math.Abs((long)f.FloorNumber - floor.FloorNumber) != nearestDistance).Select(f => f.FloorId).ToHashSet();
         return (await store.List<Zone>(z => selectedFloors.Contains(z.FloorId) && z.Status == "ACTIVE", ct)).Select(z => z.ZoneId).ToArray();
     }
+
+    /// <summary>Rechecks that a Staff member still belongs to a Zone covered by the offer's dispatch ring.</summary>
+    public async Task<bool> InScope(Guid taskZoneId, string scope, IReadOnlyCollection<Guid> staffZoneIds, CancellationToken ct)
+        => (await RingZoneIds(taskZoneId, scope, ct)).Any(staffZoneIds.Contains);
 
     /// <summary>Notifies Operators once per task that it needs manual assignment.</summary>
     public async Task<bool> NeedsOperator(WorkTask task, string message, CancellationToken ct)

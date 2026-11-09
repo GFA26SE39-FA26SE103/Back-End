@@ -9,7 +9,8 @@ namespace Supermarket.Application;
 /// A submission has no own table: it is the COMPLETION_NOTE row, and its photos are the rows uploaded after the
 /// previous note. Verifying a Task never resolves its OperationalEvent or closes an Incident (BR-29).
 /// </remarks>
-public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IClock clock, TaskNotifier notifier, ITaskSchema schema, ITaskEvidenceStorage files)
+public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IClock clock, TaskNotifier notifier, TaskDispatch dispatch,
+    ITaskSchema schema, ITaskEvidenceStorage files)
 {
     public const string Submitted = "TASK_SUBMITTED", Verified = "TASK_VERIFIED", Rejected = "TASK_REJECTED", ReassignmentRequired = "TASK_REASSIGNMENT_REQUIRED";
 
@@ -139,14 +140,14 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
             }
             task.Status = WorkTaskStatus.Verified; task.VerifiedByUserId = current.UserId; task.VerifiedAt = now;
             await store.Update(task, ct);
-            await EndAssignment(task, null, now, ct);
+            await EndAssignment(task, null, now, null, ct);
             await notifier.Send(Verified, "Task verified", $"{task.Title}: the Operator confirmed the work.", task, [submission.SubmittedByUserId], "PERFORMER", ct);
             return 0;
         }, ct);
         return await Result(taskId, ct);
     }
 
-    /// <summary>Returns the work for rework; the second rejection of the same Staff member's work sends the Task to the Operator for someone else (BR-28).</summary>
+    /// <summary>Returns the work for rework, automatically dispatches after rejection two, then stops at Operator if the replacement is rejected.</summary>
     public async Task<TaskCompletionResult> Reject(Guid taskId, TaskRejectRequest request, CancellationToken ct)
     {
         UseCase.Operator(current);
@@ -166,22 +167,35 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
             var performer = submission.SubmittedByUserId;
             var rejectedForPerformer = (await store.List<TaskEvidence>(e => e.TaskId == task.TaskId && e.EvidenceType == TaskEvidenceType.CompletionNote
                 && e.SubmittedByUserId == performer && e.ReviewStatus == TaskEvidenceReview.Rejected, ct)).Count;
+            var alreadyReassigned = (await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId
+                && a.Reason == TaskEvidenceRules.RejectedTwiceReason, ct)).Count > 0;
             task.RejectionCount++; task.SubmittedAt = null;
-            if (rejectedForPerformer < TaskEvidenceRules.RejectionsBeforeReassignment)
+            if (!alreadyReassigned && rejectedForPerformer < TaskEvidenceRules.RejectionsBeforeReassignment)
             {
                 task.Status = WorkTaskStatus.InProgress;
                 await store.Update(task, ct);
                 await notifier.Send(Rejected, "Rework needed", $"{task.Title}: {reason}", task, [performer], "PERFORMER", ct);
                 return 0;
             }
-            // Second rejection: the Task leaves this Staff member and waits for the Operator to assign someone else.
+            // Rejection two leaves the first performer and automatically continues the D1 rings.
+            // A rejected replacement is terminal for automatic dispatch and returns to the Operator.
             task.Status = WorkTaskStatus.Offered; task.CurrentAssigneeUserId = null; task.AssignedByUserId = null; task.AssignedAt = null;
             task.AcceptedAt = null; task.StartedAt = null; task.PlannedStartAt = null;
             await store.Update(task, ct);
-            await EndAssignment(task, performer, now, ct);
-            await notifier.Send(Rejected, "Task reassigned", $"{task.Title}: rejected twice ({reason}). The Operator will assign it to someone else.", task, [performer], "PERFORMER", ct);
-            await notifier.Send(ReassignmentRequired, "Task needs another Staff member", $"{task.Title}: rejected twice. Assign it to a different Staff member.",
-                task, await notifier.Operators(ct), "OPERATOR", ct);
+            await EndAssignment(task, performer, now, alreadyReassigned
+                ? TaskEvidenceRules.RejectedAfterReassignmentReason
+                : TaskEvidenceRules.RejectedTwiceReason, ct);
+            if (alreadyReassigned)
+            {
+                await notifier.Send(Rejected, "Task needs Operator reassignment", $"{task.Title}: the replacement submission was rejected ({reason}).",
+                    task, [performer], "PERFORMER", ct);
+                await notifier.Send(ReassignmentRequired, "Task needs Operator reassignment", $"{task.Title}: the replacement submission was rejected.",
+                    task, await notifier.Operators(ct), "OPERATOR", ct);
+                return 0;
+            }
+            await notifier.Send(Rejected, "Task reassigned", $"{task.Title}: rejected twice ({reason}). Offering it to another eligible Staff member.",
+                task, [performer], "PERFORMER", ct);
+            await dispatch.Advance(task, null, ct);
             return 0;
         }, ct);
         return await Result(taskId, ct);
@@ -252,13 +266,13 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
         return (task, submission);
     }
 
-    private async Task EndAssignment(WorkTask task, Guid? performer, DateTime now, CancellationToken ct)
+    private async Task EndAssignment(WorkTask task, Guid? performer, DateTime now, string? rejectionReason, CancellationToken ct)
     {
         foreach (var assignment in await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId && a.Status == OfferStatus.Accepted && a.EndedAt == null, ct))
         {
             if (performer is { } staff && assignment.StaffUserId != staff) continue;
             assignment.EndedAt = now;
-            if (performer is not null) assignment.Reason = TaskEvidenceRules.RejectedTwiceReason;
+            if (rejectionReason is not null) assignment.Reason = rejectionReason;
             await store.Update(assignment, ct);
         }
     }

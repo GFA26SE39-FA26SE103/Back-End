@@ -129,10 +129,11 @@ public sealed class TaskEvidenceTests
     }
 
     [Fact]
-    public async Task ARejectionReturnsTheTaskForReworkAndTheSecondSendsItToAnotherStaffMember()
+    public async Task SecondRejectionAutomaticallyDispatchesAnotherStaffThenNextRejectionStopsAtOperator()
     {
-        var w = new World(); var a = w.Staff("An"); var b = w.Staff("Binh"); var op = w.User("OPERATOR", "Olivia");
+        var w = new World(); var a = w.Staff("An"); var b = w.Staff("Binh", adjacent: true); var op = w.User("OPERATOR", "Olivia");
         var task = await w.InProgress(a);
+        var deadlines = (task.ResponseDeadlineAt, task.ResolutionDeadlineAt, task.SlaSnapshotJson);
         await w.Evidence(a).Submit(task.TaskId, new("Done"), default);
         Assert.Equal("INVALID_FIELD", (await Assert.ThrowsAsync<DomainException>(() => w.Evidence(op).Reject(task.TaskId, new(""), default))).Code);
 
@@ -149,23 +150,33 @@ public sealed class TaskEvidenceTests
         Assert.Equal((WorkTaskStatus.Offered, 2, (Guid?)null), (second.Status, second.RejectionCount, second.AssigneeUserId));
         Assert.Equal(2, second.Evidence.Submissions.Length);
         Assert.Single(second.Evidence.Submissions[0].Photos);
-        Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskEvidenceWork.ReassignmentRequired))));
-        Assert.True((await w.Operator(op).Get(task.TaskId, default)).NeedsAssignment);
-        // The retry worker leaves it to the Operator, who cannot give it back to the same Staff member.
-        w.Clock.UtcNow = Now.AddHours(1); await w.Dispatch.Tick(default);
+        Assert.Empty(w.Notifications(task, TaskEvidenceWork.ReassignmentRequired));
+        var replacementOffer = Assert.Single(w.Store.Values.OfType<TaskOffer>(), o => o.TaskId == task.TaskId && o.Status == TaskOfferStatus.Pending);
+        Assert.Equal((b, 2, TaskDispatchScope.AdjacentSameFloor), (replacementOffer.StaffUserId, replacementOffer.WaveNumber, replacementOffer.DispatchScope));
         Assert.Empty(await w.StaffTasks(a).Offers(true, default));
         Assert.DoesNotContain(await w.Operator(op).AssignableStaff(task.TaskId, default), s => s.UserId == a);
         Assert.Equal("STAFF_REJECTED_TWICE", (await Assert.ThrowsAsync<AppError>(() => w.Operator(op).Assign(task.TaskId, new(a, "Retry"), default))).Code);
-        var proposal = await w.Operator(op).Assign(task.TaskId, new(b, null), default);
-        Assert.Equal((WorkTaskStatus.Offered, (Guid?)null), (proposal.Status, proposal.AssigneeUserId));
-        var manualOffer = w.Store.Values.OfType<TaskOffer>().Single(o => o.TaskId == task.TaskId
-            && o.StaffUserId == b && o.DispatchScope == TaskDispatchScope.Manual);
-        var reassigned = (await w.StaffTasks(b).Respond(manualOffer.OfferId,
-            new(TaskResponse.HandleLater, w.Clock.UtcNow.AddMinutes(10), null), default)).Task!;
-        Assert.Equal((WorkTaskStatus.Accepted, b), (reassigned.Status, reassigned.AssigneeUserId));
+
+        var reassigned = (await w.StaffTasks(b).Respond(replacementOffer.OfferId, new(TaskResponse.HandleNow, null, null), default)).Task!;
+        Assert.Equal((WorkTaskStatus.InProgress, b), (reassigned.Status, reassigned.AssigneeUserId));
         // The former performer still sees their own submissions, the new one starts clean.
         Assert.Equal(2, (await w.Evidence(a).Get(task.TaskId, default)).Submissions.Length);
         Assert.Empty((await w.Evidence(b).Get(task.TaskId, default)).Submissions);
+
+        w.Clock.UtcNow = Now.AddMinutes(10);
+        await w.Evidence(b).Submit(task.TaskId, new("Replacement completed"), default);
+        var terminal = await w.Evidence(op).Reject(task.TaskId, new("Replacement still failed"), default);
+        Assert.Equal((WorkTaskStatus.Offered, 3, (Guid?)null), (terminal.Status, terminal.RejectionCount, terminal.AssigneeUserId));
+        Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskEvidenceWork.ReassignmentRequired))));
+        Assert.True((await w.Operator(op).Get(task.TaskId, default)).NeedsAssignment);
+        Assert.DoesNotContain(w.Store.Values.OfType<TaskOffer>(), o => o.TaskId == task.TaskId && o.Status == TaskOfferStatus.Pending);
+        Assert.DoesNotContain(await w.Operator(op).AssignableStaff(task.TaskId, default), s => s.UserId == b);
+        Assert.Equal("STAFF_REJECTED_TWICE", (await Assert.ThrowsAsync<AppError>(() => w.Operator(op).Assign(task.TaskId, new(b, "Retry"), default))).Code);
+        Assert.Equal(deadlines, (task.ResponseDeadlineAt, task.ResolutionDeadlineAt, task.SlaSnapshotJson));
+        Assert.Single(w.Store.Values.OfType<WorkTask>(), t => t.TaskId == task.TaskId);
+        Assert.Equal(1, await w.Dispatch.Tick(default));
+        Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment));
+        Assert.Equal(0, await w.Dispatch.Tick(default));
     }
 
     private sealed class World
@@ -176,17 +187,25 @@ public sealed class TaskEvidenceTests
         public TaskDispatch Dispatch { get; }
         private readonly StoreCalendar calendar = new(StoreCalendar.Zone(null));
         private readonly Zone zone;
+        private readonly Zone adjacentZone;
         private readonly Schema schema = new();
         private readonly StaffRoster roster;
         private readonly TaskNotifier notifier;
         private readonly TaskViews views;
-        private readonly Guid shiftId = Guid.NewGuid();
+        private readonly Guid shiftId = Guid.NewGuid(), specialtyId = Guid.NewGuid(), taskTypeId = Guid.NewGuid();
 
         public World()
         {
-            zone = new Zone { ZoneId = Guid.NewGuid(), FloorId = Guid.NewGuid(), Code = "B", Name = "Zone B · Checkout" };
+            var market = new Supermarket.Domain.Supermarket { SupermarketId = Guid.NewGuid(), Code = "SM-01", Name = "Test market" };
+            var floor = new Floor { FloorId = Guid.NewGuid(), SupermarketId = market.SupermarketId, FloorNumber = 1, Name = "Floor 1" };
+            zone = new Zone { ZoneId = Guid.NewGuid(), FloorId = floor.FloorId, Code = "B", Name = "Zone B · Checkout" };
+            adjacentZone = new Zone { ZoneId = Guid.NewGuid(), FloorId = floor.FloorId, Code = "C", Name = "Zone C · Produce" };
             foreach (var role in new[] { "ADMIN", "OPERATOR", "MANAGER", "STAFF" }) Store.Values.Add(new Role { RoleId = Guid.NewGuid(), Name = role });
-            Store.Values.AddRange([zone, new Shift { ShiftId = shiftId, Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
+            Store.Values.AddRange([market, floor, zone, adjacentZone,
+                new ZoneAdjacency { ZoneAdjacencyId = Guid.NewGuid(), ZoneId = zone.ZoneId, AdjacentZoneId = adjacentZone.ZoneId, CreatedAt = Now },
+                new StaffSpecialty { SpecialtyId = specialtyId, Code = "SPC-01", Name = "Cashier" },
+                new TaskType { TaskTypeId = taskTypeId, Code = "TT-01", Name = "Open checkout", RequiredSpecialtyId = specialtyId },
+                new Shift { ShiftId = shiftId, SupermarketId = market.SupermarketId, Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
             roster = new StaffRoster(Store, calendar);
             notifier = new TaskNotifier(Store, Clock);
             Dispatch = new TaskDispatch(Store, roster, notifier, Clock, schema);
@@ -195,17 +214,19 @@ public sealed class TaskEvidenceTests
 
         public Guid User(string role, string name)
         {
-            var user = new UserAccount { UserId = Guid.NewGuid(), RoleId = Store.Values.OfType<Role>().Single(r => r.Name == role).RoleId, FullName = name, Email = $"{name}@test", Status = "ACTIVE" };
+            var user = new UserAccount { UserId = Guid.NewGuid(), RoleId = Store.Values.OfType<Role>().Single(r => r.Name == role).RoleId, FullName = name, Email = $"{name}@test", Status = "ACTIVE",
+                SpecialtyId = role == "STAFF" ? specialtyId : null };
             Store.Values.Add(user);
             return user.UserId;
         }
 
-        public Guid Staff(string name)
+        public Guid Staff(string name, bool adjacent = false)
         {
             var id = User("STAFF", name);
             var assignment = new ShiftAssignment { ShiftAssignmentId = Guid.NewGuid(), UserId = id, ShiftId = shiftId, WorkDate = new(2026, 10, 11), CheckInAt = Now.AddHours(-2) };
             Store.Values.Add(assignment);
-            Store.Values.Add(new StaffZoneAssignment { StaffZoneAssignmentId = Guid.NewGuid(), ShiftAssignmentId = assignment.ShiftAssignmentId, ZoneId = zone.ZoneId, AssignedAt = Now.AddHours(-3) });
+            Store.Values.Add(new StaffZoneAssignment { StaffZoneAssignmentId = Guid.NewGuid(), ShiftAssignmentId = assignment.ShiftAssignmentId,
+                ZoneId = adjacent ? adjacentZone.ZoneId : zone.ZoneId, AssignedAt = Now.AddHours(-3) });
             return id;
         }
 
@@ -222,7 +243,8 @@ public sealed class TaskEvidenceTests
             }
             var task = new WorkTask { TaskId = Guid.NewGuid(), ZoneId = zone.ZoneId, Title = "Clear the queue", Priority = "WARNING", Status = WorkTaskStatus.Accepted,
                 OriginType = incidentId is null ? TaskOrigin.OperationalEvent : TaskOrigin.Incident, IncidentId = incidentId,
-                CurrentAssigneeUserId = staff, AssignedAt = Now.AddMinutes(-10), AcceptedAt = Now.AddMinutes(-10), CreatedAt = Now.AddMinutes(-11) };
+                TaskTypeId = taskTypeId, CurrentAssigneeUserId = staff, AssignedAt = Now.AddMinutes(-10), AcceptedAt = Now.AddMinutes(-10), CreatedAt = Now.AddMinutes(-11),
+                ResponseDeadlineAt = Now.AddMinutes(5), ResolutionDeadlineAt = Now.AddHours(1), SlaSnapshotJson = "{\"offerTimeoutSec\":60}" };
             Store.Values.Add(task);
             Store.Values.Add(new TaskAssignmentHistory { TaskAssignmentId = Guid.NewGuid(), TaskId = task.TaskId, StaffUserId = staff, AssignmentType = TaskAssignmentType.Offer,
                 Status = OfferStatus.Accepted, AssignedAt = Now.AddMinutes(-11), RespondedAt = Now.AddMinutes(-10) });
@@ -242,7 +264,7 @@ public sealed class TaskEvidenceTests
         public List<Notification> Notifications(WorkTask task, string type) => Store.Values.OfType<Notification>().Where(n => n.TaskId == task.TaskId && n.NotificationType == type).ToList();
         public Guid[] Recipients(Notification n) => Store.Values.OfType<NotificationRecipient>().Where(r => r.NotificationId == n.NotificationId).Select(r => r.UserId).ToArray();
 
-        public TaskEvidenceWork Evidence(Guid user) => new(Store, Current(user), Clock, notifier, schema, Files);
+        public TaskEvidenceWork Evidence(Guid user) => new(Store, Current(user), Clock, notifier, Dispatch, schema, Files);
         public StaffTasks StaffTasks(Guid user) => new(Store, Current(user), Clock, calendar, roster, Dispatch, views, schema);
         public OperatorTasks Operator(Guid user) => new(Store, Current(user), Clock, roster, Dispatch, notifier, views, schema, new StaffTaskTests.OperatorQueries(Store));
 

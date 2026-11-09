@@ -410,3 +410,9 @@ The SQL-backed historical integration suite was not used: it requires an absent 
 - A non-empty ring waits one immutable Task `offer_timeout_sec`; empty rings advance immediately. A Staff member is not offered the same Task twice, legacy `task_offer.max_retry_count` no longer controls dispatch, and exhaustion creates one Operator exception without duplicating the Task or resetting its SLA snapshot/deadlines.
 - Focused Staff/dispatch/ZoneAdjacency suite: **44 passed, 0 failed, 0 skipped**. Full non-SQL backend regression: **542 passed, 0 failed, 0 skipped**. `git diff --check`: **PASS**.
 - No schema, seed, generated scaffold, shared database, deployment or live device acceptance was changed or executed. L5 ZoneAdjacency was integrated from the existing team commit before D1.
+
+## D4 rejection reassignment — 2026-11-09
+
+- The first rejected submission returns to the same Staff member for rework. Rejection two ends that assignment and immediately continues the D1 topology rings while excluding the prior performer. A rejected replacement submission stops automatic dispatch and notifies Operator; rejected performers remain excluded from automatic and manual candidates.
+- Acceptance now rechecks the Staff member against the Zone set represented by the offer's `dispatchScope`, allowing valid adjacent-Zone/Floor offers while still failing closed after a Zone assignment changes.
+- Focused Task evidence/dispatch suite: **39 passed, 0 failed, 0 skipped**. The regression verifies no repeated performer, no duplicate Task, immutable SLA snapshot/deadlines and one Operator escalation path.

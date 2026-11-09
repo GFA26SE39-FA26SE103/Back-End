@@ -72,7 +72,7 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
         UseCase.Operator(current);
         await schema.Require(ct);
         var task = UseCase.Found(await store.Find<WorkTask>(taskId, ct));
-        var excluded = await RejectedTwice(taskId, ct);
+        var excluded = await RejectedPerformers(taskId, ct);
         var onShift = await roster.OnShift(clock.UtcNow, ct);
         var specialty = task.TaskTypeId is { } taskTypeId ? (await store.Find<TaskType>(taskTypeId, ct))?.RequiredSpecialtyId : null;
         // Historical/manual tasks may predate V7 TaskType data. Enforce specialty whenever
@@ -99,8 +99,8 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
             var staff = (await roster.OnShift(now, ct)).SingleOrDefault(s => s.User.UserId == request.StaffUserId)
                 ?? throw new ApplicationException("STAFF_NOT_ON_SHIFT", "The Staff member is not checked in to a current shift.");
             if (task.CurrentAssigneeUserId == staff.User.UserId) return 0;
-            if ((await RejectedTwice(taskId, ct)).Contains(staff.User.UserId))
-                throw new ApplicationException("STAFF_REJECTED_TWICE", "This Staff member's work on the task was rejected twice; assign a different Staff member.");
+            if ((await RejectedPerformers(taskId, ct)).Contains(staff.User.UserId))
+                throw new ApplicationException("STAFF_REJECTED_TWICE", "This Staff member's rejected work requires assigning a different Staff member.");
             if (staff.ActiveTasks >= TaskRules.MaxActiveTasks) throw new ApplicationException("WORKLOAD_LIMIT", "The Staff member has reached the active-task limit.");
             if (task.TaskTypeId is not null && !await roster.HasRequiredSpecialty(task, staff.User, ct))
                 throw new ApplicationException("SPECIALTY_MISMATCH", "The Staff member's specialty does not match this TaskType.", 422);
@@ -125,7 +125,8 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
         return (await views.Tasks([UseCase.Found(await store.Find<WorkTask>(taskId, ct))], ct)).Single();
     }
 
-    /// <summary>Staff whose work on this Task was rejected twice; BR-28 requires someone else.</summary>
-    private async Task<HashSet<Guid>> RejectedTwice(Guid taskId, CancellationToken ct)
-        => (await store.List<TaskAssignmentHistory>(a => a.TaskId == taskId && a.Reason == TaskEvidenceRules.RejectedTwiceReason, ct)).Select(a => a.StaffUserId).ToHashSet();
+    /// <summary>Staff excluded after either two initial rejections or a rejected replacement submission.</summary>
+    private async Task<HashSet<Guid>> RejectedPerformers(Guid taskId, CancellationToken ct)
+        => (await store.List<TaskAssignmentHistory>(a => a.TaskId == taskId
+            && TaskEvidenceRules.ReassignmentExclusionReasons.Contains(a.Reason!), ct)).Select(a => a.StaffUserId).ToHashSet();
 }

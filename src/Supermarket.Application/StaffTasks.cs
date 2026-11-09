@@ -125,8 +125,8 @@ public sealed class StaffTasks(ISetupStore store, ICurrentUser current, IClock c
                     ?? throw new ApplicationException("NOT_ON_SHIFT", "Check in to a current shift before accepting tasks.");
                 if (me.ActiveTasks >= TaskRules.MaxActiveTasks)
                     throw new ApplicationException("WORKLOAD_LIMIT", $"You already have {me.ActiveTasks} active tasks; the limit is {TaskRules.MaxActiveTasks}.");
-                if (!manual && !me.ZoneIds.Contains(task.ZoneId))
-                    throw new ApplicationException("NOT_ELIGIBLE", "You are no longer assigned to the Task Zone.");
+                if (!manual && !await dispatch.InScope(task.ZoneId, offer.DispatchScope, me.ZoneIds, ct))
+                    throw new ApplicationException("NOT_ELIGIBLE", "You are no longer assigned to a Zone covered by this offer.");
                 if (task.TaskTypeId is not null && !await roster.HasRequiredSpecialty(task, me.User, ct))
                     throw new ApplicationException("SPECIALTY_MISMATCH", "Your Staff specialty no longer matches this TaskType.");
                 if (request.Response == TaskResponse.HandleLater) TaskRules.PlannedStart(request.PlannedStartAt, now, me.EndsAt);

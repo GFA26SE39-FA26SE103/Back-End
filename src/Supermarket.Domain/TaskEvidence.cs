@@ -51,4 +51,7 @@ public static class TaskEvidenceRules
     public const int RejectionsBeforeReassignment = 2;
     /// <summary>Marks the assignment ended by the second rejection, so that Staff member is not offered or assigned the Task again.</summary>
     public const string RejectedTwiceReason = "REJECTED_TWICE";
+    /// <summary>Marks the replacement Staff assignment whose first submission was rejected; further automatic reassignment stops.</summary>
+    public const string RejectedAfterReassignmentReason = "REJECTED_AFTER_REASSIGNMENT";
+    public static readonly string[] ReassignmentExclusionReasons = [RejectedTwiceReason, RejectedAfterReassignmentReason];
 }
