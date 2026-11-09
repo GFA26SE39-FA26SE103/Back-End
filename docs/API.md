@@ -201,6 +201,12 @@ ERD V6 đã có `SystemSetting`, `Notification`, `NotificationRecipient`, `UserD
 
 V1 Admin chỉ quản lý `notification.push_enabled`, `notification.task_offer_push_enabled`, `notification.task_update_push_enabled`, `notification.shift_swap_push_enabled`. In-app records và web inbox luôn hoạt động; không có switch tắt persistence. Staff device lifecycle đã có trên `UserDevice`, nhưng `pushConfigured` vẫn `false` vì FCM sender, credential, Mobile integration và Gate B staging chưa được implement/enable. Vì vậy lưu policy, web inbox và device registration đã có, nhưng **chưa có FCM delivery**. `FA26SE103_Database_V8_Notification_Settings.sql` seed bốn default row idempotently; API không tự mutate DB khi startup.
 
+### Operator Incident intervention
+
+| Quyền | Route | Ghi chú |
+|---|---|---|
+| OPERATOR | `POST /api/incidents/{incidentId}/dismiss` | Body `{reason}`; reason sau khi trim phải dài 1–2000 ký tự. Trong một transaction, Incident đang mở chuyển sang `DISMISSED`, lưu `status_reason`, `closed_at`, `updated_at` và một `AuditLog` `DISMISS_INCIDENT`. Incident không tồn tại trả 404 `NOT_FOUND`; Incident đã `CLOSED`, `DISMISSED`, `CANCELLED` hoặc đã có `closed_at` trả 409 `INCIDENT_ALREADY_ENDED`; reason rỗng/quá dài trả 422. Không tạo Task, không reset SLA và không thay thế auto-close sau khi mandatory Tasks được Verified. |
+
 ### MF-02 staff tasks (V7 TaskOffer + specialty dispatch)
 
 Cần database ERD V7/V9, gồm `TaskOffer`, `TaskType`, `StaffSpecialty`, các bảng Task/Shift/Notification/ResponsePolicy và `UserAccount.specialty_id`. Nếu thiếu, các route dưới đây trả 503 `TASK_SCHEMA_NOT_READY`; monitoring vẫn chạy, chỉ không tạo task.
