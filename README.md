@@ -80,7 +80,7 @@ if (!(Test-Path src/Supermarket.Api/appsettings.Local.json)) {
 
 Chỉ copy khi chưa có file local để giữ cấu hình riêng hiện tại. Trong `appsettings.Local.json`, thay `YOUR_SQL_HOST`, `YOUR_SQL_USER`, `YOUR_SQL_PASSWORD`; giữ `Database=FA26SE103_Dev`. Tên server trong ảnh SSMS của team là `ksr-capstone-supermarket-ai,1433`; máy chạy backend cần truy cập được địa chỉ đó. `TrustServerCertificate=False` yêu cầu certificate SQL hợp lệ; với server dev dùng certificate tự ký, có thể đặt `True` theo cấu hình của team. SQL username/password khác với tài khoản đăng nhập API.
 
-Gợi ý AI cho StaffReport chạy trực tiếp trên Backend, không qua AI-Service. Muốn bật, điền `StaffReportAi:ApiKey` (OpenAI API key) và `StaffReportAi:Model` vào file local hoặc dùng biến môi trường `StaffReportAi__ApiKey`/`StaffReportAi__Model`, rồi khởi động lại Backend. Để trống thì Mobile vẫn cho Staff điền report thủ công. Không commit key, không đưa key vào Mobile, và chỉ gửi dữ liệu thật tới nhà cung cấp AI sau khi team chấp thuận.
+Gợi ý AI cho StaffReport chạy trực tiếp trên Backend, không qua AI-Service. Muốn bật, điền `StaffReportAi:ApiKey` (OpenAI API key) và `StaffReportAi:Model` vào file local hoặc dùng biến môi trường `StaffReportAi__ApiKey`/`StaffReportAi__Model`; để phân tích voice note cần thêm `StaffReportAi:TranscriptionModel` (hoặc `StaffReportAi__TranscriptionModel`), rồi khởi động lại Backend. Để trống thì Mobile vẫn cho Staff điền report thủ công. Draft AI không lưu trên server; chỉ report đã xác nhận mới được lưu. Không commit key, không đưa key vào Mobile, và chỉ gửi dữ liệu thật tới nhà cung cấp AI sau khi team chấp thuận.
 
 Sinh JWT key riêng bằng PowerShell rồi điền kết quả vào `Jwt:Key` trong file local:
 

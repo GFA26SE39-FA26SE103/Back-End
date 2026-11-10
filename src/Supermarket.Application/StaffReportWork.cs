@@ -15,7 +15,7 @@ public sealed record StaffReportInput(Guid ReportId, Guid ZoneId, string Title, 
 }
 public sealed record StaffReportDuplicateDecisionRequest(string Decision);
 public sealed record StaffReportPhoto(Stream Content, string FileName, string ContentType, long Length);
-/// <summary>One recorded voice note for a report (BR-16 voice input); stored as-is, not transcribed by the backend.</summary>
+/// <summary>One recorded voice note for a confirmed report; stored as-is. Draft analysis may separately transcribe it.</summary>
 public sealed record StaffReportAudio(Stream Content, string FileName, string ContentType, long Length);
 public sealed record StaffReportMediaView(Guid MediaId, string ContentType, long SizeBytes, string ImageUrl);
 public sealed record StaffReportView(Guid ReportId, Guid ZoneId, Guid? IncidentTypeId, string? IncidentTypeCode,

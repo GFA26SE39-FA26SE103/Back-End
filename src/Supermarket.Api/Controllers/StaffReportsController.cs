@@ -9,15 +9,15 @@ namespace Supermarket.Api.Controllers;
 public sealed class StaffReportsController(StaffReportWork reports, IStaffReportDraftClient draftClient) : ControllerBase
 {
     [HttpPost("draft"), Authorize(Roles = AccessRoles.Staff)]
-    [RequestSizeLimit(32L * 1024 * 1024)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 32L * 1024 * 1024)]
+    [RequestSizeLimit(48L * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 48L * 1024 * 1024)]
     public async Task<StaffReportDraftView> Draft([FromForm] StaffReportDraftForm form, CancellationToken ct)
     {
         var files = form.Photos ?? [];
         if (files.Count > 3) throw new Supermarket.Application.ApplicationException("REPORT_PHOTO_LIMIT", "At most three photos are allowed.", 422);
         if (form.Note.Length > 4000) throw new Supermarket.Application.ApplicationException("REPORT_NOTE_LIMIT", "Note is too long.", 422);
-        if (string.IsNullOrWhiteSpace(form.Note) && files.Count == 0)
-            throw new Supermarket.Application.ApplicationException("REPORT_INPUT_REQUIRED", "Provide text or a photo.", 422);
+        if (string.IsNullOrWhiteSpace(form.Note) && files.Count == 0 && form.Voice is null)
+            throw new Supermarket.Application.ApplicationException("REPORT_INPUT_REQUIRED", "Provide text, a photo, or voice.", 422);
         var images = new List<StaffReportDraftImage>(files.Count);
         foreach (var file in files)
         {
@@ -32,13 +32,36 @@ public sealed class StaffReportsController(StaffReportWork reports, IStaffReport
             if (!valid) throw new Supermarket.Application.ApplicationException("REPORT_PHOTO_INVALID", "Photo content does not match JPEG or PNG.", 422);
             images.Add(new StaffReportDraftImage(file.ContentType, Convert.ToBase64String(bytes)));
         }
+        StaffReportDraftAudio? voice = null;
+        string? transcript = null;
+        if (form.Voice is { } recording)
+        {
+            if (recording.Length is <= 0 or > StaffReportWork.MaxVoiceBytes)
+                throw new Supermarket.Application.ApplicationException("REPORT_VOICE_SIZE", "Voice note must be at most 10 MB.", 422);
+            await using var stream = recording.OpenReadStream();
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, ct);
+            voice = new StaffReportDraftAudio(buffer.ToArray());
+            transcript = await draftClient.Transcribe(voice, ct);
+        }
         var types = await reports.IncidentTypes(ct);
-        var draft = await draftClient.Analyze(new StaffReportDraftRequest(form.Note, images.ToArray(), types), ct);
+        var tasks = await reports.TaskTypes(ct);
+        var locationText = string.Join("\n", new[] { form.Note, transcript }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        var mentionedZones = (await reports.Zones(null, ct)).Where(x =>
+            x.Name.Length >= 3 && locationText.Contains(x.Name, StringComparison.OrdinalIgnoreCase)
+            || x.Code.Length >= 3 && locationText.Contains(x.Code, StringComparison.OrdinalIgnoreCase)).Take(21).ToArray();
+        var candidates = mentionedZones.Length <= 20 ? mentionedZones : [];
+        var draft = await draftClient.Analyze(new StaffReportDraftRequest(form.Note, images.ToArray(), types)
+        { TaskTypes = tasks, ZoneCandidates = candidates, Transcript = transcript }, ct);
         var validType = types.Any(x => x.Code == draft.IncidentTypeCode);
         var category = draft.ReportCategory is "POTENTIAL_INCIDENT" or "ROUTINE_REQUEST" ? draft.ReportCategory : null;
+        var allowedCodes = category == "POTENTIAL_INCIDENT" ? types.FirstOrDefault(x => x.Code == draft.IncidentTypeCode)?.AllowedTaskTypeCodes ?? []
+            : tasks.Where(x => x.RoutineEligible).Select(x => x.Code).ToArray();
         return draft with { ReportCategory = category,
             IncidentTypeCode = category == "POTENTIAL_INCIDENT" && validType ? draft.IncidentTypeCode : null,
-            NeedsReview = draft.NeedsReview || category is null || (category == "POTENTIAL_INCIDENT" && !validType) };
+            SuggestedTaskTypeCodes = (draft.SuggestedTaskTypeCodes ?? []).Where(code => allowedCodes.Contains(code)).Take(8).ToArray(),
+            SuggestedZoneId = candidates.Any(x => x.ZoneId == draft.SuggestedZoneId) ? draft.SuggestedZoneId : null,
+            NeedsReview = true };
     }
 
     [HttpGet("incident-types"), Authorize(Roles = AccessRoles.Staff)]
@@ -114,6 +137,7 @@ public sealed class StaffReportDraftForm
 {
     public string Note { get; set; } = "";
     public List<IFormFile>? Photos { get; set; }
+    public IFormFile? Voice { get; set; }
 }
 
 public sealed class StaffReportSubmitForm
