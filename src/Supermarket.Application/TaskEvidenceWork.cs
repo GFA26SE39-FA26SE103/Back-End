@@ -7,7 +7,8 @@ namespace Supermarket.Application;
 /// </summary>
 /// <remarks>
 /// A submission has no own table: it is the COMPLETION_NOTE row, and its photos are the rows uploaded after the
-/// previous note. Verifying a Task never resolves its OperationalEvent or closes an Incident (BR-29).
+/// previous note. Verifying a Task never resolves its OperationalEvent. Verifying the last open mandatory Task of an
+/// Incident closes that Incident (BR-22, <see cref="IncidentClosure"/>).
 /// </remarks>
 public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IClock clock, TaskNotifier notifier, ITaskSchema schema, ITaskEvidenceStorage files)
 {
@@ -124,6 +125,7 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
             await store.Update(task, ct);
             await EndAssignment(task, null, now, ct);
             await notifier.Send(Verified, "Task verified", $"{task.Title}: the Operator confirmed the work.", task, [submission.SubmittedByUserId], "PERFORMER", ct);
+            await new IncidentClosure(store, clock, notifier).AfterTaskVerified(task, current.UserId, ct);
             return 0;
         }, ct);
         return await Result(taskId, ct);

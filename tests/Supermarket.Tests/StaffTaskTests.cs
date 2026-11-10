@@ -10,6 +10,30 @@ public sealed class StaffTaskTests
     private static readonly DateTime Now = new(2026, 10, 11, 3, 0, 0, DateTimeKind.Utc);
 
     [Fact]
+    public async Task OperatorManualTaskUsesTaskTypePolicyAndRetryDoesNotDuplicate()
+    {
+        var world = new World();
+        world.Zone.Status = "ACTIVE";
+        var staff = world.Staff("An", checkedIn: true);
+        var operatorId = world.User("OPERATOR", "Olivia");
+        var type = world.Store.Values.OfType<TaskType>().Single(item => item.Code == "TT-01");
+        var policy = new SlaPolicy { PolicyId = Guid.NewGuid(), ProblemDomain = "STANDALONE_TASK", TaskTypeId = type.TaskTypeId,
+            IsEnabled = true, Version = 1, PriorityCode = "HIGH", ResponseTargetSec = 180,
+            ResolutionTargetSec = 1800, OfferTimeoutSec = 45, WarningPercent = 80 };
+        world.Store.Values.Add(policy);
+        var request = new ManualTaskRequest(Guid.NewGuid(), world.Zone.ZoneId, "TT-01", "Open counter", "Checkout busy");
+        var first = await world.Operator(operatorId).CreateManual(request, default);
+        var retry = await world.Operator(operatorId).CreateManual(request, default);
+        var task = Assert.Single(world.Store.Values.OfType<WorkTask>());
+        Assert.Equal(task.TaskId, retry.TaskId);
+        Assert.Equal(TaskOrigin.Manual, task.OriginType);
+        Assert.Equal(policy.PolicyId, task.SlaPolicyId);
+        Assert.Equal("HIGH", first.SlaPriorityCode);
+        Assert.Equal(Now.AddSeconds(180), task.ResponseDeadlineAt);
+        Assert.Equal(staff, Assert.Single(world.Store.Values.OfType<TaskOffer>()).StaffUserId);
+    }
+
+    [Fact]
     public async Task EventWithAutomaticTaskPolicyOffersOnlyEligibleZoneStaff()
     {
         var w = new World();
@@ -541,7 +565,8 @@ public sealed class StaffTaskTests
         public Guid[] Recipients(Notification notification) => Store.Values.OfType<NotificationRecipient>().Where(r => r.NotificationId == notification.NotificationId).Select(r => r.UserId).ToArray();
         public StaffTasks StaffTasks(Guid user) => new(Store, Current(user), Clock, Calendar, roster, Dispatch, Views, schema);
         public NotificationInbox Inbox(Guid user) => new(new NotificationInboxTests.StoreAdapter(Store), Current(user), Clock);
-        public OperatorTasks Operator(Guid user) => new(Store, Current(user), Clock, roster, Dispatch, notifier, Views, schema, TaskQueries);
+        public OperatorTasks Operator(Guid user) => new(Store, Current(user), Clock, roster, Dispatch, notifier, Views, schema,
+            TaskQueries, new StandaloneTaskSlaPolicyService(Store, Clock));
         private User Current(Guid id)
         {
             var user = Store.Values.OfType<UserAccount>().Single(u => u.UserId == id);

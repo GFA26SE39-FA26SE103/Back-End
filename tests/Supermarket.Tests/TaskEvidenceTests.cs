@@ -129,6 +129,51 @@ public sealed class TaskEvidenceTests
         Assert.Empty((await w.Evidence(b).Get(task.TaskId, default)).Submissions);
     }
 
+    [Fact]
+    public async Task VerifyingTheLastMandatoryTaskClosesItsIncident()
+    {
+        var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia");
+        var task = await w.InProgress(a, incidentRequiresBefore: false);
+        task.IsMandatory = true;
+        var incident = w.Store.Values.OfType<Incident>().Single(i => i.IncidentId == task.IncidentId);
+        await w.Upload(a, task, TaskEvidenceType.AfterPhoto);
+        await w.Evidence(a).Submit(task.TaskId, new("Mopped and dried"), default);
+
+        await w.Evidence(op).Verify(task.TaskId, new(), default);
+
+        Assert.Equal((IncidentClosure.ClosedStatus, IncidentClosure.AllMandatoryVerified, (DateTime?)Now), (incident.Status, incident.StatusReason, incident.ClosedAt));
+        Assert.Null(incident.MitigatedAt);
+        var audit = Assert.Single(w.Store.Values.OfType<AuditLog>());
+        Assert.Equal(("CLOSE_INCIDENT", (Guid?)incident.IncidentId, (Guid?)op), (audit.Action, audit.EntityId, audit.UserId));
+        Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, IncidentClosure.Closed))));
+    }
+
+    [Fact]
+    public async Task AnIncidentStaysOpenWhileAnotherMandatoryTaskIsNotVerifiedOrTheVerifiedTaskIsOptional()
+    {
+        var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia");
+        var task = await w.InProgress(a, incidentRequiresBefore: false);
+        task.IsMandatory = true;
+        var incident = w.Store.Values.OfType<Incident>().Single(i => i.IncidentId == task.IncidentId);
+        var other = new WorkTask { TaskId = Guid.NewGuid(), IncidentId = incident.IncidentId, ZoneId = task.ZoneId, Title = "Fix the leaking pipe", Priority = "WARNING",
+            Status = WorkTaskStatus.Offered, OriginType = TaskOrigin.Incident, IsMandatory = true, CreatedAt = Now.AddMinutes(-11) };
+        w.Store.Values.Add(other);
+        await w.Upload(a, task, TaskEvidenceType.AfterPhoto);
+        await w.Evidence(a).Submit(task.TaskId, new("Mopped"), default);
+        await w.Evidence(op).Verify(task.TaskId, new(), default);
+        Assert.Equal(("DETECTED", (DateTime?)null), (incident.Status, incident.ClosedAt));
+
+        // An optional Task never closes the Incident on its own, even when every mandatory Task is done.
+        other.Status = WorkTaskStatus.Verified;
+        var optional = await w.InProgress(a, incidentRequiresBefore: false);
+        optional.IncidentId = incident.IncidentId;
+        await w.Upload(a, optional, TaskEvidenceType.AfterPhoto);
+        await w.Evidence(a).Submit(optional.TaskId, new("Put up a sign"), default);
+        await w.Evidence(op).Verify(optional.TaskId, new(), default);
+        Assert.Equal(("DETECTED", (DateTime?)null), (incident.Status, incident.ClosedAt));
+        Assert.Empty(w.Store.Values.OfType<AuditLog>());
+    }
+
     private sealed class World
     {
         public MonitoringSetupTests.MemoryStore Store { get; } = new();
@@ -205,7 +250,8 @@ public sealed class TaskEvidenceTests
 
         public TaskEvidenceWork Evidence(Guid user) => new(Store, Current(user), Clock, notifier, schema, Files);
         public StaffTasks StaffTasks(Guid user) => new(Store, Current(user), Clock, calendar, roster, Dispatch, views, schema);
-        public OperatorTasks Operator(Guid user) => new(Store, Current(user), Clock, roster, Dispatch, notifier, views, schema, new StaffTaskTests.OperatorQueries(Store));
+        public OperatorTasks Operator(Guid user) => new(Store, Current(user), Clock, roster, Dispatch, notifier, views, schema,
+            new StaffTaskTests.OperatorQueries(Store), new StandaloneTaskSlaPolicyService(Store, Clock));
 
         private User Current(Guid id)
         {

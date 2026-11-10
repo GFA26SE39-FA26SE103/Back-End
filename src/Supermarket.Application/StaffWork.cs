@@ -79,6 +79,18 @@ public sealed class StaffRoster(ISetupStore store, StoreCalendar calendar)
 /// <summary>Writes Notification + in-app NotificationRecipient rows.</summary>
 public sealed class TaskNotifier(ISetupStore store, IClock clock)
 {
+    public async Task IncidentPolicyException(Incident incident, string code, CancellationToken ct)
+    {
+        var now = clock.UtcNow;
+        var notification = new Notification { NotificationId = Guid.NewGuid(), IncidentId = incident.IncidentId,
+            NotificationType = "INCIDENT_POLICY_EXCEPTION", Title = "Incident needs SLA policy review",
+            Message = $"Incident {incident.IncidentId}: {code}. Review the Staff Report and configure a valid policy.", CreatedAt = now };
+        await store.Add(notification, ct);
+        foreach (var userId in await Operators(ct))
+            await store.Add(new NotificationRecipient { NotificationRecipientId = Guid.NewGuid(),
+                NotificationId = notification.NotificationId, UserId = userId, DeliveryChannel = "IN_APP",
+                DeliveryStatus = "SENT", RecipientReason = code, DeliveredAt = now }, ct);
+    }
     public const string Offer = "TASK_OFFER", OfferWithdrawn = "TASK_OFFER_WITHDRAWN", Assigned = "TASK_ASSIGNED", NeedsAssignment = "TASK_NEEDS_ASSIGNMENT",
         PriorityRaised = "TASK_PRIORITY_RAISED", EventCleared = "EVENT_CLEARED";
     public async Task<Notification> Send(string type, string title, string message, WorkTask task, IEnumerable<Guid> recipients, string reason, CancellationToken ct, Guid? cameraId = null)
@@ -142,6 +154,21 @@ public interface IOperationalEventResponder
 /// </summary>
 public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNotifier notifier, IClock clock, ITaskSchema schema) : IOperationalEventResponder
 {
+    public async Task OfferIncidentTask(WorkTask task, CancellationToken ct)
+    {
+        if (task.OriginType != TaskOrigin.Incident || task.IncidentId is null || task.TaskTypeId is null || task.SlaPolicyId is null)
+            throw new ApplicationException("INCIDENT_TASK_INVALID", "Incident Task requires a source, TaskType and SLA policy.", 422);
+        await schema.Require(ct);
+        await OfferRound(task, null, ct);
+    }
+    public async Task OfferStandaloneTask(WorkTask task, CancellationToken ct)
+    {
+        if (task.OriginType is not (TaskOrigin.StaffReport or TaskOrigin.Manual) || task.TaskTypeId is null
+            || task.SlaPolicyId is null || task.SlaSnapshotJson is null)
+            throw new ApplicationException("STANDALONE_TASK_INVALID", "Standalone Task requires a TaskType and SLA snapshot.", 422);
+        await schema.Require(ct);
+        await OfferRound(task, null, ct);
+    }
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private sealed record TaskParameters(string? Title, string? Instructions, string? TaskTypeCode);
     private sealed record OperationalSlaSnapshot(Guid PolicyId, int PolicyVersion, Guid EventTypeId, string PriorityCode,

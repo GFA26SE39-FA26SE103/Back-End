@@ -21,12 +21,15 @@ public sealed class CloudinaryTaskEvidenceStorage(HttpClient http, IOptions<Clou
     private const string Prefix = "cld1:";
     public static bool IsCloudinary(string token) => token.StartsWith(Prefix, StringComparison.Ordinal);
 
-    public async Task<StoredEvidence> Save(Guid taskId, Stream content, string filename, string contentType, long length, CancellationToken ct)
+    public Task<StoredEvidence> Save(Guid taskId, Stream content, string filename, string contentType, long length, CancellationToken ct)
+        => SaveInFolder(taskId, content, filename, contentType, length, options.Value.CloudinaryFolder, ct);
+
+    public async Task<StoredEvidence> SaveInFolder(Guid taskId, Stream content, string filename, string contentType, long length, string folderName, CancellationToken ct)
     {
         var max = options.Value.MaxBytes;
         var format = EvidenceContent.Validate(contentType, length, max);
         await using var bytes = await EvidenceContent.Read(content, format, length, max, ct);
-        var (config, folder) = Config();
+        var (config, folder) = Config(folderName);
         var publicId = $"{folder}/{taskId:N}/{Guid.NewGuid():N}";
         var fields = Signed(new() { ["public_id"] = publicId, ["asset_folder"] = folder, ["type"] = "authenticated", ["overwrite"] = "false" });
         using var form = new MultipartFormDataContent();
@@ -111,10 +114,10 @@ public sealed class CloudinaryTaskEvidenceStorage(HttpClient http, IOptions<Clou
         catch (Exception e) when (e is IOException or HttpRequestException) { throw Upstream(); }
     }
 
-    private (CloudinaryOptions Config, string Folder) Config()
+    private (CloudinaryOptions Config, string Folder) Config(string? folderOverride = null)
     {
         var config = cloudinary.Value;
-        var folder = options.Value.CloudinaryFolder;
+        var folder = folderOverride ?? options.Value.CloudinaryFolder;
         if (!config.IsValid() || folder.Length > 100 || !Regex.IsMatch(folder, "\\A[a-zA-Z0-9_-]+(?:/[a-zA-Z0-9_-]+)*\\z"))
             throw new AppError("EVIDENCE_STORAGE_NOT_CONFIGURED", "Configure Cloudinary credentials and TaskEvidence:CloudinaryFolder in backend settings.", 503);
         return (config, folder);

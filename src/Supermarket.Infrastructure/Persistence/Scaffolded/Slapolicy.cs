@@ -21,6 +21,8 @@ public partial class Slapolicy
 
     public Guid? IncidentTypeId { get; set; }
 
+    public Guid? TaskTypeId { get; set; }
+
     public string PriorityCode { get; set; } = null!;
 
     public int ResponseTargetSec { get; set; }
@@ -34,6 +36,8 @@ public partial class Slapolicy
     public virtual OperationalEventType? EventType { get; set; }
 
     public virtual IncidentType? IncidentType { get; set; }
+
+    public virtual TaskType? TaskType { get; set; }
 
     public virtual ICollection<Incident> Incidents { get; set; } = new List<Incident>();
 
