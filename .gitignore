@@ -10,3 +10,4 @@ appsettings.Local.json
 *.pem
 *.key
 .vs/
+/docs
