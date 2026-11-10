@@ -8484,6 +8484,14 @@
             "type": "string",
             "nullable": true
           },
+          "verificationMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "verificationMethod": {
+            "type": "string",
+            "nullable": true
+          },
           "raisedFrom": {
             "type": "string",
             "nullable": true
@@ -8986,6 +8994,14 @@
             "type": "string",
             "nullable": true
           },
+          "verificationMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "verificationMethod": {
+            "type": "string",
+            "nullable": true
+          },
           "requiresBeforePhoto": {
             "type": "boolean"
           },
@@ -9045,6 +9061,14 @@
             "nullable": true
           },
           "priority": {
+            "type": "string",
+            "nullable": true
+          },
+          "verificationMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "verificationMethod": {
             "type": "string",
             "nullable": true
           },

@@ -1,8 +1,8 @@
 namespace Supermarket.Application;
 
 /// <summary>Evidence of one Task: what is required, the current draft, and every submission with its review.</summary>
-public sealed record TaskEvidenceView(Guid TaskId, string TaskStatus, bool RequiresBeforePhoto, bool RequiresAfterPhoto, int RejectionCount,
-    TaskEvidencePhotoView[] Drafts, TaskSubmissionView[] Submissions);
+public sealed record TaskEvidenceView(Guid TaskId, string TaskStatus, string? VerificationMode, string? VerificationMethod,
+    bool RequiresBeforePhoto, bool RequiresAfterPhoto, int RejectionCount, TaskEvidencePhotoView[] Drafts, TaskSubmissionView[] Submissions);
 
 /// <summary>One photo. <c>ImageUrl</c> is the authenticated API route that streams it.</summary>
 public sealed record TaskEvidencePhotoView(Guid EvidenceId, string EvidenceType, string ImageUrl, DateTime CapturedAt);

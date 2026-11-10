@@ -25,6 +25,7 @@ public sealed class StaffTaskTests
 
         var task = Assert.Single(w.Tasks, t => t.EventId == ev.EventId);
         Assert.Equal((WorkTaskStatus.Offered, TaskOrigin.OperationalEvent, "CRITICAL", w.Zone.ZoneId), (task.Status, task.OriginType, task.Priority, task.ZoneId));
+        Assert.Equal((TaskVerificationMode.Auto, TaskVerificationMethod.OperationalMetric), (task.VerificationMode, task.VerificationMethod));
         Assert.Equal("Clear the queue", task.Title); Assert.Equal("Open one more counter", task.Description);
         Assert.Equal(new[] { a, b }.Order(), w.Offers(task).Select(o => o.StaffUserId).Order());
         Assert.DoesNotContain(w.Offers(task), o => o.StaffUserId == otherZone || o.StaffUserId == notCheckedIn || o.StaffUserId == busy || o.StaffUserId == wrongSpecialty);
@@ -594,7 +595,7 @@ public sealed class StaffTaskTests
                 new Shift { ShiftId = shiftId, SupermarketId = Market.SupermarketId, WeekStart = new(2026, 10, 5), Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
             roster = new StaffRoster(Store, Calendar);
             notifier = new TaskNotifier(Store, Clock);
-            Dispatch = new TaskDispatch(Store, roster, notifier, Clock, schema);
+            Dispatch = new TaskDispatch(Store, roster, notifier, new TaskVerification(Store, Clock, notifier), Clock, schema);
             Views = new TaskViews(Store);
             TaskQueries = new OperatorQueries(Store);
         }

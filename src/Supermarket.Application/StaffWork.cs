@@ -143,7 +143,7 @@ public interface IOperationalEventResponder
 /// re-offered every retry interval, then handed to the Operator for manual assignment (BR-19, BR-21, BR-22).
 /// One episode yields at most one Task; a priority rise updates it.
 /// </summary>
-public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNotifier notifier, IClock clock, ITaskSchema schema) : IOperationalEventResponder
+public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNotifier notifier, TaskVerification verification, IClock clock, ITaskSchema schema) : IOperationalEventResponder
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private sealed record TaskParameters(string? Title, string? Instructions, string? TaskTypeCode);
@@ -161,6 +161,7 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
             if (TaskRules.Rank(ev.Priority) > TaskRules.Rank(existing.Priority))
             {
                 existing.Priority = ev.Priority;
+                TaskVerificationRules.EnforceP1(existing, IncidentSlaPolicyService.ReadSnapshot(existing.SlaSnapshotJson)?.PriorityCode);
                 await store.Update(existing, ct);
                 var to = existing.CurrentAssigneeUserId is { } assignee ? [assignee] : await OpenOfferStaff(existing.TaskId, ct);
                 await notifier.Send(TaskNotifier.PriorityRaised, $"Priority raised to {ev.Priority}", $"{existing.Title}: the event is now {ev.Priority}.", existing, to, "TASK_PARTICIPANT", ct, ev.CameraId);
@@ -201,6 +202,7 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
             Priority = ev.Priority, Status = WorkTaskStatus.Offered, OriginType = TaskOrigin.OperationalEvent, EventId = ev.EventId, TaskTypeId = taskType.TaskTypeId,
             SlaPolicyId = policy.PolicyId, SlaSnapshotJson = JsonSerializer.Serialize(snapshot, Json),
             ResponseDeadlineAt = snapshot.ResponseDeadlineAt, ResolutionDeadlineAt = snapshot.ResolutionDeadlineAt };
+        TaskVerificationRules.Initialize(task, taskType, policy.PriorityCode);
         await store.Add(task, ct);
         await Advance(task, ev.CameraId, ct);
     }
@@ -224,7 +226,10 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
                     await notifier.Send(TaskNotifier.OfferWithdrawn, "No longer needed", $"{task.Title}: the camera shows the area back to normal.", task, withdrawn, "OFFER_RECIPIENT", ct, ev.CameraId);
             }
             else if (task.CurrentAssigneeUserId is { } assignee)
+            {
                 await notifier.Send(TaskNotifier.EventCleared, "Event cleared", $"{task.Title}: the camera shows the area back to normal. Check the area and finish the task.", task, [assignee], "ASSIGNEE", ct, ev.CameraId);
+                await verification.TryAuto(task, ct);
+            }
         }
     }
 

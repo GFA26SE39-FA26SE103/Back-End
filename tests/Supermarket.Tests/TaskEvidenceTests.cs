@@ -11,6 +11,32 @@ public sealed class TaskEvidenceTests
     private static readonly DateTime Now = new(2026, 10, 11, 3, 0, 0, DateTimeKind.Utc);
     private static readonly byte[] Jpeg = [0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4];
 
+    [Theory]
+    [InlineData(TaskOrigin.OperationalEvent, "P2", "TT-01", TaskVerificationMode.Auto)]
+    [InlineData(TaskOrigin.OperationalEvent, "P1", "TT-01", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.Incident, "P2", "TT-01", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "P2", "TT-07", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "P2", "TT-12", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "P2", "TT-15", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "P2", "TT-06", TaskVerificationMode.Manual)]
+    public void VerificationLaneFailsSafeForOriginPriorityAndTaskType(string origin, string priority, string code, string expected)
+    {
+        var task = new WorkTask { OriginType = origin, Priority = priority };
+        TaskVerificationRules.Initialize(task, new TaskType { Code = code });
+        Assert.Equal(expected, task.VerificationMode);
+        Assert.Equal(expected == TaskVerificationMode.Auto ? TaskVerificationMethod.OperationalMetric : TaskVerificationMethod.OperatorEvidence,
+            task.VerificationMethod);
+    }
+
+    [Fact]
+    public void P1SlaSnapshotForcesManualEvenWhileLegacyEventPriorityIsCritical()
+    {
+        var task = new WorkTask { OriginType = TaskOrigin.OperationalEvent, Priority = "CRITICAL" };
+        TaskVerificationRules.Initialize(task, new TaskType { Code = "TT-01" }, "P1");
+        Assert.Equal((TaskVerificationMode.Manual, TaskVerificationMethod.OperatorEvidence),
+            (task.VerificationMode, task.VerificationMethod));
+    }
+
     [Fact]
     public async Task AnOperationalTaskIsSubmittedWithItsNoteAndWaitsForTheOperator()
     {
@@ -32,6 +58,46 @@ public sealed class TaskEvidenceTests
         // Retrying a submission that already went through changes nothing.
         Assert.Equal(WorkTaskStatus.Submitted, (await staff.Submit(task.TaskId, new("again"), default)).Status);
         Assert.Single(w.Store.Values.OfType<TaskEvidence>(), e => e.EvidenceType == TaskEvidenceType.CompletionNote);
+    }
+
+    [Fact]
+    public async Task MetricBackedOperationalTaskAutoVerifiesOnlyAfterAValidRecovery()
+    {
+        var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia");
+        var task = await w.InProgress(a); var ev = w.AutoEvent(task, cleared: false, validMetric: true);
+
+        var submitted = await w.Evidence(a).Submit(task.TaskId, new("Opened another checkout"), default);
+        Assert.Equal((WorkTaskStatus.Submitted, TaskVerificationMode.Auto, TaskVerificationMethod.OperationalMetric),
+            (submitted.Status, submitted.Evidence.VerificationMode, submitted.Evidence.VerificationMethod));
+        Assert.Equal("AUTO_VERIFICATION_PENDING", (await Assert.ThrowsAsync<AppError>(() => w.Evidence(op).Verify(task.TaskId, new(), default))).Code);
+        Assert.Empty(w.Notifications(task, TaskEvidenceWork.Submitted));
+
+        w.Clock.UtcNow = Now.AddMinutes(1);
+        ev.Status = "CLEARED"; ev.ClearedAt = w.Clock.UtcNow; ev.LastObservedAt = w.Clock.UtcNow; ev.MetricValue = 1;
+        ev.MetadataJson = World.MetricJson(1, valid: true);
+        await w.Dispatch.Cleared(ev, default);
+
+        var verified = await w.Evidence(a).Get(task.TaskId, default);
+        Assert.Equal((WorkTaskStatus.Verified, TaskVerificationMode.Auto, TaskVerificationMethod.OperationalMetric),
+            (verified.TaskStatus, verified.VerificationMode, verified.VerificationMethod));
+        Assert.Null(task.VerifiedByUserId);
+        Assert.Equal(w.Clock.UtcNow, task.VerifiedAt);
+        Assert.All(w.Store.Values.OfType<TaskEvidence>(), row => Assert.Equal(TaskEvidenceReview.Verified, row.ReviewStatus));
+        Assert.Equal([a], w.Recipients(Assert.Single(w.Notifications(task, TaskVerification.AutoVerified))));
+    }
+
+    [Fact]
+    public async Task MissingOrInvalidAutoMetricFallsBackToManualOperatorVerification()
+    {
+        var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia");
+        var task = await w.InProgress(a); w.AutoEvent(task, cleared: false, validMetric: false);
+
+        var submitted = await w.Evidence(a).Submit(task.TaskId, new("Completed"), default);
+
+        Assert.Equal((WorkTaskStatus.Submitted, TaskVerificationMode.Manual, TaskVerificationMethod.MetricException),
+            (submitted.Status, submitted.Evidence.VerificationMode, submitted.Evidence.VerificationMethod));
+        Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskVerification.VerificationException))));
+        Assert.Equal(WorkTaskStatus.Verified, (await w.Evidence(op).Verify(task.TaskId, new(), default)).Status);
     }
 
     [Fact]
@@ -191,6 +257,7 @@ public sealed class TaskEvidenceTests
         private readonly Schema schema = new();
         private readonly StaffRoster roster;
         private readonly TaskNotifier notifier;
+        private readonly TaskVerification verification;
         private readonly TaskViews views;
         private readonly Guid shiftId = Guid.NewGuid(), specialtyId = Guid.NewGuid(), taskTypeId = Guid.NewGuid();
 
@@ -208,7 +275,8 @@ public sealed class TaskEvidenceTests
                 new Shift { ShiftId = shiftId, SupermarketId = market.SupermarketId, Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
             roster = new StaffRoster(Store, calendar);
             notifier = new TaskNotifier(Store, Clock);
-            Dispatch = new TaskDispatch(Store, roster, notifier, Clock, schema);
+            verification = new TaskVerification(Store, Clock, notifier);
+            Dispatch = new TaskDispatch(Store, roster, notifier, verification, Clock, schema);
             views = new TaskViews(Store);
         }
 
@@ -244,7 +312,8 @@ public sealed class TaskEvidenceTests
             var task = new WorkTask { TaskId = Guid.NewGuid(), ZoneId = zone.ZoneId, Title = "Clear the queue", Priority = "WARNING", Status = WorkTaskStatus.Accepted,
                 OriginType = incidentId is null ? TaskOrigin.OperationalEvent : TaskOrigin.Incident, IncidentId = incidentId,
                 TaskTypeId = taskTypeId, CurrentAssigneeUserId = staff, AssignedAt = Now.AddMinutes(-10), AcceptedAt = Now.AddMinutes(-10), CreatedAt = Now.AddMinutes(-11),
-                ResponseDeadlineAt = Now.AddMinutes(5), ResolutionDeadlineAt = Now.AddHours(1), SlaSnapshotJson = "{\"offerTimeoutSec\":60}" };
+                ResponseDeadlineAt = Now.AddMinutes(5), ResolutionDeadlineAt = Now.AddHours(1), SlaSnapshotJson = "{\"offerTimeoutSec\":60}",
+                VerificationMode = TaskVerificationMode.Manual, VerificationMethod = TaskVerificationMethod.OperatorEvidence };
             Store.Values.Add(task);
             Store.Values.Add(new TaskAssignmentHistory { TaskAssignmentId = Guid.NewGuid(), TaskId = task.TaskId, StaffUserId = staff, AssignmentType = TaskAssignmentType.Offer,
                 Status = OfferStatus.Accepted, AssignedAt = Now.AddMinutes(-11), RespondedAt = Now.AddMinutes(-10) });
@@ -264,7 +333,22 @@ public sealed class TaskEvidenceTests
         public List<Notification> Notifications(WorkTask task, string type) => Store.Values.OfType<Notification>().Where(n => n.TaskId == task.TaskId && n.NotificationType == type).ToList();
         public Guid[] Recipients(Notification n) => Store.Values.OfType<NotificationRecipient>().Where(r => r.NotificationId == n.NotificationId).Select(r => r.UserId).ToArray();
 
-        public TaskEvidenceWork Evidence(Guid user) => new(Store, Current(user), Clock, notifier, Dispatch, schema, Files);
+        public OperationalEvent AutoEvent(WorkTask task, bool cleared, bool validMetric)
+        {
+            task.VerificationMode = TaskVerificationMode.Auto; task.VerificationMethod = TaskVerificationMethod.OperationalMetric;
+            task.EventId = Guid.NewGuid();
+            var ev = new OperationalEvent { EventId = task.EventId.Value, CameraId = Guid.NewGuid(), ZoneId = task.ZoneId,
+                MetricValue = cleared ? 1 : 5, Status = cleared ? "CLEARED" : "ACTIVE", DetectedAt = Now.AddMinutes(-5),
+                LastObservedAt = Now, ClearedAt = cleared ? Now : null, MetadataJson = MetricJson(cleared ? 1 : 5, validMetric) };
+            Store.Values.Add(ev);
+            return ev;
+        }
+
+        public static string MetricJson(decimal metric, bool valid) => valid
+            ? $$"""{"measurementMode":"QUEUE_LENGTH","thresholdUnit":"PEOPLE","metric":{{metric}},"warningThreshold":3}"""
+            : "{\"measurementMode\":\"QUEUE_LENGTH\",\"metric\":999}";
+
+        public TaskEvidenceWork Evidence(Guid user) => new(Store, Current(user), Clock, notifier, Dispatch, verification, schema, Files);
         public StaffTasks StaffTasks(Guid user) => new(Store, Current(user), Clock, calendar, roster, Dispatch, views, schema);
         public OperatorTasks Operator(Guid user) => new(Store, Current(user), Clock, roster, Dispatch, notifier, views, schema, new StaffTaskTests.OperatorQueries(Store));
 

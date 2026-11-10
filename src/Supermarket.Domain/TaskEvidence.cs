@@ -55,3 +55,44 @@ public static class TaskEvidenceRules
     public const string RejectedAfterReassignmentReason = "REJECTED_AFTER_REASSIGNMENT";
     public static readonly string[] ReassignmentExclusionReasons = [RejectedTwiceReason, RejectedAfterReassignmentReason];
 }
+
+public static class TaskVerificationMode
+{
+    public const string Auto = "AUTO", Manual = "MANUAL";
+}
+
+public static class TaskVerificationMethod
+{
+    public const string OperationalMetric = "OPERATIONAL_EVENT_METRIC";
+    public const string OperatorEvidence = "OPERATOR_EVIDENCE";
+    public const string MetricException = "OPERATOR_METRIC_EXCEPTION";
+}
+
+public static class TaskVerificationRules
+{
+    private static readonly string[] MetricTaskTypes = ["TT-01", "TT-02", "TT-03", "TT-04", "TT-05"];
+    private static readonly string[] AlwaysManualTaskTypes = ["TT-07", "TT-12", "TT-13", "TT-14", "TT-15"];
+
+    /// <summary>Snapshots the verification lane once; later dispatch/rework must not silently relax it.</summary>
+    public static void Initialize(WorkTask task, TaskType? taskType, string? slaPriorityCode = null)
+    {
+        if (!string.IsNullOrWhiteSpace(task.VerificationMode)) return;
+        var code = taskType?.Code?.Trim().ToUpperInvariant();
+        var manual = IsP1(task, slaPriorityCode)
+            || task.OriginType != TaskOrigin.OperationalEvent
+            || code is null || AlwaysManualTaskTypes.Contains(code) || !MetricTaskTypes.Contains(code);
+        task.VerificationMode = manual ? TaskVerificationMode.Manual : TaskVerificationMode.Auto;
+        task.VerificationMethod = manual ? TaskVerificationMethod.OperatorEvidence : TaskVerificationMethod.OperationalMetric;
+    }
+
+    public static void EnforceP1(WorkTask task, string? slaPriorityCode = null)
+    {
+        if (!IsP1(task, slaPriorityCode)) return;
+        task.VerificationMode = TaskVerificationMode.Manual;
+        task.VerificationMethod = TaskVerificationMethod.OperatorEvidence;
+    }
+
+    private static bool IsP1(WorkTask task, string? slaPriorityCode)
+        => task.Priority.Equals("P1", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(slaPriorityCode, "P1", StringComparison.OrdinalIgnoreCase);
+}

@@ -416,3 +416,9 @@ The SQL-backed historical integration suite was not used: it requires an absent 
 - The first rejected submission returns to the same Staff member for rework. Rejection two ends that assignment and immediately continues the D1 topology rings while excluding the prior performer. A rejected replacement submission stops automatic dispatch and notifies Operator; rejected performers remain excluded from automatic and manual candidates.
 - Acceptance now rechecks the Staff member against the Zone set represented by the offer's `dispatchScope`, allowing valid adjacent-Zone/Floor offers while still failing closed after a Zone assignment changes.
 - Focused Task evidence/dispatch suite: **39 passed, 0 failed, 0 skipped**. The regression verifies no repeated performer, no duplicate Task, immutable SLA snapshot/deadlines and one Operator escalation path.
+
+## D2 AUTO/MANUAL Task verification — 2026-11-10
+
+- Uses the existing V9 `Task.verification_mode` and `verification_method` columns; no schema or seed change. Operational Event TT-01–TT-05 select AUTO metric verification unless Task/SLA priority is P1. Incident, P1, TT-07, TT-12–TT-15 and unconfigured TaskTypes select MANUAL.
+- AUTO remains SUBMITTED while the Event is active. It verifies only after a CLEARED observation with a current, internally consistent metric contract and a recovery metric below the warning threshold. Missing source/metadata, inconsistent metric or invalid recovery fails safe to `MANUAL/OPERATOR_METRIC_EXCEPTION` and notifies Operator.
+- Task, offer and evidence contracts expose the selected verification mode/method. Focused rule/runtime/persistence/dispatch suite: **71 passed, 0 failed, 0 skipped**.

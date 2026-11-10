@@ -10,7 +10,7 @@ namespace Supermarket.Application;
 /// previous note. Verifying a Task never resolves its OperationalEvent or closes an Incident (BR-29).
 /// </remarks>
 public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IClock clock, TaskNotifier notifier, TaskDispatch dispatch,
-    ITaskSchema schema, ITaskEvidenceStorage files)
+    TaskVerification verification, ITaskSchema schema, ITaskEvidenceStorage files)
 {
     public const string Submitted = "TASK_SUBMITTED", Verified = "TASK_VERIFIED", Rejected = "TASK_REJECTED", ReassignmentRequired = "TASK_REASSIGNMENT_REQUIRED";
 
@@ -83,6 +83,8 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
             if (task.Status == WorkTaskStatus.Submitted) return 0;
             Workable(task);
             Fresh(task, request.ExpectedUpdatedAt);
+            var sla = IncidentSlaPolicyService.ReadSnapshot(task.SlaSnapshotJson);
+            TaskVerificationRules.Initialize(task, task.TaskTypeId is { } taskTypeId ? await store.Find<TaskType>(taskTypeId, ct) : null, sla?.PriorityCode);
             var drafts = await Drafts(taskId, ct);
             var hasAfterPhoto = drafts.Any(e => e.EvidenceType == TaskEvidenceType.AfterPhoto);
             var note = task.OriginType == TaskOrigin.Incident
@@ -110,8 +112,10 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
                     ReviewStatus = TaskEvidenceReview.Pending, CreatedAt = now }, ct);
             task.Status = WorkTaskStatus.Submitted; task.SubmittedAt = now;
             await store.Update(task, ct);
-            await notifier.Send(Submitted, "Task waiting for verification", $"{task.Title}: {Name(await store.Find<UserAccount>(current.UserId, ct))} submitted the work.",
-                task, await notifier.Operators(ct), "OPERATOR", ct);
+            var outcome = await verification.TryAuto(task, ct);
+            if (outcome is AutoVerificationOutcome.NotAuto)
+                await notifier.Send(Submitted, "Task waiting for verification", $"{task.Title}: {Name(await store.Find<UserAccount>(current.UserId, ct))} submitted the work.",
+                    task, await notifier.Operators(ct), "OPERATOR", ct);
             return 0;
         }, ct);
         return await Result(taskId, ct);
@@ -257,6 +261,8 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
         Fresh(task, expected);
         if (task.Status != WorkTaskStatus.Submitted)
             throw new ApplicationException("TASK_NOT_SUBMITTED", "Only a submitted task can be verified or rejected.");
+        if (task.VerificationMode == TaskVerificationMode.Auto)
+            throw new ApplicationException("AUTO_VERIFICATION_PENDING", "This task is waiting for its automatic verification condition.");
         var submission = (await store.List<TaskEvidence>(e => e.TaskId == taskId && e.EvidenceType == TaskEvidenceType.CompletionNote
             && e.ReviewStatus == TaskEvidenceReview.Pending, ct)).OrderByDescending(e => e.CreatedAt).FirstOrDefault()
             ?? throw new ApplicationException("TASK_NOT_SUBMITTED", "The task has no pending submission.");
@@ -317,7 +323,8 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
         }
         var drafts = rows.Where(e => e.ReviewStatus == TaskEvidenceReview.Draft && TaskEvidenceType.Photos.Contains(e.EvidenceType))
             .OrderBy(e => e.CreatedAt).Select(Photo).ToArray();
-        return new(task.TaskId, task.Status, requirement.BeforePhoto, requirement.AfterPhoto, task.RejectionCount, drafts,
+        return new(task.TaskId, task.Status, task.VerificationMode, task.VerificationMethod,
+            requirement.BeforePhoto, requirement.AfterPhoto, task.RejectionCount, drafts,
             submissions.OrderByDescending(s => s.SubmittedAt).ToArray());
     }
 

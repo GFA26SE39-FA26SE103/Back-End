@@ -253,7 +253,7 @@ public sealed class ShiftPlanningTests
         public StaffTasks StaffTasks(Guid user)
         {
             var roster = new StaffRoster(Store, Calendar);
-            var dispatch = new TaskDispatch(Store, roster, notifier, Clock, new TaskSchema());
+            var dispatch = new TaskDispatch(Store, roster, notifier, new TaskVerification(Store, Clock, notifier), Clock, new TaskSchema());
             return new(Store, Me(user), Clock, Calendar, roster, dispatch, new TaskViews(Store), new TaskSchema());
         }
     }

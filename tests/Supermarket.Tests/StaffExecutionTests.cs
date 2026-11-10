@@ -136,7 +136,8 @@ public sealed class StaffExecutionTests
                 new OperationalEventType { EventTypeId = eventTypeId, Code = "LONG_QUEUE", Name = "Long queue", MeasurementType = "QUEUE_LENGTH" },
                 new Shift { ShiftId = shiftId, WeekStart = new(2026, 10, 5), Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
             roster = new StaffRoster(Store, calendar);
-            dispatch = new TaskDispatch(Store, roster, new TaskNotifier(Store, Clock), Clock, schema);
+            var notifier = new TaskNotifier(Store, Clock);
+            dispatch = new TaskDispatch(Store, roster, notifier, new TaskVerification(Store, Clock, notifier), Clock, schema);
             views = new TaskViews(Store);
         }
 

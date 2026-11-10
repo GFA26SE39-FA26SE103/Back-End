@@ -24,6 +24,7 @@ public sealed class TaskViews(ISetupStore store)
             var firstPriority = context.FirstOfferPriority.GetValueOrDefault(t.TaskId);
             var sla = IncidentSlaPolicyService.ReadSnapshot(t.SlaSnapshotJson);
             return new StaffTaskView(t.TaskId, t.OriginType, SourceCode(t), ev is null ? null : context.EventTypes.GetValueOrDefault(ev.EventTypeId)?.Code, t.Title, t.Description, t.Priority,
+                t.VerificationMode, t.VerificationMethod,
                 firstPriority is not null && TaskRules.Rank(firstPriority) < TaskRules.Rank(t.Priority) ? firstPriority : null,
                 t.ZoneId, context.Zones.GetValueOrDefault(t.ZoneId)?.Name ?? "", ev is null ? null : context.Cameras.GetValueOrDefault(ev.CameraId)?.Code, t.Status,
                 current?.AssignmentType ?? TaskAssignmentType.Offer, t.CurrentAssigneeUserId, t.CurrentAssigneeUserId is { } id ? names.GetValueOrDefault(id) : null,
@@ -53,7 +54,8 @@ public sealed class TaskViews(ISetupStore store)
             var camera = ev is null ? null : context.Cameras.GetValueOrDefault(ev.CameraId);
             var (mode, unit) = Measurement(ev?.MetadataJson);
             return new TaskOfferView(o.OfferId, t.TaskId, t.OriginType, SourceCode(t), ev is null ? null : context.EventTypes.GetValueOrDefault(ev.EventTypeId)?.Code,
-                t.Title, t.Description, t.Priority, t.ZoneId, context.Zones.GetValueOrDefault(t.ZoneId)?.Name ?? "", camera?.Code, camera?.Name, ev?.MetricValue, mode, unit,
+                t.Title, t.Description, t.Priority, t.VerificationMode, t.VerificationMethod,
+                t.ZoneId, context.Zones.GetValueOrDefault(t.ZoneId)?.Name ?? "", camera?.Code, camera?.Name, ev?.MetricValue, mode, unit,
                 o.OfferedAt, manual ? 1 : allOffers.Count(a => a.TaskId == t.TaskId && a.DispatchCycleId == o.DispatchCycleId),
                 attempt, offerMaxAttempts, next, o.Status, o.DeclineReasonCode, ev?.ClearedAt,
                 o.StaffUserId, staffNames.GetValueOrDefault(o.StaffUserId), o.DispatchCycleId, o.WaveNumber, o.DispatchScope, o.ExpiresAt, o.RespondedAt);
