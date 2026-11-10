@@ -180,6 +180,15 @@ builder.Services.AddSingleton(services =>
     return new CameraHealthRuntimeState(options.BadObservationsToOpen, options.GoodObservationsToResolve);
 });
 builder.Services.AddScoped<AiPreview>();
+builder.Services.AddOptions<StaffReportAiOptions>().Bind(builder.Configuration.GetSection("StaffReportAi"))
+    .Validate(o => o.TimeoutSeconds is > 0 and <= 120, "StaffReportAi timeout must be 1 to 120 seconds.")
+    .ValidateOnStart();
+builder.Services.AddHttpClient<IStaffReportDraftClient, OpenAiStaffReportDraftClient>((services, client) =>
+{
+    var options = services.GetRequiredService<IOptions<StaffReportAiOptions>>().Value;
+    client.BaseAddress = new Uri("https://api.openai.com/v1/");
+    client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+});
 builder.Services.AddHttpClient<IAiPreviewClient, AiPreviewClient>((services, client) =>
 {
     var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiPreviewOptions>>().Value;

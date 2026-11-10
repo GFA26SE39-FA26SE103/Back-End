@@ -6,8 +6,41 @@ using Supermarket.Application;
 namespace Supermarket.Api.Controllers;
 
 [ApiController, Authorize, Route("api/staff-reports")]
-public sealed class StaffReportsController(StaffReportWork reports) : ControllerBase
+public sealed class StaffReportsController(StaffReportWork reports, IStaffReportDraftClient draftClient) : ControllerBase
 {
+    [HttpPost("draft"), Authorize(Roles = AccessRoles.Staff)]
+    [RequestSizeLimit(32L * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 32L * 1024 * 1024)]
+    public async Task<StaffReportDraftView> Draft([FromForm] StaffReportDraftForm form, CancellationToken ct)
+    {
+        var files = form.Photos ?? [];
+        if (files.Count > 3) throw new Supermarket.Application.ApplicationException("REPORT_PHOTO_LIMIT", "At most three photos are allowed.", 422);
+        if (form.Note.Length > 4000) throw new Supermarket.Application.ApplicationException("REPORT_NOTE_LIMIT", "Note is too long.", 422);
+        if (string.IsNullOrWhiteSpace(form.Note) && files.Count == 0)
+            throw new Supermarket.Application.ApplicationException("REPORT_INPUT_REQUIRED", "Provide text or a photo.", 422);
+        var images = new List<StaffReportDraftImage>(files.Count);
+        foreach (var file in files)
+        {
+            if (file.Length is <= 0 or > 10L * 1024 * 1024 || file.ContentType is not ("image/jpeg" or "image/png"))
+                throw new Supermarket.Application.ApplicationException("REPORT_PHOTO_INVALID", "Use a JPEG or PNG photo of at most 10 MB.", 422);
+            await using var stream = file.OpenReadStream();
+            using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer, ct);
+            var bytes = buffer.ToArray();
+            var valid = file.ContentType == "image/jpeg" && bytes.AsSpan().StartsWith(new byte[] { 0xFF, 0xD8, 0xFF })
+                || file.ContentType == "image/png" && bytes.AsSpan().StartsWith(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
+            if (!valid) throw new Supermarket.Application.ApplicationException("REPORT_PHOTO_INVALID", "Photo content does not match JPEG or PNG.", 422);
+            images.Add(new StaffReportDraftImage(file.ContentType, Convert.ToBase64String(bytes)));
+        }
+        var types = await reports.IncidentTypes(ct);
+        var draft = await draftClient.Analyze(new StaffReportDraftRequest(form.Note, images.ToArray(), types), ct);
+        var validType = types.Any(x => x.Code == draft.IncidentTypeCode);
+        var category = draft.ReportCategory is "POTENTIAL_INCIDENT" or "ROUTINE_REQUEST" ? draft.ReportCategory : null;
+        return draft with { ReportCategory = category,
+            IncidentTypeCode = category == "POTENTIAL_INCIDENT" && validType ? draft.IncidentTypeCode : null,
+            NeedsReview = draft.NeedsReview || category is null || (category == "POTENTIAL_INCIDENT" && !validType) };
+    }
+
     [HttpGet("incident-types"), Authorize(Roles = AccessRoles.Staff)]
     public Task<StaffReportIncidentTypeView[]> IncidentTypes(CancellationToken ct) => reports.IncidentTypes(ct);
 
@@ -75,6 +108,12 @@ public sealed class StaffReportsController(StaffReportWork reports) : Controller
     [HttpPut("{reportId:guid}/duplicate-decision"), Authorize(Roles = AccessRoles.Staff)]
     public Task<StaffReportView> SetDuplicateDecision(Guid reportId, StaffReportDuplicateDecisionRequest request, CancellationToken ct)
         => reports.SetDuplicateDecision(reportId, request, ct);
+}
+
+public sealed class StaffReportDraftForm
+{
+    public string Note { get; set; } = "";
+    public List<IFormFile>? Photos { get; set; }
 }
 
 public sealed class StaffReportSubmitForm
