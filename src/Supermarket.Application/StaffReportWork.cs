@@ -15,6 +15,8 @@ public sealed record StaffReportInput(Guid ReportId, Guid ZoneId, string Title, 
 }
 public sealed record StaffReportDuplicateDecisionRequest(string Decision);
 public sealed record StaffReportPhoto(Stream Content, string FileName, string ContentType, long Length);
+/// <summary>One recorded voice note for a report (BR-16 voice input); stored as-is, not transcribed by the backend.</summary>
+public sealed record StaffReportAudio(Stream Content, string FileName, string ContentType, long Length);
 public sealed record StaffReportMediaView(Guid MediaId, string ContentType, long SizeBytes, string ImageUrl);
 public sealed record StaffReportView(Guid ReportId, Guid ZoneId, Guid? IncidentTypeId, string? IncidentTypeCode,
     string Title, string? Description, string? LocationDescription, string Status, DateTime? ConfirmedAt,
@@ -23,6 +25,8 @@ public sealed record StaffReportView(Guid ReportId, Guid ZoneId, Guid? IncidentT
     public string? ReportCategory { get; init; }
     public string[] ConfirmedTaskTypeCodes { get; init; } = [];
     public string? ConfirmedScenarioCode { get; init; }
+    /// <summary>The recorded voice note, if any; download it from <c>ImageUrl</c> (same media route as photos).</summary>
+    public StaffReportMediaView? VoiceNote { get; init; }
 }
 public sealed record StaffReportIncidentView(Guid IncidentId, Guid StaffReportId, Guid IncidentTypeId);
 public sealed record StaffReportDuplicateView(Guid IncidentId, Guid[] TaskIds);
@@ -40,10 +44,20 @@ public sealed record StaffReportZoneView(Guid ZoneId, Guid FloorId, string Floor
 /// <summary>Separate capability from Task evidence; implementation reuses the existing authenticated Cloudinary uploader.</summary>
 public interface IStaffReportMediaStorage : ITaskEvidenceStorage;
 
+/// <summary>Voice notes are audio, not images, so they use their own validated storage.</summary>
+public interface IStaffReportAudioStorage
+{
+    Task<StoredEvidence> Save(Guid reportId, Stream content, string filename, string contentType, long length, CancellationToken ct);
+    Task<EvidenceFile?> Open(Guid reportId, string token, CancellationToken ct);
+    Task Delete(Guid reportId, string token, CancellationToken ct);
+}
+
 public sealed class StaffReportWork(ISetupStore store, ICurrentUser current, IClock clock,
     IStaffReportMediaStorage media, IncidentSlaPolicyService incidentSla, StandaloneTaskSlaPolicyService taskSla,
-    TaskNotifier notifier, TaskDispatch dispatch)
+    TaskNotifier notifier, TaskDispatch dispatch, IStaffReportAudioStorage? audio = null)
 {
+    public const string ImageMedia = "IMAGE", AudioMedia = "AUDIO";
+    public const long MaxVoiceBytes = 10L * 1024 * 1024;
     private const string AlreadyReported = "ALREADY_REPORTED";
     private const string DifferentIncident = "DIFFERENT_INCIDENT";
     private const string RoutineRequest = "ROUTINE_REQUEST";
@@ -116,7 +130,10 @@ public sealed class StaffReportWork(ISetupStore store, ICurrentUser current, ICl
         return tasks.Select(task => new StaffReportRoutineOverlapView(task.TaskId, task.OriginType, task.Status)).ToArray();
     }
 
-    public async Task<StaffReportView> Submit(StaffReportInput input, IReadOnlyList<StaffReportPhoto> photos, CancellationToken ct)
+    public Task<StaffReportView> Submit(StaffReportInput input, IReadOnlyList<StaffReportPhoto> photos, CancellationToken ct)
+        => Submit(input, photos, null, ct);
+
+    public async Task<StaffReportView> Submit(StaffReportInput input, IReadOnlyList<StaffReportPhoto> photos, StaffReportAudio? voice, CancellationToken ct)
     {
         UseCase.Staff(current);
         if (input.ReportId == Guid.Empty) throw new ApplicationException("REPORT_ID_REQUIRED", "Provide a report ID for safe retries.", 422);
@@ -173,6 +190,12 @@ public sealed class StaffReportWork(ISetupStore store, ICurrentUser current, ICl
         if (photos.Count > 3) throw new ApplicationException("REPORT_PHOTO_LIMIT", "At most three photos are allowed.", 422);
         if (photos.Any(p => p.Length is <= 0 or > 10L * 1024 * 1024))
             throw new ApplicationException("REPORT_PHOTO_SIZE", "Each photo must be at most 10 MB.", 422);
+        if (voice is not null)
+        {
+            if (voice.Length is <= 0 or > MaxVoiceBytes)
+                throw new ApplicationException("REPORT_VOICE_SIZE", "The voice note must be at most 10 MB.", 422);
+            if (audio is null) throw new ApplicationException("REPORT_VOICE_STORAGE_NOT_CONFIGURED", "Voice notes cannot be stored on this server.", 503);
+        }
 
         WorkTask? routineTask = null;
         if (incidentType is null && routineDecision != AlreadyCovered)
@@ -186,10 +209,12 @@ public sealed class StaffReportWork(ISetupStore store, ICurrentUser current, ICl
 
         var id = input.ReportId;
         var uploaded = new List<(StaffReportPhoto Photo, StoredEvidence Asset)>();
+        StoredEvidence? voiceAsset = null;
         try
         {
             foreach (var photo in photos)
                 uploaded.Add((photo, await media.Save(id, photo.Content, photo.FileName, photo.ContentType, photo.Length, ct)));
+            if (voice is not null) voiceAsset = await audio!.Save(id, voice.Content, voice.FileName, voice.ContentType, voice.Length, ct);
             var now = clock.UtcNow;
             var report = new Report { ReportId = id, ReportedByUserId = current.UserId, ZoneId = input.ZoneId,
                 Title = title, Description = input.Description?.Trim(), LocationDescription = input.LocationDescription?.Trim(),
@@ -198,8 +223,11 @@ public sealed class StaffReportWork(ISetupStore store, ICurrentUser current, ICl
                 IncidentTypeId = incidentType?.IncidentTypeId, ReportCategory = category, Status = "CONFIRMED", ConfirmedAt = now,
                 ClassifiedAt = incidentType is null ? null : now };
             var rows = uploaded.Select(x => new StaffReportMedium { MediaId = Guid.NewGuid(), ReportId = id,
-                UploadedByUserId = current.UserId, MediaType = "IMAGE", StorageKey = x.Asset.Token,
-                ContentType = x.Asset.ContentType, SizeBytes = x.Photo.Length, UploadedAt = now }).ToArray();
+                UploadedByUserId = current.UserId, MediaType = ImageMedia, StorageKey = x.Asset.Token,
+                ContentType = x.Asset.ContentType, SizeBytes = x.Photo.Length, UploadedAt = now }).ToList();
+            if (voiceAsset is not null)
+                rows.Add(new StaffReportMedium { MediaId = Guid.NewGuid(), ReportId = id, UploadedByUserId = current.UserId, MediaType = AudioMedia,
+                    StorageKey = voiceAsset.Token, ContentType = voiceAsset.ContentType, SizeBytes = voice!.Length, UploadedAt = now });
             Guid? createdIncidentId = null;
             await store.Transaction(async () =>
             {
@@ -241,6 +269,11 @@ public sealed class StaffReportWork(ISetupStore store, ICurrentUser current, ICl
             {
                 // Preserve the original transaction/upload error; orphan cleanup is best effort.
                 try { await media.Delete(id, x.Asset.Token, CancellationToken.None); }
+                catch (Exception e) when (e is IOException or HttpRequestException or OperationCanceledException or ApplicationException) { }
+            }
+            if (voiceAsset is not null)
+            {
+                try { await audio!.Delete(id, voiceAsset.Token, CancellationToken.None); }
                 catch (Exception e) when (e is IOException or HttpRequestException or OperationCanceledException or ApplicationException) { }
             }
             throw;
@@ -285,6 +318,8 @@ public sealed class StaffReportWork(ISetupStore store, ICurrentUser current, ICl
         CheckReader(report);
         var row = UseCase.Found(await store.Find<StaffReportMedium>(mediaId, ct));
         if (row.ReportId != id) throw new ApplicationException("NOT_FOUND", "Photo not found.", 404);
+        if (row.MediaType == AudioMedia)
+            return UseCase.Found(audio is null ? null : await audio.Open(id, row.StorageKey, ct));
         return UseCase.Found(await media.Open(id, row.StorageKey, ct));
     }
 
@@ -508,10 +543,14 @@ public sealed class StaffReportWork(ISetupStore store, ICurrentUser current, ICl
     }
 
     private static StaffReportView View(Report report, string? code, IEnumerable<StaffReportMedium> rows, Guid? incidentId)
-        => new(report.ReportId, report.ZoneId, report.IncidentTypeId, code, report.Title, report.Description,
+    {
+        StaffReportMediaView Media(StaffReportMedium x) => new(x.MediaId, x.ContentType, x.SizeBytes, $"/api/staff-reports/{report.ReportId}/media/{x.MediaId}");
+        var all = rows.ToList();
+        return new(report.ReportId, report.ZoneId, report.IncidentTypeId, code, report.Title, report.Description,
             report.LocationDescription, report.Status, report.ConfirmedAt,
-            rows.Select(x => new StaffReportMediaView(x.MediaId, x.ContentType, x.SizeBytes,
-                $"/api/staff-reports/{report.ReportId}/media/{x.MediaId}")).ToArray(), incidentId)
+            all.Where(x => x.MediaType != AudioMedia).Select(Media).ToArray(), incidentId)
         { ReportCategory = report.ReportCategory, ConfirmedTaskTypeCodes = ReadTaskCodes(report.OriginalInputJson),
-            ConfirmedScenarioCode = ReadScenarioCode(report.OriginalInputJson) };
+            ConfirmedScenarioCode = ReadScenarioCode(report.OriginalInputJson),
+            VoiceNote = all.Where(x => x.MediaType == AudioMedia).Select(Media).FirstOrDefault() };
+    }
 }

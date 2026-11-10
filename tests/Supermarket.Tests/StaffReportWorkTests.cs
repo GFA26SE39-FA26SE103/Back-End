@@ -32,6 +32,58 @@ public sealed class StaffReportWorkTests
     }
 
     [Fact]
+    public async Task AVoiceNoteIsStoredAsAudioMediaApartFromThePhotos()
+    {
+        var (_, store) = World("ACTIVE");
+        store.Values.Add(Policy());
+        var voice = new Voice();
+        var work = CreateWork(store, new User("STAFF"), new Clock(), voice);
+        var view = await work.Submit(Input("SAFETY_HAZARD"), [new StaffReportPhoto(Stream.Null, "hazard.jpg", "image/jpeg", 5)],
+            new StaffReportAudio(Stream.Null, "note.m4a", "audio/mp4", 2048), default);
+
+        var photo = Assert.Single(view.Photos);
+        Assert.Equal("image/jpeg", photo.ContentType);
+        Assert.NotNull(view.VoiceNote);
+        Assert.Equal(("audio/mp4", 2048L), (view.VoiceNote!.ContentType, view.VoiceNote.SizeBytes));
+        var audio = Assert.Single(store.Values.OfType<StaffReportMedium>(), m => m.MediaType == StaffReportWork.AudioMedia);
+        Assert.Equal("cla1:test-voice", audio.StorageKey);
+        Assert.Equal("audio/mp4", (await work.Image(view.ReportId, audio.MediaId, default)).ContentType);
+        Assert.Equal(view.VoiceNote.MediaId, (await work.Get(view.ReportId, default)).VoiceNote!.MediaId);
+    }
+
+    [Fact]
+    public async Task AnOversizedVoiceNoteOrAServerWithoutAudioStorageSavesNothing()
+    {
+        var (withoutAudio, store) = World("ACTIVE");
+        store.Values.Add(Policy());
+        var note = new StaffReportAudio(Stream.Null, "note.m4a", "audio/mp4", 2048);
+        Assert.Equal("REPORT_VOICE_STORAGE_NOT_CONFIGURED",
+            (await Assert.ThrowsAsync<AppError>(() => withoutAudio.Submit(Input("SAFETY_HAZARD"), [], note, default))).Code);
+        var work = CreateWork(store, new User("STAFF"), new Clock(), new Voice());
+        Assert.Equal("REPORT_VOICE_SIZE", (await Assert.ThrowsAsync<AppError>(() => work.Submit(Input("SAFETY_HAZARD"), [],
+            note with { Length = StaffReportWork.MaxVoiceBytes + 1 }, default))).Code);
+        Assert.Empty(store.Values.OfType<StaffReport>());
+        Assert.Empty(store.Values.OfType<StaffReportMedium>());
+    }
+
+    [Theory]
+    [InlineData(new byte[] { 0, 0, 0, 0x20, (byte)'f', (byte)'t', (byte)'y', (byte)'p', (byte)'M', (byte)'4', (byte)'A', (byte)' ' }, ".m4a")]
+    [InlineData(new byte[] { (byte)'I', (byte)'D', (byte)'3', 4, 0, 0 }, ".mp3")]
+    [InlineData(new byte[] { (byte)'R', (byte)'I', (byte)'F', (byte)'F', 0, 0, 0, 0, (byte)'W', (byte)'A', (byte)'V', (byte)'E' }, ".wav")]
+    [InlineData(new byte[] { (byte)'O', (byte)'g', (byte)'g', (byte)'S' }, ".ogg")]
+    [InlineData(new byte[] { 0xFF, 0xF1, 0x50, 0x80 }, ".aac")]
+    public void VoiceNoteFormatsAreRecognisedByTheirBytes(byte[] header, string extension)
+        => Assert.Equal(extension, Supermarket.Infrastructure.Tasks.AudioContent.Detect(header)?.Extension);
+
+    [Fact]
+    public async Task AVoiceNoteThatIsNotAudioIsRejected()
+    {
+        var bytes = new MemoryStream([0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3, 4]);
+        var error = await Assert.ThrowsAsync<AppError>(() => Supermarket.Infrastructure.Tasks.AudioContent.Read(bytes, bytes.Length, StaffReportWork.MaxVoiceBytes, default));
+        Assert.Equal("REPORT_VOICE_FORMAT", error.Code);
+    }
+
+    [Fact]
     public async Task OrdinaryTaskReportHasNoIncidentType()
     {
         var (work, store) = World("ACTIVE");
@@ -379,13 +431,13 @@ public sealed class StaffReportWorkTests
         return CreateWork(store, new User("OPERATOR"), clock);
     }
 
-    private static StaffReportWork CreateWork(MonitoringSetupTests.MemoryStore store, User current, Clock clock)
+    private static StaffReportWork CreateWork(MonitoringSetupTests.MemoryStore store, User current, Clock clock, IStaffReportAudioStorage? audio = null)
     {
         var notifier = new TaskNotifier(store, clock);
         var roster = new StaffRoster(store, new StoreCalendar(StoreCalendar.Zone(null)));
         var dispatch = new TaskDispatch(store, roster, notifier, clock, new Schema());
         return new StaffReportWork(store, current, clock, new Media(), new IncidentSlaPolicyService(store, clock),
-            new StandaloneTaskSlaPolicyService(store, clock), notifier, dispatch);
+            new StandaloneTaskSlaPolicyService(store, clock), notifier, dispatch, audio);
     }
 
     private sealed class Schema : ITaskSchema { public Task<bool> Ready(CancellationToken ct) => Task.FromResult(true); }
@@ -396,6 +448,16 @@ public sealed class StaffReportWorkTests
         public string Role => role;
     }
     private sealed class Clock : IClock { public DateTime UtcNow => new(2026, 11, 9, 9, 0, 0, DateTimeKind.Utc); }
+    private sealed class Voice : IStaffReportAudioStorage
+    {
+        public List<string> Deleted { get; } = [];
+        public Task<StoredEvidence> Save(Guid id, Stream content, string name, string type, long length, CancellationToken ct)
+            => Task.FromResult(new StoredEvidence("cla1:test-voice", "audio/mp4"));
+        public Task<EvidenceFile?> Open(Guid id, string key, CancellationToken ct)
+            => Task.FromResult<EvidenceFile?>(key == "cla1:test-voice" ? new EvidenceFile(Stream.Null, "audio/mp4") : null);
+        public Task Delete(Guid id, string key, CancellationToken ct) { Deleted.Add(key); return Task.CompletedTask; }
+    }
+
     private sealed class Media : IStaffReportMediaStorage
     {
         public Task<StoredEvidence> Save(Guid id, Stream content, string name, string type, long length, CancellationToken ct)

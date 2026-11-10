@@ -26,8 +26,9 @@ public sealed class StaffReportsController(StaffReportWork reports) : Controller
         => reports.RoutineOverlaps(zoneId, taskTypeCode, ct);
 
     [HttpPost, Authorize(Roles = AccessRoles.Staff)]
-    [RequestSizeLimit(32L * 1024 * 1024)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 32L * 1024 * 1024)]
+    // Three 10 MB photos plus one 10 MB voice note, with room for the form fields.
+    [RequestSizeLimit(48L * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 48L * 1024 * 1024)]
     public async Task<StaffReportView> Submit([FromForm] StaffReportSubmitForm form, CancellationToken ct)
     {
         var files = form.Photos ?? [];
@@ -35,6 +36,13 @@ public sealed class StaffReportsController(StaffReportWork reports) : Controller
         var streams = new List<Stream>();
         try
         {
+            StaffReportAudio? voice = null;
+            if (form.Voice is { } recording)
+            {
+                var voiceStream = recording.OpenReadStream();
+                streams.Add(voiceStream);
+                voice = new StaffReportAudio(voiceStream, recording.FileName, recording.ContentType, recording.Length);
+            }
             var photos = new List<StaffReportPhoto>(files.Count);
             foreach (var file in files)
             {
@@ -45,7 +53,7 @@ public sealed class StaffReportsController(StaffReportWork reports) : Controller
             return await reports.Submit(new StaffReportInput(form.ReportId, form.ZoneId, form.Title, form.Description, form.LocationDescription,
                 form.IncidentTypeCode, form.DuplicateDecision) { ReportCategory = form.ReportCategory,
                 TaskTypeCodes = form.TaskTypeCodes?.ToArray(), ConfirmedScenarioCode = form.ConfirmedScenarioCode,
-                RoutineTaskDecision = form.RoutineTaskDecision }, photos, ct);
+                RoutineTaskDecision = form.RoutineTaskDecision }, photos, voice, ct);
         }
         finally { foreach (var stream in streams) await stream.DisposeAsync(); }
     }
@@ -83,4 +91,6 @@ public sealed class StaffReportSubmitForm
     [MaxLength(32)] public string? DuplicateDecision { get; set; }
     [MaxLength(32)] public string? RoutineTaskDecision { get; set; }
     public List<IFormFile>? Photos { get; set; }
+    /// <summary>Optional recorded voice note (M4A/AAC, MP3, WAV, OGG or WEBM, at most 10 MB).</summary>
+    public IFormFile? Voice { get; set; }
 }
