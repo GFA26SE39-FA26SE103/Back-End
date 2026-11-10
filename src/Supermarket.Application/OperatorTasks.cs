@@ -6,11 +6,51 @@ public interface IOperatorTaskQueries
     Task<Guid[]> NeedingAssignmentIds(int limit, CancellationToken ct);
 }
 
+public sealed record ManualTaskRequest(Guid TaskId, Guid ZoneId, string TaskTypeCode, string Title, string? Instructions);
+
 /// <summary>Operator task board and manual assignment after escalation (BR-20, BR-22). Staff must accept a manual offer.</summary>
 public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, IClock clock, StaffRoster roster, TaskDispatch dispatch, TaskNotifier notifier, TaskViews views,
-    ITaskSchema schema, IOperatorTaskQueries queries)
+    ITaskSchema schema, IOperatorTaskQueries queries, StandaloneTaskSlaPolicyService taskSla)
 {
     private const int ResultLimit = 200;
+
+    public async Task<StaffTaskView> CreateManual(ManualTaskRequest request, CancellationToken ct)
+    {
+        UseCase.Operator(current);
+        await schema.Require(ct);
+        if (request.TaskId == Guid.Empty || request.ZoneId == Guid.Empty)
+            throw new ApplicationException("TASK_SOURCE_REQUIRED", "Provide Task and Zone IDs.", 422);
+        var title = Rules.Text(request.Title, 200, "Title").Trim();
+        Rules.Optional(request.Instructions, 4000, "Instructions");
+        var code = Rules.Text(request.TaskTypeCode, 50, "Task type code").Trim().ToUpperInvariant();
+        if (!Enumerable.Range(1, 11).Select(number => $"TT-{number:00}").Contains(code))
+            throw new ApplicationException("MANUAL_TASK_TYPE_INVALID", "Select an approved standalone Task type.", 422);
+        var types = await store.List<TaskType>(item => item.Code == code, ct);
+        if (types.Count != 1) throw new ApplicationException("MANUAL_TASK_TYPE_INVALID", "Task type is missing or ambiguous.", 422);
+        var type = types[0];
+        if (type.RequiredSpecialtyId == Guid.Empty)
+            throw new ApplicationException("MANUAL_TASK_TYPE_INVALID", "Task type has no required specialty.", 422);
+        var zone = UseCase.Found(await store.Find<Zone>(request.ZoneId, ct));
+        if (zone.Status != "ACTIVE") throw new ApplicationException("ZONE_INACTIVE", "The selected Zone is inactive.", 422);
+        var task = await store.Transaction(async () =>
+        {
+            var existing = await store.Find<WorkTask>(request.TaskId, ct);
+            if (existing is not null)
+            {
+                if (existing.OriginType != TaskOrigin.Manual || existing.ZoneId != request.ZoneId || existing.TaskTypeId != type.TaskTypeId
+                    || existing.Title != title || existing.Description != request.Instructions?.Trim())
+                    throw new ApplicationException("TASK_ID_CONFLICT", "This Task ID was used for different content.", 409);
+                return existing;
+            }
+            var created = new WorkTask { TaskId = request.TaskId, ZoneId = request.ZoneId, OriginType = TaskOrigin.Manual,
+                TaskTypeId = type.TaskTypeId, Title = title, Description = request.Instructions?.Trim(), Status = WorkTaskStatus.Offered };
+            await taskSla.Apply(created, ct);
+            await store.Add(created, ct);
+            await dispatch.OfferStandaloneTask(created, ct);
+            return created;
+        }, ct);
+        return (await views.Tasks([task], ct)).Single();
+    }
 
     public async Task<TaskOfferView[]> Offers(string? status, Guid? taskId, CancellationToken ct)
     {

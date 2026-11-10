@@ -74,6 +74,7 @@ builder.Services.PostConfigure<TaskEvidenceOptions>(options =>
     if (string.IsNullOrWhiteSpace(options.Provider)) options.Provider = builder.Configuration["FloorPlan:Provider"] ?? "Local";
 });
 builder.Services.Configure<ShiftSwapWorkerOptions>(builder.Configuration.GetSection("ShiftSwaps"));
+builder.Services.Configure<SlaWorkerOptions>(builder.Configuration.GetSection("SlaMonitor"));
 // Shift times are local store times; the default is the store's Vietnam time zone.
 builder.Services.AddSingleton(new StoreCalendar(StoreCalendar.Zone(builder.Configuration["Store:TimeZone"])));
 builder.Services.AddOptions<AiPreviewOptions>().Bind(builder.Configuration.GetSection("AiPreview"))
@@ -132,9 +133,15 @@ builder.Services.AddScoped<TaskViews>();
 builder.Services.AddScoped<StaffTasks>();
 builder.Services.AddScoped<OperatorTasks>();
 builder.Services.AddScoped<IncidentTypeCatalog>();
+builder.Services.AddScoped<StaffReportWork>();
+builder.Services.AddScoped<SlaMonitor>();
+builder.Services.Configure<StaffReportMediaOptions>(builder.Configuration.GetSection("StaffReportMedia"));
 builder.Services.AddScoped<IncidentSlaPolicies>();
 builder.Services.AddScoped<LocalTaskEvidenceStorage>();
 builder.Services.AddHttpClient<CloudinaryTaskEvidenceStorage>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<IStaffReportMediaStorage, CloudinaryStaffReportMediaStorage>();
+builder.Services.AddHttpClient<IStaffReportAudioStorage, CloudinaryStaffReportAudioStorage>(client => client.Timeout = Timeout.InfiniteTimeSpan)
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddScoped<ITaskEvidenceStorage, TaskEvidenceStorage>();
 builder.Services.AddScoped<TaskEvidenceWork>();
@@ -155,8 +162,10 @@ builder.Services.AddScoped<SwapPlanner>();
 builder.Services.AddScoped<ShiftSwaps>();
 builder.Services.AddScoped<ShiftPlanning>();
 builder.Services.AddHostedService<ShiftSwapWorker>();
+builder.Services.AddHostedService<SlaWorker>();
 builder.Services.AddScoped<MonitoringIncidentWriter>();
 builder.Services.AddScoped<IncidentSlaPolicyService>();
+builder.Services.AddScoped<StandaloneTaskSlaPolicyService>();
 builder.Services.AddScoped<MonitoringLive>();
 builder.Services.AddSingleton<MonitoringCameraCoordinator>();
 builder.Services.AddSingleton<IMonitoringRuntimeState>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());
@@ -173,6 +182,15 @@ builder.Services.AddSingleton(services =>
     return new CameraHealthRuntimeState(options.BadObservationsToOpen, options.GoodObservationsToResolve);
 });
 builder.Services.AddScoped<AiPreview>();
+builder.Services.AddOptions<StaffReportAiOptions>().Bind(builder.Configuration.GetSection("StaffReportAi"))
+    .Validate(o => o.TimeoutSeconds is > 0 and <= 120, "StaffReportAi timeout must be 1 to 120 seconds.")
+    .ValidateOnStart();
+builder.Services.AddHttpClient<IStaffReportDraftClient, OpenAiStaffReportDraftClient>((services, client) =>
+{
+    var options = services.GetRequiredService<IOptions<StaffReportAiOptions>>().Value;
+    client.BaseAddress = new Uri("https://api.openai.com/v1/");
+    client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+});
 builder.Services.AddHttpClient<IAiPreviewClient, AiPreviewClient>((services, client) =>
 {
     var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiPreviewOptions>>().Value;

@@ -20,6 +20,7 @@ public sealed class SlaPolicy : TrackedEntity
     public string ProblemDomain { get; set; } = "";
     public Guid? EventTypeId { get; set; }
     public Guid? IncidentTypeId { get; set; }
+    public Guid? TaskTypeId { get; set; }
     public string PriorityCode { get; set; } = "";
     public int ResponseTargetSec { get; set; }
     public int ResolutionTargetSec { get; set; }

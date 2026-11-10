@@ -26,4 +26,6 @@ public partial class IncidentType
     public virtual ICollection<MonitoringRule> MonitoringRules { get; set; } = new List<MonitoringRule>();
 
     public virtual Slapolicy? Slapolicy { get; set; }
+
+    public virtual ICollection<StaffReport> StaffReports { get; set; } = new List<StaffReport>();
 }
