@@ -4,6 +4,7 @@
     <Mf01SchemaPath Condition="'$(Mf01SchemaPath)' == ''">$(MSBuildThisFileDirectory)../../../../Database/FA26SE103_Database_V0.1.sql</Mf01SchemaPath>
     <Mf01MonitoringMigrationPath Condition="'$(Mf01MonitoringMigrationPath)' == ''">$(MSBuildThisFileDirectory)../../../../Database/migrations/20261003_01_monitoring_rules_erd_v3.sql</Mf01MonitoringMigrationPath>
     <Mf02MonitoringRuntimeMigrationPath Condition="'$(Mf02MonitoringRuntimeMigrationPath)' == ''">$(MSBuildThisFileDirectory)../../../../Database/migrations/20261003_02_monitoring_runtime_erd_v3.sql</Mf02MonitoringRuntimeMigrationPath>
+    <CurrentDatabasePath Condition="'$(CurrentDatabasePath)' == ''">$(MSBuildThisFileDirectory)../../../Database</CurrentDatabasePath>
   </PropertyGroup>
   <ItemGroup><ProjectReference Include="../../src/Supermarket.Api/Supermarket.Api.csproj"/></ItemGroup>
   <ItemGroup Condition="Exists('$(Mf01SchemaPath)')"><None Include="$(Mf01SchemaPath)" Link="FA26SE103_Database_V0.1.sql" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
@@ -13,4 +14,16 @@
   <ItemGroup><PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.4.0"/><PackageReference Include="xunit" Version="2.9.3"/><PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" PrivateAssets="all"/><PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13"/><PackageReference Include="coverlet.collector" Version="6.0.4" PrivateAssets="all"/><PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.21"/></ItemGroup>
   <ItemGroup Condition="Exists('$(Mf02MonitoringRuntimeMigrationPath)')"><None Include="$(Mf02MonitoringRuntimeMigrationPath)" Link="monitoring_runtime_erd_v3.sql" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
   <Target Name="RemoveUnavailableMonitoringRuntimeMigration" BeforeTargets="CopyFilesToOutputDirectory" Condition="!Exists('$(Mf02MonitoringRuntimeMigrationPath)')"><Delete Files="$(OutDir)monitoring_runtime_erd_v3.sql"/></Target>
+  <ItemGroup>
+    <None Include="$(CurrentDatabasePath)/Backup18102026.sql" Link="CurrentSchema/Backup18102026.sql" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(CurrentDatabasePath)/Backup18102026.sql')" />
+    <None Include="$(CurrentDatabasePath)/FA26SE103_Database_V2.sql" Link="CurrentSchema/FA26SE103_Database_V2.sql" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(CurrentDatabasePath)/FA26SE103_Database_V2.sql')" />
+    <None Include="$(CurrentDatabasePath)/FA26SE103_Database_V3.sql" Link="CurrentSchema/FA26SE103_Database_V3.sql" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(CurrentDatabasePath)/FA26SE103_Database_V3.sql')" />
+    <None Include="$(CurrentDatabasePath)/FA26SE103_Database_V4.sql" Link="CurrentSchema/FA26SE103_Database_V4.sql" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(CurrentDatabasePath)/FA26SE103_Database_V4.sql')" />
+    <None Include="$(CurrentDatabasePath)/FA26SE103_Database_V5.sql" Link="CurrentSchema/FA26SE103_Database_V5.sql" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(CurrentDatabasePath)/FA26SE103_Database_V5.sql')" />
+    <None Include="$(CurrentDatabasePath)/FA26SE103_Database_V6_Cleanup.sql" Link="CurrentSchema/FA26SE103_Database_V6_Cleanup.sql" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(CurrentDatabasePath)/FA26SE103_Database_V6_Cleanup.sql')" />
+    <None Include="$(CurrentDatabasePath)/FA26SE103_Database_V7_Weekly_Work_Shifts.sql" Link="CurrentSchema/FA26SE103_Database_V7_Weekly_Work_Shifts.sql" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(CurrentDatabasePath)/FA26SE103_Database_V7_Weekly_Work_Shifts.sql')" />
+    <None Include="$(CurrentDatabasePath)/FA26SE103_Database_V8_Notification_Settings.sql" Link="CurrentSchema/FA26SE103_Database_V8_Notification_Settings.sql" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(CurrentDatabasePath)/FA26SE103_Database_V8_Notification_Settings.sql')" />
+    <None Include="$(CurrentDatabasePath)/FA26SE103_Database_V9_Migration.sql" Link="CurrentSchema/FA26SE103_Database_V9_Migration.sql" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(CurrentDatabasePath)/FA26SE103_Database_V9_Migration.sql')" />
+    <None Include="$(CurrentDatabasePath)/FA26SE103_Database_V10_Seeds.sql" Link="CurrentSchema/FA26SE103_Database_V10_Seeds.sql" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(CurrentDatabasePath)/FA26SE103_Database_V10_Seeds.sql')" />
+  </ItemGroup>
 </Project>
