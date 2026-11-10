@@ -68,11 +68,13 @@ public sealed class MonitoringIncidentWriterTests
             Guid.Empty,"",null,"INCIDENT");
         var zone=new MonitoringZoneSnapshot(Guid.NewGuid(),"ROI",Guid.NewGuid(),clock.UtcNow,[],.5m,[rule]);
         var snapshot=new MonitoringCameraSnapshot(Guid.NewGuid(),new(),"f",[zone]);
+        store.Values.Add(new Incident { IncidentId=Guid.NewGuid(), StaffReportId=Guid.NewGuid(),
+            ZoneId=zone.ZoneId, IncidentTypeId=incidentTypeId, SourceType="STAFF_REPORT" });
         var measurement=new AiZoneMeasurement(zone.ZoneId,zone.ConfigId,zone.ConfigVersion,1,0);
         var result=await writer.Apply(new(snapshot,zone,rule,new(1,Guid.NewGuid(),Guid.NewGuid(),1,clock.UtcNow,0,"f",[measurement]),measurement,
             new(new(),"CRITICAL",0,0,"THRESHOLD_SUSTAINED"),true),default);
 
-        var incident=Assert.Single(store.Values.OfType<Incident>());
+        var incident=Assert.Single(store.Values.OfType<Incident>(), i=>i.MonitoringRuleId==ruleId);
         Assert.Equal(result.IncidentId,incident.IncidentId);
         Assert.Equal(ruleId,incident.MonitoringRuleId);
         Assert.Equal(incidentTypeId,incident.IncidentTypeId);

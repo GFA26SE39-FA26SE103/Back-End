@@ -10,6 +10,4 @@ appsettings.Local.json
 *.pem
 *.key
 .vs/
-docs/superpowers/plans/2026-11-06-after-review-contract-completion.md
-docs/superpowers/plans/2026-11-06-mf02-review2-completion.md
 /docs
