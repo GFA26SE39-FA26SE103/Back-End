@@ -36,6 +36,7 @@ public sealed class TaskFlowSqlTests(SqlApiFixture fixture)
         {
             var staffRole = Assert.Single(await store.List<Role>(role => role.Name == "STAFF"));
             var adminRole = Assert.Single(await store.List<Role>(role => role.Name == "ADMIN"));
+            var operatorRole = Assert.Single(await store.List<Role>(role => role.Name == "OPERATOR"));
             var taskType = Assert.Single(await store.List<TaskType>(type => type.Code == "TT-01"));
             var ids = new FixtureIds();
             var staff = Enumerable.Range(0, 5).Select(_ => Guid.NewGuid()).ToArray();
@@ -46,6 +47,11 @@ public sealed class TaskFlowSqlTests(SqlApiFixture fixture)
                 {
                     UserId = ids.Admin, RoleId = adminRole.RoleId, Email = $"d7-admin-{ids.Token}@test.local",
                     PasswordHash = "fixture-only", FullName = "D7 Admin", Code = UserAccount.CodeFor(ids.Admin)
+                });
+                await store.Add(new UserAccount
+                {
+                    UserId = ids.Operator, RoleId = operatorRole.RoleId, Email = $"d7-operator-{ids.Token}@test.local",
+                    PasswordHash = "fixture-only", FullName = "D7 Operator", Code = UserAccount.CodeFor(ids.Operator)
                 });
                 await store.Add(new Supermarket.Domain.Supermarket { SupermarketId = ids.Market, Code = $"D7-{ids.Token}", Name = "D7 SQL market" });
                 foreach (var floor in ids.Floors)
@@ -191,6 +197,95 @@ public sealed class TaskFlowSqlTests(SqlApiFixture fixture)
             Assert.Null(acceptedTask.VerifiedAt);
             Assert.Equal(acceptedDeadlines, (acceptedTask.ResponseDeadlineAt, acceptedTask.ResolutionDeadlineAt, acceptedTask.SlaSnapshotJson));
             Assert.Single(await store.List<Notification>(notification => notification.TaskId == acceptedTask.TaskId && notification.NotificationType == TaskNotifier.EventCleared));
+
+            // The SLA priority, not the CRITICAL event alert level, selected the AUTO lane.
+            Assert.Equal(("MEDIUM", TaskVerificationMode.Auto, TaskVerificationMethod.OperationalMetric),
+                (acceptedTask.Priority, acceptedTask.VerificationMode, acceptedTask.VerificationMethod));
+            await staffTasks.Start(acceptedTask.TaskId, default);
+            var evidenceFiles = new UnusedEvidenceStorage();
+            var staffEvidence = new TaskEvidenceWork(store, new Actor(acceptedOffer.StaffUserId), clock, notifier, dispatch, verification, schema, evidenceFiles);
+            var operatorEvidence = new TaskEvidenceWork(store, new Actor(ids.Operator, "OPERATOR"), clock, notifier, dispatch, verification, schema, evidenceFiles);
+
+            // Event() deliberately omits the strict `metric` field. AUTO must fail closed to Operator review.
+            await staffEvidence.Submit(acceptedTask.TaskId, new("Opened another checkout"), default);
+            acceptedTask = Assert.Single(await store.List<WorkTask>(task => task.TaskId == acceptedTask.TaskId));
+            Assert.Equal((WorkTaskStatus.Submitted, TaskVerificationMode.Manual, TaskVerificationMethod.MetricException),
+                (acceptedTask.Status, acceptedTask.VerificationMode, acceptedTask.VerificationMethod));
+            Assert.Single(await store.List<Notification>(notification => notification.TaskId == acceptedTask.TaskId
+                && notification.NotificationType == TaskVerification.VerificationException));
+
+            var firstRejection = await operatorEvidence.Reject(acceptedTask.TaskId, new("Queue is still above target"), default);
+            Assert.Equal((WorkTaskStatus.InProgress, 1, acceptedOffer.StaffUserId),
+                (firstRejection.Status, firstRejection.RejectionCount, firstRejection.AssigneeUserId));
+
+            clock.UtcNow = clock.UtcNow.AddMinutes(1);
+            await staffEvidence.Submit(acceptedTask.TaskId, new("Opened a second checkout"), default);
+            var secondRejection = await operatorEvidence.Reject(acceptedTask.TaskId, new("Recovery is still insufficient"), default);
+            Assert.Equal((WorkTaskStatus.Offered, 2, (Guid?)null),
+                (secondRejection.Status, secondRejection.RejectionCount, secondRejection.AssigneeUserId));
+            var replacementOffer = Assert.Single(await store.List<TaskOffer>(offer => offer.TaskId == acceptedTask.TaskId
+                && offer.Status == TaskOfferStatus.Pending));
+            Assert.Equal((staff[1], 2, TaskDispatchScope.AdjacentSameFloor),
+                (replacementOffer.StaffUserId, replacementOffer.WaveNumber, replacementOffer.DispatchScope));
+            Assert.Single(await store.List<TaskAssignmentHistory>(assignment => assignment.TaskId == acceptedTask.TaskId
+                && assignment.StaffUserId == acceptedOffer.StaffUserId && assignment.Reason == TaskEvidenceRules.RejectedTwiceReason));
+            var closedOriginalOffer = Assert.Single(await store.List<TaskOffer>(offer => offer.OfferId == acceptedOffer.OfferId));
+            Assert.Equal((TaskOfferStatus.Cancelled, TaskEvidenceRules.RejectedTwiceReason),
+                (closedOriginalOffer.Status, closedOriginalOffer.DeclineReasonCode));
+            acceptedTask = Assert.Single(await store.List<WorkTask>(task => task.TaskId == acceptedTask.TaskId));
+            Assert.Equal(acceptedDeadlines, (acceptedTask.ResponseDeadlineAt, acceptedTask.ResolutionDeadlineAt, acceptedTask.SlaSnapshotJson));
+
+            var replacementTasks = new StaffTasks(store, new Actor(replacementOffer.StaffUserId), clock, calendar, roster, dispatch, views, schema);
+            await replacementTasks.Respond(replacementOffer.OfferId, new(TaskResponse.HandleNow, null, null), default);
+            var replacementEvidence = new TaskEvidenceWork(store, new Actor(replacementOffer.StaffUserId), clock, notifier, dispatch, verification, schema, evidenceFiles);
+            await replacementEvidence.Submit(acceptedTask.TaskId, new("Replacement completed the work"), default);
+            var terminalRejection = await operatorEvidence.Reject(acceptedTask.TaskId, new("Replacement also failed verification"), default);
+            Assert.Equal((WorkTaskStatus.Offered, 3, (Guid?)null),
+                (terminalRejection.Status, terminalRejection.RejectionCount, terminalRejection.AssigneeUserId));
+            Assert.Empty(await store.List<TaskOffer>(offer => offer.TaskId == acceptedTask.TaskId && offer.Status == TaskOfferStatus.Pending));
+            Assert.Single(await store.List<Notification>(notification => notification.TaskId == acceptedTask.TaskId
+                && notification.NotificationType == TaskEvidenceWork.ReassignmentRequired));
+
+            // Verifying the last mandatory Incident task persists closure and its audit atomically.
+            clock.UtcNow = clock.UtcNow.AddMinutes(1);
+            var incidentType = Assert.Single(await store.List<IncidentType>(type => type.Code == "CLEANLINESS_ISSUE"));
+            var incidentId = Guid.NewGuid();
+            var incidentTaskId = Guid.NewGuid();
+            await store.Transaction(async () =>
+            {
+                await store.Add(new Incident
+                {
+                    IncidentId = incidentId, IncidentTypeId = incidentType.IncidentTypeId, ZoneId = ids.SourceZone,
+                    MonitoringRuleId = ids.Rule, SourceType = "MONITORING_RULE",
+                    Title = "D7 cleanup incident", Status = "DETECTED"
+                });
+                await store.Add(new WorkTask
+                {
+                    TaskId = incidentTaskId, IncidentId = incidentId, ZoneId = ids.SourceZone,
+                    Title = "Clean affected area", Priority = "LOW", Status = WorkTaskStatus.InProgress,
+                    OriginType = TaskOrigin.Incident, TaskTypeId = taskType.TaskTypeId,
+                    CurrentAssigneeUserId = staff[2], AssignedAt = clock.UtcNow.AddMinutes(-2),
+                    AcceptedAt = clock.UtcNow.AddMinutes(-2), StartedAt = clock.UtcNow.AddMinutes(-1),
+                    VerificationMode = TaskVerificationMode.Manual,
+                    VerificationMethod = TaskVerificationMethod.OperatorEvidence, IsMandatory = true
+                });
+                await store.Add(new TaskAssignmentHistory
+                {
+                    TaskAssignmentId = Guid.NewGuid(), TaskId = incidentTaskId, StaffUserId = staff[2],
+                    Status = OfferStatus.Accepted, AssignedAt = clock.UtcNow.AddMinutes(-2),
+                    RespondedAt = clock.UtcNow.AddMinutes(-2)
+                });
+                return 0;
+            });
+            var incidentEvidence = new TaskEvidenceWork(store, new Actor(staff[2]), clock, notifier, dispatch, verification, schema, evidenceFiles);
+            await incidentEvidence.Submit(incidentTaskId, new("Area cleaned", MissingPhotoReason: "Camera view confirms the cleanup"), default);
+            await operatorEvidence.Verify(incidentTaskId, new(), default);
+
+            var closedIncident = Assert.Single(await store.List<Incident>(incident => incident.IncidentId == incidentId));
+            Assert.Equal((IncidentClosure.ClosedStatus, IncidentClosure.AllMandatoryVerified, (DateTime?)clock.UtcNow, (DateTime?)null),
+                (closedIncident.Status, closedIncident.StatusReason, closedIncident.ClosedAt, closedIncident.MitigatedAt));
+            var closureAudit = Assert.Single(await store.List<AuditLog>(audit => audit.EntityId == incidentId && audit.Action == "CLOSE_INCIDENT"));
+            Assert.Equal((ids.Operator, "SUCCESS"), (closureAudit.UserId, closureAudit.ResultStatus));
         }
         finally
         {
@@ -214,6 +309,7 @@ public sealed class TaskFlowSqlTests(SqlApiFixture fixture)
     {
         public string Token { get; } = Guid.NewGuid().ToString("N")[..8];
         public Guid Admin { get; } = Guid.NewGuid();
+        public Guid Operator { get; } = Guid.NewGuid();
         public Guid Market { get; } = Guid.NewGuid();
         public Guid SourceFloor { get; } = Guid.NewGuid();
         public Guid NearFloor { get; } = Guid.NewGuid();
@@ -238,6 +334,14 @@ public sealed class TaskFlowSqlTests(SqlApiFixture fixture)
             (NearZone, NearFloor, $"D7-NEAR-{Token}"),
             (FarZone, FarFloor, $"D7-FAR-{Token}")
         ];
+    }
+
+    private sealed class UnusedEvidenceStorage : ITaskEvidenceStorage
+    {
+        public Task<StoredEvidence> Save(Guid taskId, Stream content, string filename, string contentType, long length, CancellationToken ct)
+            => throw new NotSupportedException("This SQL flow submits completion notes only.");
+        public Task<EvidenceFile?> Open(Guid taskId, string token, CancellationToken ct) => Task.FromResult<EvidenceFile?>(null);
+        public Task Delete(Guid taskId, string token, CancellationToken ct) => Task.CompletedTask;
     }
 
     // Application transactions flush into the fixture's outer transaction. The test then rolls

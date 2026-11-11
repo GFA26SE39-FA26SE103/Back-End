@@ -121,10 +121,18 @@ public sealed class EfSetupStore(AppDbContext db, IClock clock) : ISetupStore
             if (entity is TrackedEntity tracked)
             {
                 var entry = db.Entry(row);
-                entry.Property("UpdatedAt").OriginalValue = tracked.UpdatedAt;
+                var updatedAt = entry.Property("UpdatedAt");
+                // Preserve the database version captured by the first update in this transaction.
+                // A workflow may legitimately update the same aggregate twice before SaveChanges
+                // (for example Submit followed by AUTO-verification fallback). Replacing the
+                // original value with the uncommitted timestamp makes the concurrency UPDATE match
+                // zero rows even though no concurrent writer exists.
+                if (entry.State != EntityState.Modified)
+                    updatedAt.OriginalValue = tracked.UpdatedAt;
                 tracked.UpdatedAt = Timestamp(clock.UtcNow);
-                if (tracked.UpdatedAt <= (DateTime)entry.Property("UpdatedAt").OriginalValue!)
-                    tracked.UpdatedAt = ((DateTime)entry.Property("UpdatedAt").OriginalValue!).AddMilliseconds(1);
+                var current = (DateTime)updatedAt.CurrentValue!;
+                if (tracked.UpdatedAt <= current)
+                    tracked.UpdatedAt = current.AddMilliseconds(1);
             }
             if (remove)
                 db.Set<TDb>().Remove(row);

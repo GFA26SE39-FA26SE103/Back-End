@@ -22,43 +22,40 @@ public sealed class MonitoringRuntimeApiFlowTests
         second=await h.Activate(secondZone.ZoneId,second); await h.Worker.Tick(default);
         Assert.Equal(0,h.Ai.Stops); Assert.Equal(2,h.Ai.Starts); Assert.Equal(session,h.Worker.Get(camera.CameraId)!.SessionId);
         h.Ai.Add(1000,3,0); h.Ai.Add(2000,3,2); h.Ai.Add(3000,3,2); await h.Worker.Tick(default);
-        Assert.Equal(2,(await h.Rows<Incident>()).Length);
+        Assert.Equal(2,(await h.Rows<OperationalEvent>()).Length);
         var runtime=h.Worker.Get(camera.CameraId)!; Assert.Equal(3000,runtime.SourceElapsedMs); Assert.Equal(2,runtime.Zones.Length);
         Assert.Equal(first.UpdatedAt,runtime.Zones.Single(z=>z.ZoneId==zone.ZoneId).ConfigVersion);
         Assert.Equal(second.UpdatedAt,runtime.Zones.Single(z=>z.ZoneId==secondZone.ZoneId).ConfigVersion);
     }
     [Fact]
-    public async Task DraftToIncidentEscalationEofViewerIndependenceRestartAndCooldown()
+    public async Task DraftToOperationalEventEscalationEofViewerIndependenceAndRestart()
     {
         await using var h=new MonitoringRuntimeTestSupport(); await h.Initialize();
-        var (camera,zone,draft)=await h.Configure(); var active=await h.Activate(zone.ZoneId,draft);
+        var (camera,zone,draft)=await h.Configure(clearDurationSec:1); var active=await h.Activate(zone.ZoneId,draft);
         await h.Worker.Tick(default); h.Ai.Add(0,1); h.Ai.Add(1000,1); await h.Worker.Tick(default);
-        var incident=Assert.Single(await h.Rows<Incident>()); Assert.NotNull(incident.SlaPolicyId); Assert.NotNull(incident.SlaSnapshotJson); Assert.Equal("DETECTED",incident.Status);
+        var operationalEvent=Assert.Single(await h.Rows<OperationalEvent>()); Assert.Equal("WARNING",operationalEvent.Priority); Assert.Equal("ACTIVE",operationalEvent.Status);
         var url=$"/api/cameras/{camera.CameraId}";
         var attached=await MonitoringRuntimeTestSupport.Read<AiPreviewStatusView>(await h.Client.PostAsync(url+"/ai-preview/start",null)); Assert.Equal("MONITORING",attached.Purpose);
-        await MonitoringRuntimeTestSupport.Read<AiPreviewStatusView>(await h.Client.PostAsync(url+"/ai-preview/stop",null)); Assert.Equal(0,h.Ai.ViewerStarts); Assert.Equal(0,h.Ai.ViewerStops); Assert.Equal(0,h.Ai.Stops);
+        await MonitoringRuntimeTestSupport.Read<AiPreviewStatusView>(await h.Client.PostAsJsonAsync(url+"/ai-preview/stop",new { viewerLeaseId=attached.ViewerLeaseId })); Assert.Equal(1,h.Ai.ViewerStarts); Assert.Equal(1,h.Ai.ViewerStops); Assert.Equal(0,h.Ai.Stops);
         h.Ai.Add(2000,3); h.Ai.Add(3000,3); await h.Worker.Tick(default);
-        incident=Assert.Single(await h.Rows<Incident>()); Assert.NotNull(incident.ResolutionDeadlineAt);
-        h.Ai.Add(4000,0); h.Ai.State="COMPLETED"; await h.Worker.Tick(default); await h.Worker.Tick(default);
+        operationalEvent=Assert.Single(await h.Rows<OperationalEvent>()); Assert.Equal("CRITICAL",operationalEvent.Priority);
+        h.Ai.Add(4000,0); h.Ai.Add(5000,0); h.Ai.State="COMPLETED"; await h.Worker.Tick(default); await h.Worker.Tick(default);
         Assert.Single(await h.Rows<OperationalEvent>()); Assert.Equal(1,h.Ai.Starts);
-        Assert.Null(Assert.Single(await h.Rows<Incident>()).ClosedAt);
-        var feed=await MonitoringRuntimeTestSupport.Read<IncidentFeedView>(await h.Client.GetAsync(url+"/incidents")); var item=Assert.Single(feed.Items); Assert.True(item.IsDemo); Assert.Equal("PEOPLE_COUNT",item.MeasurementMode); Assert.Equal(0,item.MetricValue);
+        Assert.NotNull(Assert.Single(await h.Rows<OperationalEvent>()).ClearedAt);
+        var feed=await MonitoringRuntimeTestSupport.Read<IncidentFeedView>(await h.Client.GetAsync(url+"/incidents")); Assert.Empty(feed.Items);
         var runtime=await MonitoringRuntimeTestSupport.Read<MonitoringCameraRuntimeView>(await h.Client.GetAsync(url+"/monitoring-runtime")); Assert.Equal("COMPLETED",runtime.State); Assert.Equal(0,Assert.Single(runtime.Zones).PeopleCount);
-        // Closure is fixture SQL only, not a new product endpoint or auto-close behavior.
-        h.Clock.UtcNow=new DateTime(h.Clock.UtcNow.Ticks/TimeSpan.TicksPerSecond*TimeSpan.TicksPerSecond,DateTimeKind.Utc).AddSeconds(1).AddMilliseconds(2);
-        await h.Execute("UPDATE dbo.Incident SET status='CLOSED',closed_at=@closed WHERE incident_id=@id",("@closed",h.Clock.UtcNow),("@id",incident.IncidentId));
-        Assert.Equal(h.Clock.UtcNow,Assert.Single(await h.Rows<Incident>()).ClosedAt);
         await h.Worker.Shutdown(default); h.Ai.State="LIVE";
         await h.Worker.Tick(default); h.Ai.Add(0,3); h.Ai.Add(1000,3); await h.Worker.Tick(default);
-        Assert.Single(await h.Rows<Incident>()); Assert.Equal("COOLDOWN",Assert.Single(h.Worker.Get(camera.CameraId)!.Zones).Rules[0].Reason);
-        h.Clock.UtcNow=h.Clock.UtcNow.AddSeconds(30); h.Ai.Add(2000,3); await h.Worker.Tick(default);
-        Assert.Equal(2,(await h.Rows<Incident>()).Length);
+        Assert.Equal(2,(await h.Rows<OperationalEvent>()).Length);
+        active=await MonitoringRuntimeTestSupport.Read<MonitoringConfigurationView>(await h.Client.GetAsync($"/api/zones/{zone.ZoneId}/monitoring"));
         active=await h.Activate(zone.ZoneId,active,false);
         var stopping=await MonitoringRuntimeTestSupport.Read<MonitoringCameraRuntimeView>(await h.Client.GetAsync(url+"/monitoring-runtime"));
         Assert.Equal("STOPPING",stopping.State); Assert.Equal("MONITORING_STOP_PENDING",stopping.Reason);
+        active=await MonitoringRuntimeTestSupport.Read<MonitoringConfigurationView>(await h.Client.GetAsync($"/api/zones/{zone.ZoneId}/monitoring"));
         var tooEarly=await h.Client.PostAsJsonAsync($"/api/zones/{zone.ZoneId}/monitoring/activate",new MonitoringActivationRequest(active.UpdatedAt));
         Assert.Equal(System.Net.HttpStatusCode.Conflict,tooEarly.StatusCode);
-        Assert.Contains("MONITORING_STOP_PENDING",await tooEarly.Content.ReadAsStringAsync());
+        using(var problem=System.Text.Json.JsonDocument.Parse(await tooEarly.Content.ReadAsStringAsync()))
+            Assert.Equal("MONITORING_STOP_PENDING",problem.RootElement.GetProperty("code").GetString());
         await h.Worker.Tick(default); Assert.False(h.Worker.IsMonitoringOwned(camera.CameraId));
         Assert.Equal("NO_ACTIVE_CONFIGURATION",(await MonitoringRuntimeTestSupport.Read<MonitoringCameraRuntimeView>(await h.Client.GetAsync(url+"/monitoring-runtime"))).Reason);
         var previousSession=attached.SessionId;
@@ -76,11 +73,12 @@ public sealed class MonitoringRuntimeApiFlowTests
         h.Ai.BeforeRead=()=>h.Execute("UPDATE dbo.MonitoringConfiguration SET status='INACTIVE',updated_at=DATEADD(ms,1,updated_at) WHERE config_id=@id",("@id",active.ConfigId)).GetAwaiter().GetResult();
         await h.Worker.Tick(default); Assert.Empty(await h.Rows<Incident>()); Assert.Empty(await h.Rows<OperationalEvent>());
         var type=draft.Rules[0].IncidentTypeId;
+        var rule=draft.Rules[0].RuleId;
         await h.Execute("""
-          INSERT dbo.Incident(incident_id,incident_type_id,zone_id,source_type,title,status,closed_at,created_at,updated_at)
-          SELECT NEWID(),@type,@zone,'AI_DETECTED','History','CLOSED',@time,@time,@time
+          INSERT dbo.Incident(incident_id,incident_type_id,zone_id,monitoring_rule_id,source_type,title,status,closed_at,created_at,updated_at)
+          SELECT NEWID(),@type,@zone,@rule,'MONITORING_RULE','History','CLOSED',@time,@time,@time
           FROM (SELECT TOP(1000) ROW_NUMBER() OVER(ORDER BY (SELECT NULL)) n FROM sys.all_objects a CROSS JOIN sys.all_objects b) x;
-          """,("@type",type),("@zone",zone.ZoneId),("@camera",camera.CameraId),("@time",h.Clock.UtcNow));
+          """,("@type",type),("@zone",zone.ZoneId),("@rule",rule),("@time",h.Clock.UtcNow));
         var root=$"/api/cameras/{camera.CameraId}/incidents";
         Assert.Empty((await MonitoringRuntimeTestSupport.Read<IncidentFeedView>(await h.Client.GetAsync(root))).Items);
         var seen=new HashSet<Guid>(); string path=root+"?includeEnded=true&limit=100";
@@ -112,6 +110,6 @@ public sealed class MonitoringRuntimeApiFlowTests
             }
         }
         await Task.WhenAll(commands.Select(Write)); await Write(commands[0]);
-        Assert.Single(await h.Rows<Incident>()); Assert.Single(await h.Rows<OperationalEvent>());
+        Assert.Empty(await h.Rows<Incident>()); Assert.Single(await h.Rows<OperationalEvent>());
     }
 }

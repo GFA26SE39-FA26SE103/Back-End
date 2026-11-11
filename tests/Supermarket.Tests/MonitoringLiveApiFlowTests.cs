@@ -46,7 +46,7 @@ public sealed partial class ApiFlowTests
             await using(var connection=new SqlConnection(isolated.ConnectionString)) {
                 await connection.OpenAsync();
                 // This fixture belongs exclusively to this test, never shared Dev.
-                await using var command=new SqlCommand("DROP TABLE dbo.OperationalEvent; DROP TABLE dbo.Incident;",connection);
+                await using var command=new SqlCommand("EXEC sp_rename N'dbo.OperationalEvent', N'OperationalEvent_Missing'; EXEC sp_rename N'dbo.Incident', N'Incident_Missing';",connection);
                 await command.ExecuteNonQueryAsync();
             }
             foreach(var endpoint in new[] {"monitoring-runtime","incidents"}) {

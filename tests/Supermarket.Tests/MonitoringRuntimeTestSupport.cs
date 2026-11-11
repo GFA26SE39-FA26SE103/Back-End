@@ -36,7 +36,7 @@ internal sealed class MonitoringRuntimeTestSupport : IAsyncDisposable
         var login=await Read<LoginResponse>(await Client.PostAsJsonAsync("/api/auth/login",new LoginRequest(SqlApiFixture.AdminEmail,SqlApiFixture.AdminPassword)));
         Client.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",login.AccessToken);
     }
-    public async Task<(Camera Camera,ZoneView Zone,MonitoringConfigurationView Config)> Configure(bool queue=false)
+    public async Task<(Camera Camera,ZoneView Zone,MonitoringConfigurationView Config)> Configure(bool queue=false,int clearDurationSec=60)
     {
         var stores=(await Client.GetFromJsonAsync<JsonElement[]>("/api/supermarkets"))!;
         var supermarket=stores.Length==0?(await Read<JsonElement>(await Client.PostAsJsonAsync("/api/supermarkets",new StoreRequest("TEST","Runtime test",null)))).GetProperty("supermarketId").GetGuid():stores[0].GetProperty("supermarketId").GetGuid();
@@ -50,7 +50,7 @@ internal sealed class MonitoringRuntimeTestSupport : IAsyncDisposable
         await Execute("UPDATE dbo.CameraConnection SET source_type='RECORDED',protocol='FILE',stream_uri='file:///C:/runtime-test/video.mp4' WHERE camera_id=@camera",("@camera",camera.CameraId));
         await Read<MappingView>(await Client.PutAsJsonAsync($"/api/cameras/{camera.CameraId}/zones/{zone.ZoneId}",new MappingRequest(Roi)));
         var type=(await Client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!.Single(t=>t.Code==(queue?"LONG_QUEUE":"OVERCROWDING_CONGESTION"));
-        var config=await Read<MonitoringConfigurationView>(await Client.PutAsJsonAsync($"/api/zones/{zone.ZoneId}/monitoring",new MonitoringRequest("Runtime config",.7m,[new(type.IncidentTypeId,1,2,"PEOPLE",1,30,60,true,queue?null:"{\"measurementMode\":\"PEOPLE_COUNT\"}")])));
+        var config=await Read<MonitoringConfigurationView>(await Client.PutAsJsonAsync($"/api/zones/{zone.ZoneId}/monitoring",new MonitoringRequest("Runtime config",.7m,[new(type.IncidentTypeId,1,2,"PEOPLE",1,30,clearDurationSec,true,queue?null:"{\"measurementMode\":\"PEOPLE_COUNT\"}")])));
         var review=await Read<MonitoringReviewView>(await Client.GetAsync($"/api/zones/{zone.ZoneId}/monitoring/review")); Assert.True(review.CanActivate); Assert.Null(zone.AreaM2);
         return(camera,zone,config);
     }
@@ -88,6 +88,11 @@ internal sealed class MonitoringRuntimeTestSupport : IAsyncDisposable
         public Task<AiMeasurementPage> Read(Guid c,Guid owner,Guid? session,long after,int limit,CancellationToken ct) { BeforeRead?.Invoke(); BeforeRead=null; return Task.FromResult(new AiMeasurementPage(1,Session,1,Batches.LastOrDefault()?.Sequence??0,false,Batches.Where(b=>b.Sequence>after).Take(limit).ToArray(),State,null)); }
         public Task Stop(Guid c,Guid owner,CancellationToken ct) { Stops++; Batches.Clear(); Session=Guid.NewGuid(); Epoch=Guid.NewGuid(); return Task.CompletedTask; }
         public Task<AiPreviewStatusView> Start(CameraConnection c,CancellationToken ct,decimal? confidence=null) { ViewerStarts++; return Task.FromResult(Status(c.CameraId)); }
+        public Task<AiPreviewStatusView> AttachViewer(Guid c,CancellationToken ct) { ViewerStarts++; return Task.FromResult(Status(c) with { ViewerLeaseId=Guid.NewGuid() }); }
+        public Task<AiPreviewStatusView> Status(Guid c,Guid viewerLeaseId,CancellationToken ct)=>Task.FromResult(Status(c) with { ViewerLeaseId=viewerLeaseId });
+        public Task<PreviewFrame> Frame(Guid c,Guid viewerLeaseId,CancellationToken ct)=>Task.FromResult(new PreviewFrame([1],"image/jpeg"));
+        public Task<SequencedPreviewFrame?> NextFrame(Guid c,Guid viewerLeaseId,long afterSequence,Guid? afterSessionId,CancellationToken ct)=>Task.FromResult<SequencedPreviewFrame?>(null);
+        public Task<AiPreviewStatusView> ReleaseViewer(Guid c,Guid viewerLeaseId,CancellationToken ct) { ViewerStops++; return Task.FromResult(Status(c) with { ViewerLeaseId=viewerLeaseId }); }
         public Task<AiPreviewStatusView> Status(Guid c,CancellationToken ct)=>Task.FromResult(Status(c));
         public Task<AiPreviewStatusView> Stop(Guid c,CancellationToken ct) { ViewerStops++; return Task.FromResult(Status(c)); }
         public Task<PreviewFrame> Frame(Guid c,CancellationToken ct)=>Task.FromResult(new PreviewFrame([1],"image/jpeg"));

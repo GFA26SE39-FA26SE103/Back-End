@@ -31,10 +31,10 @@ public sealed partial class ApiFlowTests
         var camera = await Camera(client, floor);
         var zone = await Zone(client, floor);
         var catalog = (await client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!;
-        Assert.Equal(4, catalog.Length);
-        Assert.All(catalog, t => Assert.Equal("AI_DETECTED", t.SourceType));
-        var queue = catalog.Single(t => t.Code == "LONG_QUEUE");
-        var checkout = catalog.Single(t => t.Code == "CHECKOUT_CAPACITY_ISSUE");
+        var aiCatalog = catalog.Where(t => t.SourceType == "AI_DETECTED").ToArray();
+        Assert.Equal(4, aiCatalog.Length);
+        var queue = aiCatalog.Single(t => t.Code == "LONG_QUEUE");
+        var checkout = aiCatalog.Single(t => t.Code == "CHECKOUT_CAPACITY_ISSUE");
         Assert.False(checkout.Supported);
         var input = new[] {
             new MonitoringRuleRequest(queue.IncidentTypeId, 3, 5, "PEOPLE", 0, 0),
@@ -77,7 +77,7 @@ public sealed partial class ApiFlowTests
         Assert.True(Assert.Single(review.Cameras).Ready);
         await Read<AiPreviewStatusView>(await client.PostAsync($"/api/cameras/{camera.CameraId}/ai-preview/start?zoneId={zone.ZoneId}", null));
         Assert.Equal(.7123m, ai.Confidence);
-        Assert.Equal("DELETE", ai.Methods.First());
+        Assert.Equal("POST", ai.Methods.First());
         // Readiness must be checked again, not trusted from an earlier review.
         await Read<ConnectionView>(await client.PostAsync(connection + "/disable", null));
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync(route + "/activate", new MonitoringActivationRequest(review.Configuration.UpdatedAt))).StatusCode);
