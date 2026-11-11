@@ -12,7 +12,10 @@ public sealed class TaskViews(ISetupStore store)
         var taskIds = tasks.Select(t => t.TaskId).ToList();
         var assignments = await store.List<TaskAssignmentHistory>(a => taskIds.Contains(a.TaskId), ct);
         var taskOffers = await store.List<TaskOffer>(o => taskIds.Contains(o.TaskId), ct);
-        var assigneeIds = tasks.Where(t => t.CurrentAssigneeUserId != null).Select(t => t.CurrentAssigneeUserId!.Value).Distinct().ToList();
+        var pendingManual = taskOffers.Where(o => o.Status == TaskOfferStatus.Pending && o.DispatchScope == TaskDispatchScope.Manual)
+            .GroupBy(o => o.TaskId).ToDictionary(g => g.Key, g => g.OrderByDescending(o => o.OfferedAt).First().StaffUserId);
+        var assigneeIds = tasks.Where(t => t.CurrentAssigneeUserId != null).Select(t => t.CurrentAssigneeUserId!.Value)
+            .Concat(pendingManual.Values).Distinct().ToList();
         var names = (await store.List<UserAccount>(u => assigneeIds.Contains(u.UserId), ct)).ToDictionary(u => u.UserId, u => u.FullName);
         return tasks.Select(t =>
         {
@@ -23,6 +26,9 @@ public sealed class TaskViews(ISetupStore store)
                 && !taskOffers.Any(o => o.TaskId == t.TaskId && o.Status == TaskOfferStatus.Pending);
             var firstPriority = context.FirstOfferPriority.GetValueOrDefault(t.TaskId);
             var sla = IncidentSlaPolicyService.ReadSnapshot(t.SlaSnapshotJson);
+            Guid? manualStaff = pendingManual.TryGetValue(t.TaskId, out var manualId) ? manualId : null;
+            var lastEnded = assignments.Where(a => a.TaskId == t.TaskId && a.EndedAt != null && a.Reason != null)
+                .OrderByDescending(a => a.EndedAt).FirstOrDefault()?.Reason;
             return new StaffTaskView(t.TaskId, t.OriginType, SourceCode(t), ev is null ? null : context.EventTypes.GetValueOrDefault(ev.EventTypeId)?.Code, t.Title, t.Description, t.Priority,
                 t.VerificationMode, t.VerificationMethod,
                 firstPriority is not null && TaskRules.Rank(firstPriority) < TaskRules.Rank(t.Priority) ? firstPriority : null,
@@ -30,7 +36,8 @@ public sealed class TaskViews(ISetupStore store)
                 current?.AssignmentType ?? TaskAssignmentType.Offer, t.CurrentAssigneeUserId, t.CurrentAssigneeUserId is { } id ? names.GetValueOrDefault(id) : null,
                 t.CreatedAt, t.AssignedAt, t.AcceptedAt, t.PlannedStartAt, t.StartedAt, t.SubmittedAt, ev?.ClearedAt, needsAssignment, t.UpdatedAt,
                 t.SlaPolicyId, sla?.PriorityCode, sla?.PolicyVersion, t.ResponseDeadlineAt ?? sla?.ResponseDeadlineAt,
-                t.ResolutionDeadlineAt ?? sla?.ResolutionDeadlineAt);
+                t.ResolutionDeadlineAt ?? sla?.ResolutionDeadlineAt,
+                t.RejectionCount, manualStaff, manualStaff is { } staffId ? names.GetValueOrDefault(staffId) : null, lastEnded);
         }).ToArray();
     }
 

@@ -137,6 +137,9 @@ builder.Services.AddScoped<StaffReportWork>();
 builder.Services.AddScoped<SlaMonitor>();
 builder.Services.Configure<StaffReportMediaOptions>(builder.Configuration.GetSection("StaffReportMedia"));
 builder.Services.AddScoped<IncidentSlaPolicies>();
+builder.Services.AddScoped<OperationalEventSlaPolicies>();
+builder.Services.AddScoped<TaskTypeSlaPolicies>();
+builder.Services.AddScoped<SlaEscalationPolicies>();
 builder.Services.AddScoped<IncidentActions>();
 builder.Services.AddScoped<LocalTaskEvidenceStorage>();
 builder.Services.AddHttpClient<CloudinaryTaskEvidenceStorage>(client => client.Timeout = Timeout.InfiniteTimeSpan)
