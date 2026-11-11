@@ -17,6 +17,14 @@ public sealed record AnalyticsDay(DateOnly Date, AnalyticsSummary Summary);
 public sealed record AnalyticsTrends(AnalyticsWindow Period, AnalyticsDay[] Days);
 public sealed record AnalyticsZone(Guid ZoneId, string ZoneName, AnalyticsSummary Summary);
 public sealed record AnalyticsZones(AnalyticsWindow Period, AnalyticsZone[] Zones);
+public sealed record AnalyticsReportData(AnalyticsWindow Period, AnalyticsSummary Summary, AnalyticsDay[] Days,
+    AnalyticsZone[] Zones, string[] Notes);
+public sealed record AnalyticsExportFile(byte[] Content, string ContentType, string FileName);
+
+public interface IAnalyticsReportRenderer
+{
+    AnalyticsExportFile Render(AnalyticsReportData report, string format);
+}
 
 // Only grouped SQL results cross the persistence boundary, never a capped task feed or raw history.
 public sealed record AnalyticsBucket(string Domain, int Day, Guid ZoneId, string Status, string? Priority, int Count,

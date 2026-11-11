@@ -1,3 +1,12 @@
+# Manager analytics report export (D13 / FE-10) — 2026-11-11
+
+- Added MANAGER-only `GET /api/manager/analytics/export` with the existing inclusive local-date and optional Zone filters. `format=csv|xlsx|pdf` returns UTF-8 CSV, native XLSX or paginated PDF from one consistent analytics read.
+- All formats preserve period/timezone/Zone context, generation time, Event/Incident/Task summaries, daily and Zone breakdowns, and explicit unavailable-data notes. Dismissed Incidents remain in reconciliation fields but are excluded from Incident KPI totals. CSV/XLSX neutralize spreadsheet formula-like text.
+- Successful generation and renderer failures write `EXPORT_ANALYTICS_REPORT` audit rows containing only report scope, format, timestamp and result status; credentials and personal Staff data are not exported or audited.
+- Focused `ManagerAnalyticsTests`: **23 passed, 0 failed**. Full non-SQL suite: **613 passed, 0 failed, 0 skipped**. Isolated SQL integration suite: **21 passed, 0 failed, 0 skipped**. Release publish: **PASS**.
+- Runtime Development Swagger export: **PASS**; `docs/openapi.json` documents four query parameters and the CSV/XLSX/PDF response media types. The owned temporary documentation API was stopped.
+- No shared database mutation, deployment, push or schema/scaffold change was performed. Manager Web still needs to connect its export controls to this endpoint; camera-health and AI-measurement time series are truthfully marked unavailable in the current analytics dataset.
+
 # MF-04 Manager-assisted COVER and direct shift changes — 2026-10-29
 
 Added the mentor-approved exception paths without a schema migration: Staff can ask a Manager to select cover (`PENDING_MANAGER` with no target), and Manager can directly COVER/SWAP future unchecked-in slots with a mandatory reason, persisted request audit and notifications. The existing peer A → B → Manager flow remains unchanged. Candidate responses expose a 40 h planning recommendation while preserving the 48 h hard weekly limit.
