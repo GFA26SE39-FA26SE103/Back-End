@@ -117,7 +117,13 @@ public sealed class SqlApiFixture : IAsyncLifetime
         "FA26SE103_Database_V7_Weekly_Work_Shifts.sql",
         "FA26SE103_Database_V8_Notification_Settings.sql",
         "FA26SE103_Database_V9_Migration.sql",
-        "FA26SE103_Database_V10_Seeds.sql"
+        "FA26SE103_Database_V10_Seeds.sql",
+        "FA26SE103_Database_V11_Operational_SLA_Cutover.sql",
+        "FA26SE103_Database_V12_StaffReport_IncidentType.sql",
+        "FA26SE103_Database_V13_Incident_Duplicate_Choice.sql",
+        "FA26SE103_Database_V14_Monitoring_Incident_Uniqueness.sql",
+        "FA26SE103_Database_V15_StaffReport_Category.sql",
+        "FA26SE103_Database_V16_Standalone_Task_Policy.sql"
     ];
 
     private static bool CurrentSchemaAvailable(string directory) =>
@@ -176,6 +182,8 @@ public sealed class SqlApiFixture : IAsyncLifetime
                     await ExecuteBatch(testDatabase, "UPDATE dbo.OperationalEvent SET incident_id=NULL WHERE incident_id IS NOT NULL; DELETE FROM dbo.Incident;");
                 }
                 var script = Retarget(await File.ReadAllTextAsync(Path.Combine(directory, file)));
+                if (file == "FA26SE103_Database_V11_Operational_SLA_Cutover.sql")
+                    script = CommitV11InDisposableFixture(script);
                 foreach (var batch in Batches(script))
                     await ExecuteBatch(testDatabase, batch);
             }
@@ -184,6 +192,17 @@ public sealed class SqlApiFixture : IAsyncLifetime
 
         ConfigureFactory();
     }
+
+    private string CommitV11InDisposableFixture(string sql) => sql
+        // The fixture database is newly created, isolated and deleted after the test. These
+        // substitutions exercise V11's real commit/drop path without asserting anything about
+        // backup or writer state on a shared/live database.
+        .Replace("DECLARE @ApplyChanges bit = 0;", "DECLARE @ApplyChanges bit = 1;", StringComparison.Ordinal)
+        .Replace("DECLARE @DropLegacyTables bit = 0;", "DECLARE @DropLegacyTables bit = 1;", StringComparison.Ordinal)
+        .Replace("DECLARE @ExpectedDatabase sysname = NULL;", $"DECLARE @ExpectedDatabase sysname = N'{DatabaseName}';", StringComparison.Ordinal)
+        .Replace("DECLARE @BackupVerified bit = 0;", "DECLARE @BackupVerified bit = 1;", StringComparison.Ordinal)
+        .Replace("DECLARE @WritersStopped bit = 0;", "DECLARE @WritersStopped bit = 1;", StringComparison.Ordinal)
+        .Replace("DECLARE @SlaBackendVerified bit = 0;", "DECLARE @SlaBackendVerified bit = 1;", StringComparison.Ordinal);
 
     private string Retarget(string sql) => sql
         .Replace("[FA26SE103_Dev]", $"[{DatabaseName}]", StringComparison.OrdinalIgnoreCase)
@@ -214,6 +233,12 @@ public sealed class SqlApiFixture : IAsyncLifetime
             "FA26SE103_Database_V6_Cleanup.sql" => "OBJECT_ID(N'dbo.NotificationConfig', N'U') IS NULL AND OBJECT_ID(N'dbo.ZoneShiftRequirement', N'U') IS NULL AND COL_LENGTH(N'dbo.OperationalEvent', N'incident_id') IS NULL",
             "FA26SE103_Database_V7_Weekly_Work_Shifts.sql" => "COL_LENGTH(N'dbo.Shift', N'week_start') IS NOT NULL",
             "FA26SE103_Database_V9_Migration.sql" => "OBJECT_ID(N'dbo.StaffSpecialty', N'U') IS NOT NULL AND OBJECT_ID(N'dbo.TaskType', N'U') IS NOT NULL AND OBJECT_ID(N'dbo.TaskOffer', N'U') IS NOT NULL AND OBJECT_ID(N'dbo.SLAPolicy', N'U') IS NOT NULL AND OBJECT_ID(N'dbo.SLAPolicyAction', N'U') IS NOT NULL",
+            "FA26SE103_Database_V11_Operational_SLA_Cutover.sql" => "OBJECT_ID(N'dbo.ResponsePolicy', N'U') IS NULL AND OBJECT_ID(N'dbo.ResponsePolicyAction', N'U') IS NULL AND EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.SLAPolicy') AND name=N'UX_SLAPolicy_Enabled_OperationalEventType')",
+            "FA26SE103_Database_V12_StaffReport_IncidentType.sql" => "COL_LENGTH(N'dbo.StaffReport', N'incident_type_id') IS NOT NULL AND COL_LENGTH(N'dbo.StaffReport', N'classification') IS NULL",
+            "FA26SE103_Database_V13_Incident_Duplicate_Choice.sql" => "NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.Incident') AND name=N'UX_Incident_Open_Zone_Type')",
+            "FA26SE103_Database_V14_Monitoring_Incident_Uniqueness.sql" => "EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.Incident') AND name=N'UX_Incident_Open_MonitoringRule_Zone_Type')",
+            "FA26SE103_Database_V15_StaffReport_Category.sql" => "COL_LENGTH(N'dbo.StaffReport', N'report_category') IS NOT NULL",
+            "FA26SE103_Database_V16_Standalone_Task_Policy.sql" => "COL_LENGTH(N'dbo.SLAPolicy', N'task_type_id') IS NOT NULL AND (SELECT COUNT(*) FROM dbo.SLAPolicy WHERE problem_domain=N'STANDALONE_TASK' AND is_enabled=1)=11",
             _ => null
         };
         if (predicate is null) return false;

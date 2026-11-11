@@ -17,7 +17,9 @@ public sealed class MonitoringRuntimeSchemaApiFlowTests(SqlApiFixture fixture)
         var camera = new Camera { CameraId=Guid.NewGuid(), Code="RT-"+Guid.NewGuid().ToString("N")[..8], Name="Runtime test" };
         var type = (await store.List<IncidentType>(t=>t.Code=="LONG_QUEUE")).Single();
         var eventType = (await store.List<OperationalEventType>(t=>t.Code=="LONG_QUEUE")).Single();
-        var incident = new Incident { IncidentId=Guid.NewGuid(), ZoneId=zone.ZoneId, IncidentTypeId=type.IncidentTypeId, Title="Runtime queue" };
+        var ruleId=Guid.NewGuid(); var configId=Guid.NewGuid();
+        var incident = new Incident { IncidentId=Guid.NewGuid(), ZoneId=zone.ZoneId, IncidentTypeId=type.IncidentTypeId,
+            MonitoringRuleId=ruleId,SourceType="MONITORING_RULE",Title="Runtime queue" };
         var observed = new OperationalEvent { EventId=Guid.NewGuid(), CameraId=camera.CameraId, ZoneId=zone.ZoneId,
             EventTypeId=eventType.EventTypeId, MetricValue=2, Priority="WARNING",
             DetectedAt=DateTime.UtcNow, LastObservedAt=DateTime.UtcNow, UpdatedAt=DateTime.UtcNow, CreatedAt=DateTime.UtcNow,
@@ -26,11 +28,18 @@ public sealed class MonitoringRuntimeSchemaApiFlowTests(SqlApiFixture fixture)
             var supermarket=(await store.List<Supermarket.Domain.Supermarket>()).FirstOrDefault();
             if(supermarket is null) { supermarket=new() { SupermarketId=Guid.NewGuid(), Code="TEST", Name="Runtime fixture" }; await store.Add(supermarket); }
             var floor=new Floor { FloorId=Guid.NewGuid(), SupermarketId=supermarket.SupermarketId, FloorNumber=1, Name="Runtime fixture" };
+            var adminRole=(await store.List<Role>(role=>role.Name=="ADMIN")).Single();
+            var admin=(await store.List<UserAccount>(user=>user.RoleId==adminRole.RoleId)).First();
             await store.Add(floor); zone.FloorId=camera.FloorId=floor.FloorId;
-            await store.Add(zone); await store.Add(camera); await store.Add(incident); await store.Add(observed); return true;
+            await store.Add(zone); await store.Add(camera);
+            await store.Add(new MonitoringConfiguration { ConfigId=configId,ZoneId=zone.ZoneId,Name="Runtime fixture",ConfidenceThreshold=.5m,
+                Status="ACTIVE",CreatedByUserId=admin.UserId });
+            await store.Add(new MonitoringRule { RuleId=ruleId,ConfigId=configId,EventTypeId=eventType.EventTypeId,
+                OutcomeType="OPERATIONAL_EVENT",WarningThreshold=1,CriticalThreshold=2,ThresholdUnit="PEOPLE",SustainSec=1,CooldownSec=30,ClearDurationSec=1 });
+            observed.RuleId=ruleId; await store.Add(incident); await store.Add(observed); return true;
         });
         var saved=(await store.Find<Incident>(incident.IncidentId))!;
-        Assert.Equal("DETECTED",saved.Status); Assert.Equal("AI_DETECTED",saved.SourceType);
+        Assert.Equal("DETECTED",saved.Status); Assert.Equal("MONITORING_RULE",saved.SourceType);
         Assert.Null(saved.ReportedByUserId); Assert.Equal(DateTimeKind.Utc,saved.CreatedAt.Kind);
         var savedEvent=(await store.Find<OperationalEvent>(observed.EventId))!;
         Assert.Equal(2,savedEvent.MetricValue); Assert.Equal(observed.MetadataJson,savedEvent.MetadataJson);

@@ -163,6 +163,14 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
         {
             var (task, submission) = await Reviewable(taskId, request.ExpectedUpdatedAt, ct);
             var now = clock.UtcNow;
+            // Count the pending submission explicitly. EF queries below run before SaveChanges and
+            // therefore cannot observe the ReviewStatus mutation made in this transaction, while
+            // the in-memory store can. Computing committed rejections + the current review keeps
+            // the reassignment threshold identical for both stores.
+            var performer = submission.SubmittedByUserId;
+            var rejectedForPerformer = 1 + (await store.List<TaskEvidence>(e => e.TaskId == task.TaskId
+                && e.EvidenceType == TaskEvidenceType.CompletionNote && e.SubmittedByUserId == performer
+                && e.ReviewStatus == TaskEvidenceReview.Rejected, ct)).Count;
             var reviewRows = (await Photos(task.TaskId, ct)).Where(e => e.ReviewStatus == TaskEvidenceReview.Pending).Append(submission)
                 .Concat((await MissingPhotoReasons(task.TaskId, ct)).Where(e => e.ReviewStatus == TaskEvidenceReview.Pending));
             foreach (var row in reviewRows)
@@ -170,9 +178,6 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
                 row.ReviewStatus = TaskEvidenceReview.Rejected; row.RejectReason = reason;
                 await store.Update(row, ct);
             }
-            var performer = submission.SubmittedByUserId;
-            var rejectedForPerformer = (await store.List<TaskEvidence>(e => e.TaskId == task.TaskId && e.EvidenceType == TaskEvidenceType.CompletionNote
-                && e.SubmittedByUserId == performer && e.ReviewStatus == TaskEvidenceReview.Rejected, ct)).Count;
             var alreadyReassigned = (await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId
                 && a.Reason == TaskEvidenceRules.RejectedTwiceReason, ct)).Count > 0;
             task.RejectionCount++; task.SubmittedAt = null;
@@ -282,6 +287,16 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
             assignment.EndedAt = now;
             if (rejectionReason is not null) assignment.Reason = rejectionReason;
             await store.Update(assignment, ct);
+        }
+        if (rejectionReason is null) return;
+        foreach (var offer in await store.List<TaskOffer>(o => o.TaskId == task.TaskId && o.Status == TaskOfferStatus.Accepted, ct))
+        {
+            if (performer is { } staff && offer.StaffUserId != staff) continue;
+            // Release UX_TaskOffer_Accepted_Task before a replacement accepts. RespondedAt
+            // still records the original acceptance; the reason explains why it was closed.
+            offer.Status = TaskOfferStatus.Cancelled;
+            offer.DeclineReasonCode = rejectionReason;
+            await store.Update(offer, ct);
         }
     }
 

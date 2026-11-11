@@ -2,7 +2,8 @@ namespace Supermarket.Application;
 
 public sealed record ResponseTaskTypeView(Guid TaskTypeId, string Code, string Name, string? Description, Guid RequiredSpecialtyId);
 
-public sealed record AutomaticTaskPolicyRequest(bool IsEnabled, string? Title, string? Instructions, string? TaskTypeCode = null);
+/// <summary>TargetRoleCode applies only to the WARNING notification (OPERATOR or MANAGER; null = Operator).</summary>
+public sealed record AutomaticTaskPolicyRequest(bool IsEnabled, string? Title, string? Instructions, string? TaskTypeCode = null, string? TargetRoleCode = null);
 public sealed record ResponsePolicySaveRequest(bool IsEnabled, int? ExpectedVersion, AutomaticTaskPolicyRequest? Action);
 public sealed record ResponsePolicyDeleteRequest(int ExpectedVersion);
 
@@ -13,7 +14,8 @@ public sealed record AutomaticTaskPolicyView(
     string ExecutionMode,
     string? Title,
     string? Instructions,
-    string? TaskTypeCode);
+    string? TaskTypeCode,
+    string? TargetRoleCode = null);
 
 public sealed record ResponsePolicyView(
     Guid PolicyId,

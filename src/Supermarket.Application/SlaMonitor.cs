@@ -28,6 +28,14 @@ public sealed class SlaMonitor(ISetupStore store, IClock clock, TaskNotifier not
         List<Guid>? operators = null, escalation = null;
         async Task<List<Guid>> Operators() => operators ??= await notifier.Operators(ct);
         async Task<List<Guid>> Escalation() => escalation ??= [.. await Operators(), .. await notifier.RoleUsers("MANAGER", ct)];
+        var routes = new Dictionary<(Guid, string), List<Guid>?>();
+        // L7: an SLA policy may configure who receives its warning/breach; without escalation rows the defaults above apply.
+        async Task<List<Guid>> Recipients(Guid? policyId, bool breach)
+        {
+            if (policyId is Guid id && await Configured(id, breach ? SlaPolicyRules.Breach : SlaPolicyRules.Warning, routes, ct) is { } configured)
+                return configured;
+            return breach ? await Escalation() : await Operators();
+        }
 
         var tasks = await store.List<WorkTask>(t => t.Status != WorkTaskStatus.Verified && t.Status != WorkTaskStatus.Cancelled
             && (t.ResponseDeadlineAt != null || t.ResolutionDeadlineAt != null), ct);
@@ -45,7 +53,7 @@ public sealed class SlaMonitor(ISetupStore store, IClock clock, TaskNotifier not
                         var breach = type == ResponseBreach;
                         await Write(type, breach ? "Task response SLA breached" : "Task response SLA warning",
                             $"{task.Title}: {label} — nobody has accepted it yet (deadline {response:O}).", task.TaskId, task.IncidentId, task.Priority,
-                            breach ? await Escalation() : await Operators(), breach ? "SLA_ESCALATION" : "SLA_WARNING", now, ct);
+                            await Recipients(task.SlaPolicyId, breach), breach ? "SLA_ESCALATION" : "SLA_WARNING", now, ct);
                         written++;
                     }
             // Resolution runs until Verified (BR-39); retry, reassignment and pending verification do not pause it.
@@ -56,7 +64,7 @@ public sealed class SlaMonitor(ISetupStore store, IClock clock, TaskNotifier not
                         var breach = type == ResolutionBreach;
                         await Write(type, breach ? "Task resolution SLA breached" : "Task resolution SLA warning",
                             $"{task.Title}: {label} — the Task is still {task.Status} (deadline {resolution:O}).", task.TaskId, task.IncidentId, task.Priority,
-                            breach ? await Escalation() : await Operators(), breach ? "SLA_ESCALATION" : "SLA_WARNING", now, ct);
+                            await Recipients(task.SlaPolicyId, breach), breach ? "SLA_ESCALATION" : "SLA_WARNING", now, ct);
                         written++;
                     }
         }
@@ -76,11 +84,29 @@ public sealed class SlaMonitor(ISetupStore store, IClock clock, TaskNotifier not
                     var breach = type == IncidentBreach;
                     await Write(type, breach ? "Incident resolution SLA breached" : "Incident resolution SLA warning",
                         $"{incident.Title}: {label} — the Incident is still open (deadline {deadline:O}).", null, incident.IncidentId, Priority(incident.SlaSnapshotJson),
-                        breach ? await Escalation() : await Operators(), breach ? "SLA_ESCALATION" : "SLA_WARNING", now, ct);
+                        await Recipients(incident.SlaPolicyId, breach), breach ? "SLA_ESCALATION" : "SLA_WARNING", now, ct);
                     written++;
                 }
         }
         return written;
+    }
+
+    /// <summary>Recipients of the enabled escalation actions of one policy and milestone; null when none are configured.</summary>
+    private async Task<List<Guid>?> Configured(Guid policyId, string milestone, Dictionary<(Guid, string), List<Guid>?> cache, CancellationToken ct)
+    {
+        if (cache.TryGetValue((policyId, milestone), out var cached)) return cached;
+        var actions = (await store.List<SlaPolicyAction>(a => a.PolicyId == policyId && a.IsEnabled && a.TargetRoleId != null, ct))
+            .Where(a => SlaPolicyRules.IsEscalation(a) && SlaPolicyRules.Milestone(a.ConditionJson) == milestone).ToList();
+        List<Guid>? users = null;
+        if (actions.Count > 0)
+        {
+            users = [];
+            foreach (var roleId in actions.Select(a => a.TargetRoleId!.Value).Distinct())
+                if (await store.Find<Role>(roleId, ct) is { } role) users.AddRange(await notifier.RoleUsers(role.Name, ct));
+            users = users.Distinct().ToList();
+        }
+        cache[(policyId, milestone)] = users;
+        return users;
     }
 
     /// <summary>Warning at the warning percentage of the window, breach at 100 %. A breach found first still records the warning, so both stay auditable.</summary>

@@ -159,6 +159,10 @@ builder.Services.AddScoped<StaffReportWork>();
 builder.Services.AddScoped<SlaMonitor>();
 builder.Services.Configure<StaffReportMediaOptions>(builder.Configuration.GetSection("StaffReportMedia"));
 builder.Services.AddScoped<IncidentSlaPolicies>();
+builder.Services.AddScoped<OperationalEventSlaPolicies>();
+builder.Services.AddScoped<TaskTypeSlaPolicies>();
+builder.Services.AddScoped<SlaEscalationPolicies>();
+builder.Services.AddScoped<IncidentActions>();
 builder.Services.AddScoped<LocalTaskEvidenceStorage>();
 builder.Services.AddHttpClient<CloudinaryTaskEvidenceStorage>(client => client.Timeout = Timeout.InfiniteTimeSpan)
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
@@ -195,6 +199,8 @@ builder.Services.AddSingleton<IMonitoringSessionOwnership>(s=>s.GetRequiredServi
 builder.Services.AddScoped<SetupOverview>();
 builder.Services.AddScoped<IAnalyticsQueries, EfAnalyticsQueries>();
 builder.Services.AddScoped<ManagerAnalytics>();
+builder.Services.AddSingleton<IAnalyticsReportRenderer, AnalyticsReportRenderer>();
+builder.Services.AddScoped<ManagerAnalyticsExport>();
 builder.Services.AddScoped<IOperationalEventQueries, EfOperationalEventQueries>();
 builder.Services.AddScoped<OperationalEventHistory>();
 builder.Services.AddScoped<CameraHealth>();

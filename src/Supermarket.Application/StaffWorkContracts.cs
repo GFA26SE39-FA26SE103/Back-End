@@ -19,7 +19,9 @@ public sealed record StaffTaskView(Guid TaskId, string Origin, string SourceCode
     string Status, string AssignmentType, Guid? AssigneeUserId, string? AssigneeName,
     DateTime CreatedAt, DateTime? AssignedAt, DateTime? AcceptedAt, DateTime? PlannedStartAt, DateTime? StartedAt, DateTime? SubmittedAt,
     DateTime? EventClearedAt, bool NeedsAssignment, DateTime UpdatedAt, Guid? SlaPolicyId, string? SlaPriorityCode, int? SlaPolicyVersion,
-    DateTime? ResponseDeadlineAt, DateTime? ResolutionDeadlineAt);
+    DateTime? ResponseDeadlineAt, DateTime? ResolutionDeadlineAt,
+    // L4 (Operator web): cumulative rejections, the Staff member a manual assignment is waiting on, and why the last assignment ended.
+    int RejectionCount = 0, Guid? PendingManualStaffUserId = null, string? PendingManualStaffName = null, string? LastAssignmentEndReason = null);
 
 public sealed record NotificationView(Guid NotificationId, string Type, string Title, string Message, string? Severity, Guid? TaskId, Guid? EventId,
     DateTime CreatedAt, DateTime? ReadAt);

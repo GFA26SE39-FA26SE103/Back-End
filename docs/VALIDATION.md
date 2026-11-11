@@ -12,6 +12,14 @@ Branch: `feature/checkout-counter-backend`, based on `dev` at `8c1a1fe`.
 - Regenerated `docs/openapi.json` from the in-memory HTTP test host via explicit `CHECKOUT_OPENAPI_OUTPUT`; documented routes, config bounds, ratio rules and private AI protocol in `docs/CHECKOUT_API.md` and `docs/CHECKOUT_AI_PROTOCOL.md`. Frontend/AI-Service implementation, real-footage/camera acceptance, SQL concurrency and deployed end-to-end behavior are not claimed. No deployment, commit or push; user backup unchanged/unstaged. No additional database writes were performed during final focused verification.
 
 ---
+# Manager analytics report export (D13 / FE-10) — 2026-11-11
+
+- Added MANAGER-only `GET /api/manager/analytics/export` with the existing inclusive local-date and optional Zone filters. `format=csv|xlsx|pdf` returns UTF-8 CSV, native XLSX or paginated PDF from one consistent analytics read.
+- All formats preserve period/timezone/Zone context, generation time, Event/Incident/Task summaries, daily and Zone breakdowns, and explicit unavailable-data notes. Dismissed Incidents remain in reconciliation fields but are excluded from Incident KPI totals. CSV/XLSX neutralize spreadsheet formula-like text.
+- Successful generation and renderer failures write `EXPORT_ANALYTICS_REPORT` audit rows containing only report scope, format, timestamp and result status; credentials and personal Staff data are not exported or audited.
+- Focused `ManagerAnalyticsTests`: **23 passed, 0 failed**. Full non-SQL suite: **613 passed, 0 failed, 0 skipped**. Isolated SQL integration suite: **21 passed, 0 failed, 0 skipped**. Release publish: **PASS**.
+- Runtime Development Swagger export: **PASS**; `docs/openapi.json` documents four query parameters and the CSV/XLSX/PDF response media types. The owned temporary documentation API was stopped.
+- No shared database mutation, deployment, push or schema/scaffold change was performed. Manager Web still needs to connect its export controls to this endpoint; camera-health and AI-measurement time series are truthfully marked unavailable in the current analytics dataset.
 
 # MF-04 Manager-assisted COVER and direct shift changes — 2026-10-29
 
