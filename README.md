@@ -1,284 +1,156 @@
-# FA26SE103 MF-01 backend
+# FA26SE103 — Smart Supermarket Operations Backend
 
-**Manager analytics API (06/11/2026):** Three MANAGER-only read endpoints provide overview, daily cohorts and per-zone Event/Incident/Task KPIs from grouped SQL queries. Includes duration sample counts, nullable averages and Task SLA reporting from stored deadlines. See [contract and KPI definitions](docs/MANAGER_ANALYTICS_API.md). Dashboard UI, exports, recommendations and staging performance acceptance remain separate work; no schema/data migration is required.
+Backend for the **AI-Powered Smart Supermarket Operations Monitoring System** (Group GFA26SE39, Capstone FA26SE103).
 
-**Response-policy TaskType selection (06/11/2026):** Admin can read the fixed catalog through `GET /api/task-types` (code, name, description and required specialty ID). The web editor selects a catalog entry rather than requiring a memorized code. No schema change or catalog-write API is introduced.
+> **Documentation baseline: 2026-11-11, `dev` branch.** This is a developer entry point, **not a guarantee that every planned workflow is implemented or deployed**. For exact endpoints, schema prerequisites, validation evidence and deployments, consult the linked repository documents. Evidence is valid for the specific date/commit/environment recorded.
 
-Backend ASP.NET Core .NET 10 cho **Setup & System Configuration**, theo [AGENTS.md](AGENTS.md) và [context đầy đủ của team](docs/PROJECT_CONTEXT.md), đồng bộ SRS/BR/diagram V2 và ERD V6 ngày **23/10/2026** trên baseline Mainflow 02/10/2026. SQL Server là nguồn dữ liệu chính. Backend có API setup, floor-plan upload, upload MP4 và AI preview; mức độ nối frontend cần đối chiếu với checkout frontend hiện tại. Phạm vi chính là **MF-01**, kèm các subset MF-02/MF-04 được ghi rõ bên dưới.
+## What this backend does
 
-## MF-02 Task readiness — checked 25/10/2026
+The ASP.NET Core backend coordinates supermarket structure, camera/monitoring configuration, operational observations, independently qualified incidents, tasks and dispatch, staff/workforce operations, notifications, and analytics. A separate Python AI service supplies video detections and measurements; the backend owns business rules and persistence.
 
-**Monitoring/Event SQL proof — checked 27/10/2026:** `tools/Mf02MonitoringSqlProof` now provides a repeatable, opt-in V6 verification for the locked `LONG_QUEUE` 3/5–5s–5s–30s contract. It creates its fixture inside one outer SERIALIZABLE transaction and always rolls back. It verifies sustained warning open, same-episode CRITICAL escalation, sustained recovery clear, and that an `OPERATIONAL_EVENT` rule never creates an Incident. `--readiness-only` performs a read-only inventory; `--require-live` rejects RECORDED fallback for final main-path acceptance. The current shared Dev template is still `RECORDED` and reports `CAMERA_NOT_ACTIVE`; a LIVE camera remains required for the primary MF-02 acceptance path.
+The project's five functional workflows are:
 
-The default disposable-database suite is still not a V6 gate: its historical `20261003_02_monitoring_runtime_erd_v3.sql` bootstrap is absent from the Database repository, and V0.1 + V2–V6 is not a valid fresh-install chain because V2 expects runtime tables that V0.1 does not create. Do not reconstruct those tables from EF or use a data-bearing backup just to make the fixture green.
+1. **WF-01 Configure and Activate Store Monitoring** — stores, floors, zones, cameras, ROI, monitoring and operational policies.
+2. **WF-02 Detect and Route Operational Issues** — valid camera measurements → OperationalEvents → applicable response; separately, Staff-confirmed reports may qualify as Incidents or routine requests.
+3. **WF-03 Execute and Verify Operational Tasks** — task offers, assignment, execution, evidence, verification, rework and closure.
+4. **WF-04 Plan Staff Shifts and Resolve Coverage Changes** — schedules, staffing constraints, SWAP/COVER and approval.
+5. **WF-05 Review Operational Performance and Generate Reports** — dashboards, analytics, reporting and advisory recommendations.
 
-**Operator web integration:** controller/service ownership was split without route changes in commit `9f8488b`: StaffTasks/StaffMeController/TaskOffersController are separate from OperatorTasks/TaskViews/TasksController. Assignment now accepts optional `expectedUpdatedAt`, returns `TASK_CHANGED` on stale data, and requires a reason for reassignment/outside-Zone assignment. The latest validation is **343 non-SQL tests PASS**, 15 local HTTP/auth checks PASS, and real-SQL assignment/reassignment verified inside a rollback transaction. See API.md and the dated Owner A validation entry below.
+These are **business scope/workflow names**, not claims that all steps are complete in the current `dev` branch.
 
-Đã sửa lệch domain `ResponsePolicyAction` so với scaffold V6 và kiểm chứng bằng SQL Dev thật trong transaction rollback: check-in → sustained Event → Task/offer/notification → nhận việc/bắt đầu → tăng priority → Event clear. Non-SQL suite: **340 passed**. Đây là kiểm chứng application/EF/SQL với measurement giả lập, chưa phải camera/AI hoặc HTTP/mobile acceptance; xem [bằng chứng và giới hạn](docs/VALIDATION.md#mf-02-v6-task-mapper-and-live-sql-rollback-proof--2026-10-25).
+## Repository layout
 
-DB Dev tại lúc kiểm tra chưa sẵn sàng tự tạo Task cho demo: rule ACTIVE chưa có ResponsePolicy/action, camera INACTIVE và connection disabled, Staff chưa có ca hiện tại/check-in ở Zone của rule. Policy phải enabled, khớp rule + priority, có action `CREATE_OPERATIONAL_TASK` / `AUTOMATIC`; ca đã publish, đang diễn ra và Staff check-in/đúng Zone/workload < 2. Fixture thử đã rollback; chưa bật camera, tạo policy hay ghi check-in vào lịch thật. API contract và schema không đổi.
+```text
+src/
+  Supermarket.Api/             HTTP endpoints, JWT/RBAC, DTO validation, DI, ProblemDetails
+  Supermarket.Application/     Use cases, orchestration, contracts and abstractions
+  Supermarket.Domain/          Domain models, validation and invariants
+  Supermarket.Infrastructure/  SQL Server/EF persistence, adapters, workers, media/secrets
 
-## Dev deployment checkpoint — 04/10/2026
+tests/Supermarket.Tests/       Automated tests
+scripts/                       Local development utilities
+ docs/                         API, implementation context, validation and deployment runbooks
+```
 
-Backend Dev đang chạy tại `https://supermarket-api-dev.kitsuracloud.com`; health, Swagger, login và `GET /api/auth/me` qua HTTPS đã được xác minh với `FA26SE103_Dev`. Push vào nhánh `dev` tự chạy test không cần SQL, build/push image GHCR theo digest, kết nối Tailscale, SSH deploy Docker và readiness/rollback. Xem [runbook và trạng thái tự động/thủ công](docs/DEPLOY_DEV.md#verified-deployment-checkpoint-2026-10-04).
+Architectural boundaries: controllers remain thin; do not call `DbContext` directly in controllers; domain logic must not depend on ASP.NET/EF; scaffolded persistence entities are not public API DTOs. SQL Server is authoritative; Redis is transient where used.
 
-Workflow không tự tạo/cập nhật DB, không upload `api.env`, không cấu hình DNS/NPM/Tailscale/SSH lần đầu, không backup dữ liệu, không deploy frontend/Python AI và không tự bật camera-health/monitoring worker. Frontend local dùng `.env.local` bị Git ignore với `VITE_API_URL=https://supermarket-api-dev.kitsuracloud.com`; frontend Production sau này phải truyền URL lúc build và backend phải thêm đúng public origin vào CORS.
+## Technologies
 
-## Context chung khi clone backend
+- ASP.NET Core **.NET 10**, C#, Entity Framework Core, Microsoft SQL Server.
+- JWT authentication and role-based authorization (ADMIN, OPERATOR, MANAGER, STAFF as applicable).
+- Docker/Compose and GitHub Actions for the Backend development deployment.
+- Camera/stream integration, Cloudinary media workflows, Firebase push and Python AI-service integration as described in their specific codepaths and docs.
+- Tests include a non-SQL suite and separately controlled SQL-integration/rollback checks.
 
-MF-04 specialty update (06/11/2026): SWAP/COVER chỉ giữa Staff có cùng primary specialty đã gán. Candidate và mọi bước accept/approve/Manager cover/direct đều kiểm lại specialty hiện tại; thiếu/khác specialty trả `SWAP_NOT_ALLOWED` và không chuyển ca. Admin cần gán specialty trước khi dùng đổi ca. Không đổi DTO/schema; xem MF-04 trong API.md.
+Check source and environment configuration before assuming any optional integration is enabled.
 
-- Đọc [AGENTS.md](AGENTS.md) trước khi làm việc; đây là hướng dẫn ngắn ở root để coding agent tự nạp khi mở repo backend.
-- Đọc [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) đầy đủ trước khi triển khai. File này là snapshot triển khai được đồng bộ trong repository, gồm MF-01..MF-04, BR, kiến trúc, ERD v3 facts, các quyết định còn mở và link RP1/RP2/BR/ERD. Các Mainflow sau là context thiết kế; phần đang tập trung triển khai là MF-01.
-- Đối chiếu phần đã triển khai và các gap trong README, [API contract](docs/API.md), [OpenAPI](docs/openapi.json) và source liên quan. [VALIDATION.md](docs/VALIDATION.md) là bằng chứng kiểm tra tại ngày ghi trong file.
+## Get started (existing development database)
 
-Bản hướng dẫn đầy đủ khoảng 63 KiB nên được tách khỏi file tự nạp; `AGENTS.md` yêu cầu agent đọc nó qua công cụ đọc file. Hai file đều nằm trong repo, không cần thư mục `AGENT` bên ngoài khi clone backend riêng.
+**Prerequisites:** .NET SDK 10, access to the team's approved development SQL Server, and any external tools required by the feature being exercised (for example FFmpeg for camera/video flows). Keep credentials out of Git.
 
-Khi team chốt BR/Mainflow/ERD mới, cập nhật `docs/PROJECT_CONTEXT.md`, ngày baseline và những quy tắc tương ứng trong `AGENTS.md` trong cùng PR. Context được chia sẻ qua Git; link tài liệu ngoài không tự đồng bộ nội dung vào repo.
-
-## Thành viên mới clone về cần gì?
-
-Để chạy API với DB `FA26SE103_Dev` đã có sẵn, mỗi người cần .NET SDK 10, quyền truy cập SQL Server của team và **một file cấu hình riêng**: `src/Supermarket.Api/appsettings.Local.json`. Tạo file đó từ `appsettings.Local.example.json` đã có trong Git, điền connection string và sinh JWT key theo hướng dẫn dưới đây. JWT key có thể khác nhau nếu mỗi người đăng nhập vào API local của mình; chỉ dùng chung khi cần các instance chấp nhận cùng token.
-
-Bạn chỉ cần cung cấp thông tin kết nối DB và tài khoản đăng nhập API Dev qua kênh riêng. Không cần gửi source bổ sung, `bin`, `obj`, `.tools`, `TestResults` hoặc bản publish. EF entities đã có trong source nên không cần scaffold lại để chạy. Script SQL chỉ cần khi tự tạo DB hoặc chạy SQL integration tests; kết nối DB có sẵn không cần file SQL. FFmpeg cần thiết để thử camera thật hoặc video recorded.
-
-**Nếu cùng đọc mật khẩu camera đã mã hóa trong DB Dev:** các backend cần dùng chung Data Protection key ring của môi trường Dev. Chia sẻ riêng bộ key Dev tương ứng với dữ liệu đó, đặt trên máy từng người và cấu hình `DataProtection:KeyPath` trong file local tới thư mục vừa đặt key. Đồng bộ key ring khi có key mới; không lấy key production để dùng cho Dev và không commit key vào Git. Chỉ copy `appsettings.Local.json` không đủ để giải mã camera credentials đã được backend khác lưu.
-
-Data Protection key được backend tự sinh khi cần bảo vệ dữ liệu và nằm tại đường dẫn `DataProtection:KeyPath`; mặc định là `src/Supermarket.Api/.local/keys` khi chạy local bằng launch profile `http`. Key này phục vụ `CameraConnection.credential_secret_ref`; mật khẩu tài khoản API được hash bằng PasswordHasher, JWT dùng `Jwt:Key`. Giữ các key đã dùng cùng bản backup DB có camera credentials; mất key sẽ phải nhập lại mật khẩu camera. Tham khảo [cấu hình Data Protection của ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview?view=aspnetcore-10.0).
-
-| Thư mục/file trên máy | Cần gửi cho người clone? |
-| --- | --- |
-| `bin/`, `obj/` | Không; `dotnet restore`/build tự sinh lại. |
-| `.tools/` | Không; bản cài EF tool tạm. Scaffold dùng tool manifest `.config/dotnet-tools.json` trong Git. |
-| `TestResults/`, `.local/publish/` | Không; kết quả kiểm thử và build đã sinh trên máy. |
-| `appsettings.Local.json` | Mỗi người tạo từ mẫu; cung cấp thông tin DB riêng, không copy đường dẫn tuyệt đối của máy khác. |
-| Data Protection key ring Dev | Cần dùng chung khi nhiều backend giải mã cùng camera credentials trong DB Dev. |
-
-## Appsettings và hai database có sẵn
-
-Các file cấu hình nằm tại `src/Supermarket.Api`.
-
-| File | Mục đích |
-| --- | --- |
-| `appsettings.json` | Cấu hình chung, có các mục `ConnectionStrings:SqlServer` và `Jwt:Key` để trống. |
-| `appsettings.Development.json` | Cấu hình khi chạy local bằng launch profile `http`, cho phép camera demo. |
-| `appsettings.Local.example.json` | Mẫu SQL Authentication cho DB `FA26SE103_Dev`; copy thành `appsettings.Local.json` rồi điền thông tin thật. |
-| `appsettings.Local.json` | Connection string/JWT key riêng trên máy; gitignore và không đưa vào publish. |
-| `appsettings.Production.json` | Cấu hình production cho VPS, connection string/JWT key để trống cho bạn cấu hình khi host. |
-
-Với hai DB của team, hướng dẫn này quy ước **`FA26SE103_Dev` cho phát triển** và **`FA26SE103` cho production**. Mỗi instance backend dùng một connection string `SqlServer`, chọn database theo môi trường; không cần đồng thời kết nối cả hai DB. Backend không tự tạo database, import SQL hay chạy migrations khi khởi động.
-
-### Chạy local với DB `FA26SE103_Dev` có sẵn
-
-Cần .NET SDK 10 và quyền kết nối SQL Server của team. Từ thư mục `Project/Back-End`:
+1. Clone this repository and check out the branch being used for the task (usually `dev`).
+2. Create **`src/Supermarket.Api/appsettings.Local.json`** from `appsettings.Local.example.json` only if no local file exists.
+3. Supply the `FA26SE103_Dev` SQL connection settings, a locally generated JWT signing key and any feature-specific secrets. Never commit the local file or secrets.
+4. Run from the repository root:
 
 ```powershell
 if (!(Test-Path src/Supermarket.Api/appsettings.Local.json)) {
     Copy-Item src/Supermarket.Api/appsettings.Local.example.json src/Supermarket.Api/appsettings.Local.json
 }
-```
 
-Chỉ copy khi chưa có file local để giữ cấu hình riêng hiện tại. Trong `appsettings.Local.json`, thay `YOUR_SQL_HOST`, `YOUR_SQL_USER`, `YOUR_SQL_PASSWORD`; giữ `Database=FA26SE103_Dev`. Tên server trong ảnh SSMS của team là `ksr-capstone-supermarket-ai,1433`; máy chạy backend cần truy cập được địa chỉ đó. `TrustServerCertificate=False` yêu cầu certificate SQL hợp lệ; với server dev dùng certificate tự ký, có thể đặt `True` theo cấu hình của team. SQL username/password khác với tài khoản đăng nhập API.
-
-Gợi ý AI cho StaffReport chạy trực tiếp trên Backend, không qua AI-Service. Muốn bật, điền `StaffReportAi:ApiKey` (OpenAI API key) và `StaffReportAi:Model` vào file local hoặc dùng biến môi trường `StaffReportAi__ApiKey`/`StaffReportAi__Model`; để phân tích voice note cần thêm `StaffReportAi:TranscriptionModel` (hoặc `StaffReportAi__TranscriptionModel`), rồi khởi động lại Backend. Để trống thì Mobile vẫn cho Staff điền report thủ công. Draft AI không lưu trên server; chỉ report đã xác nhận mới được lưu. Không commit key, không đưa key vào Mobile, và chỉ gửi dữ liệu thật tới nhà cung cấp AI sau khi team chấp thuận.
-
-Sinh JWT key riêng bằng PowerShell rồi điền kết quả vào `Jwt:Key` trong file local:
-
-```powershell
+# Generate a signing-key value and place it in the local configuration.
 [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(48))
+
 dotnet restore --configfile NuGet.Config
 .\scripts\Start-Local.ps1
 ```
 
-Nếu DB chưa có tài khoản Admin, dùng `Start-Local.ps1 -BootstrapAdmin` để nhập mật khẩu và tạo tài khoản đầu tiên. Bootstrap chỉ tạo Admin khi database chưa có tài khoản. Với DB có sẵn của team, không cần scaffold lại chỉ để đổi connection string.
+The documented local API base is **`http://localhost:5080/api`** and Swagger is **`http://localhost:5080/swagger`** when enabled. Authenticate through `POST /api/auth/login`, then use the token for authorized routes.
 
-API: `http://localhost:5080`; Swagger: `http://localhost:5080/swagger`. Đăng nhập bằng `POST /api/auth/login`, sao chép `accessToken` vào **Authorize** của Swagger. Configuration API chỉ dành cho ADMIN. Token của tài khoản đã disable hoặc đổi role bị từ chối ngay ở request tiếp theo.
+For an empty approved development database, consult the repository's bootstrap instructions before running `Start-Local.ps1 -BootstrapAdmin`. Do **not** bootstrap against an existing team database without checking its accounts and approval. The backend does not create or migrate the database on startup.
 
-### Cấu hình khi tự host trên VPS
+### Local configuration and secrets
 
-Backend Dev đã có [bộ cấu hình Docker/Compose và hướng dẫn deploy](docs/DEPLOY_DEV.md), dùng SQL `FA26SE103_Dev` hiện có, GitHub-hosted runner → GHCR → Tailscale/SSH và NPM. Workflow **Deploy backend Dev** tự chạy khi code được push/merge vào nhánh `dev`; có thể chạy lại thủ công nhưng chỉ chấp nhận ref `dev`. Workflow kiểm thử trước khi build/push và cập nhật API theo image digest, có readiness check và rollback. Cấu hình thật nằm trong `api.env` riêng trên VM, key ring/video/map local nằm trong named volumes. Chưa chạy deploy thực tế; cần thiết lập secrets, DNS/NPM và acceptance trên server.
+- `appsettings.json` and environment-specific files provide non-secret defaults.
+- `appsettings.Local.json` is machine-specific, ignored by Git and not intended for production publishing.
+- Production/staging secrets should be supplied via environment/secrets management, not committed files.
+- Camera credentials are protected with ASP.NET Data Protection. Any two instances reading existing encrypted camera credentials must have access to the appropriate shared **development** key ring; a JWT key is not a substitute.
+- Avoid exposing camera passwords in connection URLs, logs, screenshots or API responses.
+- Staff Report AI capabilities, if configured, require separate provider keys. AI suggestions are drafts; Staff confirmation is required for persistence and qualification.
 
-Môi trường Dev trên server dùng `ASPNETCORE_ENVIRONMENT=Staging` với `Swagger__Enabled=true`, không bật route demo Development. `ReverseProxy__Enabled=true` chỉ đọc forwarded HTTPS/IP từ `ReverseProxy__KnownProxies` đã cấu hình; đặt middleware trước rate limit/auth để login limit theo IP client và URL map có đúng scheme. Xem hướng dẫn deploy cho IP NPM và các giới hạn upload.
+See [deployment and secrets runbook](docs/DEPLOY_DEV.md) for environment-specific setup.
 
-Nếu host production riêng bằng publish output:
+## Current implementation areas and caveats
 
-```powershell
-dotnet publish src/Supermarket.Api -c Release -o .local/publish
-```
+This is a **status-oriented summary based on repository documentation checked on 2026-11-11**, not fresh runtime acceptance evidence. Always examine the linked source and dated test results before marking an item done.
 
-Khi bạn đưa publish output lên VPS, đặt `ASPNETCORE_ENVIRONMENT=Production`. Điền connection string thật với **`Database=FA26SE103`** và JWT key riêng vào `appsettings.Production.json` trong thư mục publish trên VPS, hoặc cấu hình qua biến môi trường `ConnectionStrings__SqlServer` và `Jwt__Key`. Cấu hình thêm `Cors:Origins` theo địa chỉ frontend và `DataProtection:KeyPath` tới thư mục lưu key lâu dài trên VPS. Không commit thông tin thật từ VPS vào file mẫu trên GitHub. `appsettings.Local.json` và file example không nằm trong publish output.
+| Area | Repository evidence / current boundary |
+| --- | --- |
+| Store, floor, zone and camera configuration | CRUD, floor plans, camera setup, camera/zone mappings and ROI contracts are documented and represented in application source. |
+| Monitoring and OperationalEvents | Monitoring rules, event episodes and event history/drill-down have implementation/validation entries. Health and invalid readings are distinct from valid operational observations. |
+| SLA and operational response | November 6 cutover uses `SLAPolicy`/`SLAPolicyAction` rather than the older physical response-policy tables. WARNING can notify; CRITICAL can trigger configured Task action. Never conflate event alert level with SLA response priority. |
+| Task offers and dispatch | Dated evidence covers specialty-aware five-ring dispatch, offer handling, assignment, rejection/reassignment and evidence/verification increments. Full cross-role staging acceptance remains a separate gate. |
+| Staff reports and Incident qualification | `PROJECT_CONTEXT.md` documents a November 9–10 StaffReport/AI increment and V12–V15 schema work. Check what actually landed on `dev` versus feature branches and which database received each script. |
+| Shifts and SWAP/COVER | Published schedules, eligibility and same-specialty transfer constraints have documented API and test increments. |
+| Manager analytics | Read-only overview/cohort/zone KPIs are documented. Dashboard UI, exports, full recommendations and performance acceptance are not established merely by these endpoints. |
+| Waiting Time / Checkout Capacity | Supported as project goals, **not automatically reliable runtime measurements**. Validate against footage and represent missing/invalid measurements as unavailable. |
 
-Thứ tự ghi đè cấu hình hiện tại: `appsettings.json` → `appsettings.{Environment}.json` → `appsettings.Local.json` nếu có → biến môi trường. Khi chạy bản publish trên VPS, file production cùng biến môi trường cung cấp cấu hình thật.
+**Never infer implementation or production readiness solely because an entity, route description, SQL migration, or historical test result exists.**
 
-## Tạo Admin đầu tiên trên DB đã có sẵn
+## Checkout counter design — planned, not yet implemented
 
-Sau khi cấu hình connection string và JWT key cho database đã có sẵn, chạy từ `Project/Back-End`:
+The current Task-plan decision introduces two tables in the canonical Database repository. This describes approved direction, not existing schema/API/runtime behavior.
+
+- `CheckoutCounter`: logical counter/lane identity tied to a Checkout Zone (`zone_id`, `code`, `name`, `is_enabled`). Floor-plan geometry is not part of the current K9 schema scope unless separately approved in the ERD.
+- `CameraCheckoutMapping`: Camera↔Counter mapping with `lane_roi`, `staff_roi`, `is_enabled` and an explicit queue-measurement-source selection. Multiple cameras may observe a counter; exactly one enabled mapping is selected to count that counter’s queue. Camera and counter must be on the same Floor. Keep generic `CameraZoneMapping` unchanged.
+- Both ROIs are independent normalized polygons in camera-frame coordinates and required for an enabled mapping. No adjacency/containment rule. No additional ROI/history table or POS integration is currently planned.
+
+**Multi-camera staff presence (approved planning rule):** aggregate by `counterId`. `PRESENT` after at least one enabled, healthy, fresh and sufficiently observable mapping confirms staff presence for about 15 seconds. `ABSENT` only after all enabled mappings are healthy/fresh/sufficiently observable and confirm absence for about 15 seconds. Otherwise return `UNKNOWN`/`UNAVAILABLE`; unknown time does not count. Persisted PRESENT wins a source disagreement, which should remain diagnosable. Validate both 15-second persistence values with footage. This is staff-presence aggregation, not cross-camera person ReID or automatic queue-source failover.
+
+Queue demand is measured only from the selected mapping per counter; do not sum overlapping detections across cameras. The existing standing-≥5-second queue definition is provisional until validated. The initial metric is **Observed Staffed Checkout Ratio**, not active transaction utilization. OE-04 should compare valid queue demand `Q` with distinct observed staffed counters `S` using configurable MonitoringRule thresholds/persistence; incomplete coverage yields unavailable, not zero. OE-01 Long Queue and OE-04 Checkout Capacity Issue may coexist; check their cross-event Task deduplication before enabling automatic Task creation (Task plan K9.8). Waiting time needs separately validated queue-entry/service-start signals.
+
+## Database-first workflow
+## Database-first workflow
+
+**The Backend repository is database-first. Do not use code-first EF migrations for team schema changes.**
+
+1. Agree on the ERD/contract and coordinate with the **Database repository** owner.
+2. Create and review a versioned SQL change in the canonical Database repository, with preflight/rollback and target environment identified.
+3. Apply only to the approved database after the required review/backup/checkpoint.
+4. Re-scaffold generated EF persistence models from that schema.
+5. Review differences, update domain/application contracts, controllers/adapters and tests.
+6. Update `docs/API.md`, OpenAPI, and any business/design documentation affected by the actual implementation.
+
+**Schema version nuance:** the project design baseline references ERD V7, while later Database scripts V9–V15 are discussed in dated repository notes. These are **different concepts** (ERD version, migration/script version and deployed DB version). Inspect the Database repository and the target SQL database before claiming any particular script is applied.
+
+## API and verification
+
+- Complete route details, permissions, payloads and errors: [docs/API.md](docs/API.md); generated/reference specification: [docs/openapi.json](docs/openapi.json).
+- Dated test/SQL evidence and limitations: [docs/VALIDATION.md](docs/VALIDATION.md).
+- Historical decisions, known gaps and superseded documentation: [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md).
+- Development deployment: [docs/DEPLOY_DEV.md](docs/DEPLOY_DEV.md).
+- Coding-agent rules: [AGENTS.md](AGENTS.md).
 
 ```powershell
 dotnet restore --configfile NuGet.Config
-.\scripts\Start-Local.ps1 -BootstrapAdmin
+dotnet test --no-restore --filter "Category!=SqlIntegration"
+dotnet publish src/Supermarket.Api -c Release --no-restore
 ```
 
-Lần đầu nhập mật khẩu Admin dài 12–128 ký tự. Email mặc định `admin@mf01.local`; có thể đổi bằng `-AdminEmail`. Bootstrap chỉ tạo Admin khi database chưa có tài khoản; mật khẩu bootstrap chỉ truyền qua môi trường process, không ghi vào file. Các lần sau chạy `Start-Local.ps1` không có `-BootstrapAdmin`.
+Run SQL-integration tests only against an approved isolated or rollback-safe environment. Record the exact command, commit, DB/script state, and result; do not reuse historical pass counts as current proof.
 
-Backend không cung cấp script tự khởi tạo DB local. `Start-Local.ps1` chạy API với cấu hình hiện tại; `Scaffold.ps1` dành cho đồng bộ EF sau khi team đã duyệt và áp dụng thay đổi schema.
+## Development deployment
 
-## Kiến trúc
+The repo documents a `dev`-branch pipeline that tests, builds/pushes a container image and deploys through a controlled GHCR/Tailscale/SSH flow. The documented development endpoint is `https://supermarket-api-dev.kitsuracloud.com`, but availability and deployed revision must be checked live. Pipeline deployment **does not** implicitly migrate SQL, configure DNS/secrets, deploy frontend/AI services or validate every business workflow.
 
-```text
-Supermarket.Api             HTTP controllers, JWT/RBAC, ProblemDetails, Swagger
-Supermarket.Application     use cases, DTOs, repository/video/secret abstractions
-Supermarket.Domain          business models, geometry validation, state rules
-Supermarket.Infrastructure  scaffolded EF, repository mapping, encryption, video, worker
-```
+Follow [docs/DEPLOY_DEV.md](docs/DEPLOY_DEV.md) before changing infrastructure or credentials.
 
-Domain không phụ thuộc ASP.NET/EF. Controller không truy cập DbContext. EF entities không được trả trực tiếp ra API. Domain và persistence model được map trong repository; predicate đơn giản được chuyển sang EF để lọc tại SQL. Transaction Serializable bảo vệ kiểm tra Admin cuối cùng, một branch và health-event deduplication; `updated_at` là concurrency token và được cập nhật mỗi mutation.
+## Safety and scope boundaries
 
-## Phạm vi đã implement
+- `OperationalEvent` and `Incident` are separate branches. Camera rules produce/update OperationalEvents under the current approved baseline; confirmed Staff reports can qualify as Incidents.
+- No face recognition, cross-camera person ReID or persistent customer identity.
+- Do not treat missing/expired camera measurements as zero, as successful AUTO verification, or as a trigger for operational actions.
+- Advisory recommendations do not automatically change schedules, policies, Tasks or monitoring configuration.
+- Do not assume POS/ERP, inventory or revenue data integrations exist.
 
-- Login JWT, `/auth/me`, roles, Admin tạo/sửa/enable/disable tài khoản, bảo vệ Admin cuối cùng.
-- Supermarket, floors, map URL/dimensions, zones với polygon normalized `[0,1]`.
-- Upload/replace floor plan PNG, JPEG hoặc PDF qua `POST /api/floors/{id}/map` (multipart `file`, ADMIN, mặc định tối đa 20 MB); asset được lưu ngoài `wwwroot` và chỉ đọc qua authenticated `GET /api/floors/{id}/map`.
-- Camera thuộc Floor; metadata lắp đặt/bảo hành, vị trí và rotation trên map.
-- Connection 1:1: configure → test → preview → enable/disable. Mỗi lần PUT configuration sẽ disable và xóa kết quả test cũ.
-- Browser playback cho LIVE/RTSP qua MediaMTX: backend provision path `cam-{cameraId}` bằng Control API nội bộ và trả WHEP URL đã sanitize; frontend không cần mapping code camera → path trong build env.
-- Upload MP4 làm nguồn RECORDED/FILE qua `POST /api/cameras/{id}/recorded-video` (multipart `file`, ADMIN, tối đa 200 MB). Kiểm tra header và decode frame bằng FFmpeg; server sinh filename, lưu ngoài wwwroot. Không sửa schema DB.
-- Proxy AI preview start/status/frame/stop tới native YOLO26s + ByteTrack, hỗ trợ LIVE HTTP/RTSP/HLS và RECORDED FILE. React nhận JPEG đã vẽ person box/track ID, không gọi Python trực tiếp. Mỗi viewer giữ một lease riêng; nhiều viewer cùng camera dùng chung một worker và release độc lập. Tối đa hai camera worker chạy đồng thời, mỗi camera có reader/YOLO/ByteTrack riêng; không có cross-camera re-identification, deduplication hoặc persisted track identity. Endpoint `frame/next` chờ frame mới theo sequence/session, tránh tải lặp frame cũ và giới hạn polling 250 ms ở UI.
-- Camera N:M Zone qua mapping; cùng tầng; ROI normalized; PUT idempotent.
-- MonitoringConfiguration và MonitoringRule per-zone được lưu SQL: confidence `[0,1]`, incident type AI-detected, warning/critical/unit, sustain/cooldown/enabled, DRAFT/ACTIVE/INACTIVE. Review và activation kiểm tra lại zone, rule, diện tích density, camera/source/test/enable và ROI. Cấu hình ACTIVE phải deactivate trước khi sửa rule, confidence, source hoặc mapping/ROI.
-- Health worker chạy ngay lúc backend start rồi theo interval, có bounded concurrency; check thủ công vẫn có. Transport `UNKNOWN/ONLINE/OFFLINE` tách khỏi visual/processing usability và derived `READY/NOT_READY`. Visual blocked/blurred/invalid dùng event-type-specific hysteresis; AI-service outage chỉ làm processing unavailable, không giả thành camera failure. Monitoring configuration không tự deactivate. Khi recovery được xác nhận, worker chỉ resolve đúng event type và cập nhật last seen; Admin có thể thêm resolution note.
-- Subset MF-02 trên ERD V7: `CREATE_OPERATIONAL_TASK` resolve `TaskType`, tạo runtime `TaskOffer` cho Staff đang check-in, đúng Zone, đúng `StaffSpecialty` và còn capacity; hỗ trợ Handle Now/Later, Cannot Handle, first-valid-acceptance, EXPIRED/retry, chống active duplicate, hết lượt/no-eligible báo Operator và Operator gán thủ công. `TaskAssignmentHistory` chỉ dùng cho audit/assignment history. MF-03 đã bổ sung upload evidence, submit, Operator verify/reject và bắt buộc giao Staff khác sau hai lần reject; StaffReport vẫn chưa có.
-- Subset MF-04 đổi ca SWAP/COVER: peer flow vẫn là Staff A gửi → Staff B đồng ý/từ chối → Manager quyết định. Khi không tìm được đồng nghiệp, Staff có thể nhờ Manager chọn cover; Manager cũng có thể COVER/SWAP trực tiếp trên lịch tương lai với lý do audit bắt buộc. Luật cứng gồm trùng ca, `StaffUnavailability`, 48 giờ/tuần và một request mở mỗi slot; 40 giờ là planning target/cảnh báo tải cao, không phải giới hạn từ chối. Chỉ đổi được ca đã publish và chưa bắt đầu/check-in. Route xem [docs/API.md](docs/API.md).
-- Subset MF-04 xếp ca cho Manager: Work Shift 4/6/8 giờ thuộc một tuần Thứ Hai–Chủ Nhật; có thể copy các Work Shift ACTIVE từ tuần trước sang một tuần đích đang trống (không copy Staff assignment). Admin chỉ tạo và bố trí Zone; Manager cấu hình baseline `Zone.min_staff` (không có một số cố định trong BR-02), gán Staff ACTIVE vào Work Shift + Zone ở trạng thái `DRAFT` rồi publish khi mọi Zone đủ coverage. Sửa/huỷ trước giờ bắt đầu và nghỉ phép `StaffUnavailability` theo các ràng buộc BR-32/BR-33. Không dùng staff skill: chỉ xét Role STAFF và Zone.
-- Global notification policy: Admin GET/PUT bốn `notification.*` FCM settings qua `SystemSetting`, optimistic concurrency và `AuditLog`. `/me/notifications` là recipient-scoped inbox chung cho Staff/Operator/Manager, tối đa 100 row và read-all chỉ tác động caller. Staff có register/rotate/soft-revoke `UserDevice` mà response không lộ raw token. Web Admin/Operator/Manager đã có màn hình tương ứng. Database V8 seed bốn default row idempotently; chưa có FCM sender/mobile integration nên `pushConfigured=false` và master mặc định off cho đến Gate B.
-
-- Swagger/OpenAPI, ProblemDetails với `code` và `requestId`, rate limit login, CORS, liveness/readiness.
-
-Floor-map upload chọn storage bằng `FloorPlan:Provider`: `Local` (mặc định) hoặc `Cloudinary`. Local root mặc định là `src/Supermarket.Api/.local/floor-plans`, cấu hình bằng `FloorPlan:Root`; giới hạn mặc định `FloorPlan:MaxBytes=20971520` (có thể giảm, tối đa 20 MB theo endpoint hiện tại). Storage name do server sinh, không dùng original filename làm path, không serve static, và thư mục `.local` không được commit. SQL vẫn lưu tham chiếu map/kích thước; không có migration hoặc thay scaffold cho storage provider.
-
-### Cloudinary cho floor plans
-
-Thêm/merge các mục sau vào `src/Supermarket.Api/appsettings.Local.json`, giữ các cấu hình DB/JWT/AI đang có. File local đã được ignore; không commit API secret. File example trong Git chứa giá trị trống. Điền key rồi đổi Provider và restart backend:
-
-```json
-{
-  "FloorPlan": { "Provider": "Cloudinary" },
-  "Cloudinary": {
-    "CloudName": "YOUR_CLOUD_NAME",
-    "ApiKey": "YOUR_API_KEY",
-    "ApiSecret": "YOUR_API_SECRET",
-    "Folder": "fa26se103/floor-plans",
-    "TimeoutSeconds": 30
-  }
-}
-```
-
-Trên VPS, có thể dùng `FloorPlan__Provider=Cloudinary`, `Cloudinary__CloudName`, `Cloudinary__ApiKey`, `Cloudinary__ApiSecret`, `Cloudinary__Folder` và `Cloudinary__TimeoutSeconds` thay cho file local. Cloud name/key/secret lấy trong Cloudinary Console; không thêm chúng vào frontend hoặc URL DB. Bật Cloudinary khi thiếu key, folder không hợp lệ hoặc timeout ngoài 1–120 giây sẽ fail startup với hướng dẫn cấu hình, không in giá trị secret. Xem [Cloudinary signed API calls](https://cloudinary.com/documentation/authentication_signatures) và [Upload API](https://cloudinary.com/documentation/image_upload_api_reference).
-
-Store Layout giữ nút Upload/Replace hiện tại. Backend kiểm tra PNG/JPEG/PDF, MIME/extension/signature/size trước khi gọi Cloudinary qua HTTPS. PNG/JPEG dùng resource `image`; PDF dùng `raw` để giữ file PDF nguyên gốc cho PDF.js. Mọi asset dùng delivery type `authenticated`, public ID riêng theo floor và `overwrite=false`; không gửi transformation/crop hay dùng upload preset. Cần giữ cấu hình Cloudinary không có incoming transformation cho floor plans. Cloudinary account có thể có giới hạn upload/delivery riêng; lỗi provider trả thông báo đã sanitize.
-
-`Cloudinary:Folder` được gửi bằng `asset_folder` để ảnh mới nằm trong đúng thư mục Media Library ở chế độ dynamic folders, đồng thời vẫn là prefix của public ID theo floor. Chỉ có dấu `/` trong public ID không tạo thư mục Media Library ở chế độ này. Các ảnh upload trước bản sửa này có thể nằm ở Home và vẫn đọc được; có thể chuyển chúng vào folder trong Console mà không đổi public ID/asset ID. Thay cấu hình Folder không tự di chuyển ảnh cũ. Xem [Cloudinary folder modes](https://cloudinary.com/documentation/folder_modes_in_integrations).
-
-SQL lưu URL của API map với version token chứa cloud/floor/immutable asset ID/format, không lưu URL có chữ ký hết hạn hay secret. `GET /api/floors/{id}/map` vẫn kiểm tra quyền ADMIN/OPERATOR/MANAGER, tải file gốc từ signed Cloudinary API bằng asset ID và trả bytes/Content-Type với `Cache-Control: no-store`; không redirect browser tới ảnh public. Đổi folder không làm mất tham chiếu đã lưu; đổi CloudName sang product environment khác không tự chuyển các ảnh cũ. Các API instance đọc cùng DB cần được cấu hình credential cho đúng cloud đã lưu.
-
-Đổi Provider sang Cloudinary không tự upload các file cũ: router vẫn đọc được token local nếu file còn ở `FloorPlan:Root`. Để ảnh cũ dùng được trên máy khác/VPS, dùng **Replace floor plan** một lần với đúng file gốc sau khi cấu hình key; zone/camera/ROI vẫn giữ nguyên. Upload mới từ đó lưu trên Cloudinary. Không xóa thư mục local trước khi chuyển các floor còn tham chiếu nó.
-
-Thay ảnh tạo asset mới, cập nhật DB trong transaction, rồi chỉ xóa đúng tham chiếu cũ. Lỗi DB giữ tham chiếu cũ và dọn asset mới. Cleanup remote/local không thành công chỉ ghi warning đã sanitize và có thể để lại asset không được tham chiếu; không biến commit thành lỗi hay xóa theo prefix toàn floor. Không tự retry upload hoặc tự migrate ảnh khi app startup. Timeout/network failure trước khi nhận asset ID cũng có thể để lại upload không được tham chiếu; kiểm tra thư mục Cloudinary của floor nếu cần dọn. Không có key thật thì tests chỉ xác minh contract qua HTTP handler giả, chưa chứng minh live Cloudinary acceptance.
-
-Store Layout frontend tải floor/camera thật, lấy map dưới dạng authenticated Blob, render trang PDF đầu tiên bằng PDF.js, và đặt camera bằng sprite body/muzzle/FOV. **Create floor / Edit floor** mở dialog có Cancel/close/Escape. Create dùng default store đã seed; Edit chỉ gửi name/floorNumber qua `PATCH /api/floors/{id}/details`, giữ map hiện tại, zone/camera/ROI. Số tầng unique trong store; lỗi giữ input. Drag hoặc keyboard chỉ sửa draft; **Save placement** mới gửi full camera DTO với `mapX/mapY` normalized và `mapRotationDeg`. Lưu placement không tự test/enable connection hay activate monitoring.
-
-PATCH ở increment này nhận toàn bộ DTO chỉnh sửa, không phải JSON Patch hay merge patch. Camera không được chuyển sang tầng khác bằng PATCH; việc chuyển tầng cần use case xử lý mappings riêng.
-
-## Kiểm thử camera MF-01
-
-1. Login Admin, dùng default supermarket đã seed, tạo floor trong Store Layout và zone với `mapPolygon` gồm ít nhất 3 điểm.
-2. Tạo camera với `status: "ACTIVE"`, installation/warranty dates.
-3. PUT connection thật, ví dụ `{ "sourceType": "LIVE", "protocol": "HTTP", "streamUri": "http://camera-host/video" }`; credentials phải nằm ở các field riêng.
-4. POST connection/test, GET preview, POST connection/enable.
-5. PUT camera/zones/{zoneId} với `roiPolygon`.
-6. POST camera/health/check; ONLINE chỉ xuất hiện khi backend nhận được frame thật.
-7. Ngắt hoặc chặn nguồn camera rồi chờ đủ số quan sát lỗi đã cấu hình để mở health event.
-8. Investigate event; khôi phục nguồn và chờ đủ số quan sát tốt để thấy RESOLVED.
-
-Preview ảnh tại `GET /api/cameras/{id}/preview` vẫn lấy một JPEG từ nguồn LIVE hoặc RECORDED để test/snapshot/ROI. Với LIVE/RTSP đã test và enable, `POST /api/cameras/{id}/playback` provision path MediaMTX động và trả WHEP URL để browser xem WebRTC liên tục. Nguồn camera tổng hợp `DEMO` và endpoint đổi demo-state đã bị loại bỏ; row `DEMO` cũ được xem là cấu hình không hợp lệ và phải cấu hình lại.
-
-## Video và credential
-
-### Upload video thay camera để test YOLO + ByteTrack
-
-Từ `C:\FPT University\CAPSTONE\Backend\Back-End`, chạy backend như bình thường. Nếu FFmpeg chưa có trên PATH, đặt đường dẫn portable trong cửa sổ PowerShell chạy BE:
-
-```powershell
-$env:Video__FfmpegPath = 'C:\FPT University\CAPSTONE\setup\tools\ffmpeg\ffmpeg-9.0.2-essentials_build\bin\ffmpeg.exe'
-.\scripts\Start-Local.ps1
-```
-
-`Video:RecordedRoot` mặc định `.local/videos`, resolve theo API content root thay vì thư mục terminal. Từ source, mặc định là `C:\FPT University\CAPSTONE\Backend\Back-End\src\Supermarket.Api\.local\videos`. AI service mặc định đọc đúng thư mục đó. Nếu đổi folder/di chuyển checkout/publish, đặt `Video:RecordedRoot` và `AI_RECORDED_ROOT` tới cùng đường dẫn tuyệt đối. Chạy ở máy/container khác phải share/mount storage; URI file trên laptop không tự truy cập được từ server khác.
-
-React: **Cameras → Add camera → Uploaded video** (hoặc chọn camera ACTIVE → **Upload video**) → chọn MP4 → **Save video source → Test & enable → Start AI preview**. Default store phải được seed; tạo floor qua **Store Layout → Create floor** nếu chưa có.
-
-Upload dừng session AI cũ, lưu filename ngẫu nhiên, configure RECORDED/FILE, xóa credentials/test và disable connection. Response upload không trả local URI; connection view hiện có vẫn trả URI cho Admin. File không public qua static files. Upload lỗi/canceled hoặc configure thất bại cleanup file mới. File upload thành công được giữ, kể cả sau khi bị thay nguồn; chưa có retention/delete API, cần quản lý dung lượng và backup riêng. Không commit video, `.local`, keys hoặc secret.
-
-Không thay nguồn (upload hoặc PUT connection) khi camera map tới monitoring ACTIVE; deactivate trước. Mapping/ROI được giữ, phải xem lại ROI nếu cảnh đổi. Upload là controlled fallback/evaluation; live CCTV vẫn là mục tiêu chính.
-
-AI đọc tuần tự mọi frame, pace theo FPS và tốc độ inference (có thể chậm hơn thời gian thật), không tự loop. EOF trả `COMPLETED`, giữ JPEG cuối; preview-only stop/start replay với tracker mới. Preview-only không ghi measurement, OperationalEvent hay Incident; cấu hình ACTIVE dùng monitoring worker riêng bên dưới. Public Stop không replay/stop monitoring-owned session. Health worker hiện probe khả năng đọc một frame của file, không phản ánh GPU/tiến độ/EOF; file còn đọc được có thể vẫn ONLINE sau playback.
-
-Proxy: `POST /api/cameras/{id}/ai-preview/start`, `GET .../status`, deprecated `GET .../frame`, `GET .../frame/next?afterSequence=N&afterSessionId=<uuid>`, `POST .../stop`; ADMIN/OPERATOR JWT không đổi. Start trả `viewerLeaseId`; status/frame/next gửi lease qua `X-AI-Viewer-Lease`, Stop gửi `{"viewerLeaseId":"..."}` và chỉ detach viewer đó. `AI_VIEWER_LEASE_EXPIRED` làm React reattach có kiểm soát; `AI_MONITORING_START_PENDING` được retry có giới hạn; `AI_PREVIEW_CONFIGURATION_CONFLICT` không restart worker đang dùng chung. `frame/next` chờ tối đa 1 giây ở AI service, trả JPEG với `X-Frame-Sequence`/`X-Session-Id` hoặc 204 nếu không có frame mới; dùng `Cache-Control: no-store`. Browser gọi qua BE bằng JWT, không gọi Python trực tiếp. `AiPreview:BaseUrl` mặc định `http://127.0.0.1:8090`. Model mặc định `../yolo26s.pt`: đặt checkpoint chính thức tại `CAPSTONE/setup/yolo26s.pt` và restart AI + BE; file trọng số không nằm trong Git. Internal key nếu dùng phải khớp `AI_INTERNAL_SERVICE_KEY`. Model/device/default confidence từ `AiPreview`; Admin có thể dùng `start?zoneId=<uuid>` để kiểm thử Draft confidence đã lưu. Zone phải có mapping/ROI cùng tầng hợp lệ; chưa cần Activate để kiểm thử Draft. Nếu camera đang monitoring ACTIVE, active preview chỉ attach; Draft conflict bị từ chối để không ngắt monitoring.
-
-RTSP, HTTP/HLS và recorded video dùng FFmpeg để đọc/giải mã một frame; thành công chỉ khi nhận được frame, không chỉ khi mở được TCP. Cấu hình `Video:FfmpegPath` trỏ tới FFmpeg trên máy. Recorded FILE phải nằm dưới `Video:RecordedRoot`. Dockerfile bao gồm FFmpeg. Browser WebRTC hiện hỗ trợ LIVE/RTSP qua MediaMTX; nguồn khác tiếp tục dùng preview hiện có.
-
-Camera URI không được chứa userinfo, query hay fragment. Gửi `username`/`password` riêng; password được mã hóa bằng ASP.NET Data Protection trong `credential_secret_ref`. Connection DTO trả URL, username và `hasCredentials` để form edit được prefill nhưng không bao giờ trả password hay secret reference. PUT mặc định thay credentials; editor có thể gửi `preservePassword: true` để giữ secret hiện tại khi password để trống. Không log FFmpeg stderr hay SQL exception detail. Key ring phải được giữ qua restart; production cần volume riêng, ACL phù hợp và cấu hình bảo vệ key ring at rest. Giữ JWT key/DB credentials trong secrets môi trường, đặt HTTPS tại reverse proxy.
-
-## Configure monitoring → Review & activate (2026-10-03)
-
-Sau khi camera LIVE hoặc MP4 đã **Test & enable**, vào **Store Layout → Camera coverage**, map camera với zone và lưu ROI trên frame. Chọn **Configure monitoring for …** ở ROI editor hoặc **Configure monitoring: …** trong Cameras để mở AI Config đúng zone.
-
-1. AI Config hiển thị tổng quan config theo Floor/Zone. Chọn zone để xem detail read-only; bấm **Create configuration** hoặc **Edit configuration** mới mở form đặt tên/confidence (0–1, tối đa 4 chữ số thập phân). **Cancel** bỏ local draft, không gọi API lưu.
-2. **Add rule** từ catalog AI thật. Long Queue dùng PEOPLE (gợi ý 3/5): người phải ở ROI liên tục ≥5 giây mới vào queue count, rồi áp dụng sustain. Overcrowding tạm dùng **People count in ROI**: nhập warning/critical mới và chọn **Use people count (temporary)**; lưu PEOPLE + `parametersJson.measurementMode=PEOPLE_COUNT`. Không cần m². Rule mật độ PEOPLE_PER_M2 cũ không bị đổi ngầm; density, Waiting Time và Checkout runtime còn hoãn, chỉ giữ disabled Draft. Warning < critical; PEOPLE là số nguyên.
-3. Đặt sustain/cooldown theo giây, bật/tắt rule → **Save configuration** (Draft). Mặc định 30/300 theo PROJECT_CONTEXT §24. Save bắt buộc có ít nhất một incident rule; array rỗng trả 422 `RULES_REQUIRED` và không tạo/thay config. Save thay toàn bộ tập rule; remove trên UI chỉ có hiệu lực khi lưu và phải giữ ít nhất một rule. Save thành công đóng form và cập nhật overview/detail.
-4. **Review & activate** đọc lại SQL: cần đúng **một** ACTIVE camera mapping cho zone, ROI hợp lệ, camera ACTIVE, LIVE HTTP/RTSP/HLS hoặc RECORDED FILE tested-success/enabled, ít nhất một enabled rule có runtime. Không cộng counts nhiều camera/ReID. Preview Draft chỉ restart preview-only; camera đang monitoring từ chối Draft restart. Preview active chỉ attach, không reset tracking.
-5. **Activate configuration** kiểm tra lại trong transaction; expectedUpdatedAt chống activate bản cũ. **Deactivate configuration** trước khi sửa rule/confidence/source/mapping/ROI. Có lỗi concurrency thì dùng **Reload saved configuration**, không ghi đè thay đổi của người khác.
-6. **Delete configuration** mở hộp xác nhận, chỉ DRAFT/INACTIVE mới được xóa. ACTIVE phải Deactivate trước. DELETE kiểm tra configId và expectedUpdatedAt để không xóa config đã thay đổi/tạo lại. Chỉ config/rules bị xóa, giữ Zone/Camera/ROI; zone trở về Not configured và có thể tạo Draft mới.
-
-Draft lưu DB thật, không phải trạng thái React. Checkout Capacity chưa có counter/composite definition nên chỉ lưu rule disabled với đơn vị placeholder do Admin nhập; không được enable. Recorded source được đánh dấu test/fallback. Review kiểm tra trạng thái cấu hình và kết quả test đã lưu, không thực hiện một FFmpeg probe mới; dùng Test & enable/health check để xác nhận khả năng đọc video hiện tại.
-
-**Runtime increment 18/10:** Activate yêu cầu worker BE chạy liên tục, không cần browser. Confidence lọc trước ByteTrack; footpoint (giữa đáy bbox) trong/trên ROI được đếm. Warning/Critical có sustain độc lập theo thời gian nguồn video. Worker giữ cursor thứ tự, reset khi gap/reconnect/version đổi; persist aggregate OperationalEvent theo episode tại trigger. `MonitoringRule.outcome_type=OPERATIONAL_EVENT` chỉ tạo/cập nhật OperationalEvent; không còn tự tạo Incident. Nhánh `INCIDENT` tạo Incident trực tiếp và không tạo OperationalEvent. Incident vẫn **DETECTED — chưa dispatch**; cooldown áp dụng cho nhánh Incident. Live page có runtime/count/progress và incident feed lịch sử; recorded là DEMO. Stop live view không dừng worker. EOF giữ frame cuối, không loop; deactivate toàn bộ cấu hình active trên camera, chờ worker trả STOPPED rồi reactivate để phát lại. Density/m², Waiting Time, Checkout, dispatch/task/close endpoints/media/analytics chưa có. Dashboard dùng saved-readiness chung với Review/Activate, nhưng ACTIVE không khẳng định worker đang RUNNING.
-
-Trước khi dùng: review rồi chạy **toàn bộ** `Database/migrations/20261003_02_monitoring_runtime_erd_v3.sql` trong SSMS với **FA26SE103_Dev** (migration01 đã có), sau backup và dừng writers. Chưa chạy script trên DB chung. Thiếu schema trả503 `MONITORING_SCHEMA_NOT_READY`. Restart AI/BE/FE bằng các lệnh native ở trên; density ACTIVE cũ cần Deactivate → Edit → nhập count mới → Save → Review → Activate. Model/device/native storage không đổi.
-
-## Database-first
-
-Database SQL Server đã được team cấu hình là nguồn persistence. Entities scaffold hiện có trong source đủ để chạy API với database tương ứng; không dùng script SQL V0.1 cũ để suy ra contract mới. Backend không giữ bản sao schema riêng. Test project vẫn có cấu hình liên kết file SQL bên ngoài để tạo database test tạm; đây là prerequisite của SQL tests, không phải bước khởi động API.
-
-Khi team phê duyệt schema mới: áp dụng thay đổi đã duyệt vào database, trỏ connection scaffold tới đúng database, rồi scaffold lại:
-
-```powershell
-$env:MF01_SCAFFOLD_CONNECTION = '<connection string tới database đã duyệt>'
-.\scripts\Scaffold.ps1
-dotnet test --settings coverage.runsettings --collect:'XPlat Code Coverage'
-```
-
-Generated files nằm tại `Infrastructure/Persistence/Scaffolded`; custom EF configuration nằm ngoài thư mục generated. Script scaffold **37 bảng đích ERD V6** và mặc định build Release. Nhánh migration hiện scaffold từ schema chính xác sau Cleanup, cộng Database V7 Weekly Work Shifts (`Shift.week_start`, Monday check và unique supermarket/week/name): rule chỉ giữ đúng target theo outcome; Event không còn link Incident/string type; IncidentType không còn source/measurement. V7 giữ nguyên bảng và tái liên kết assignment lịch sử sang Work Shift đúng tuần. Không chạy V0.1 installer lên DB hiện có, không `EnsureCreated`/code-first migration. Tham khảo [EF Core reverse engineering](https://learn.microsoft.com/en-us/ef/core/managing-schemas/scaffolding/).
-
-## Kiểm thử
-
-```powershell
-dotnet test --settings coverage.runsettings --collect:'XPlat Code Coverage' --results-directory TestResults
-dotnet publish src/Supermarket.Api -c Release
-```
-
-Integration tests tạo database ngẫu nhiên `FA26SE103_MF01_Test_<guid>` từ baseline SQL và migration monitoring trong repo Database, rồi xóa đúng database đó sau test. Mặc định tìm repo sibling `CAPSTONE/Database`, dùng Windows auth trên `.\SQLEXPRESS`. Đổi instance bằng `MF01_TEST_SERVER`, hoặc dùng SQL auth qua `MF01_TEST_CONNECTION`. Không trỏ vào môi trường dùng chung: tests cần quyền tạo/xóa database riêng. Không bỏ qua SQL tests nếu thiếu kết nối/schema/migration; test sẽ báo fail.
-
-GitHub Actions mặc định chạy build, các test không cần SQL và Release publish cho repository backend độc lập. Test dùng `SqlApiFixture` phải có `[Trait("Category", "SqlIntegration")]` trên class; các phần `partial` của `ApiFlowTests` dùng chung trait này. Job `verify` chạy `Category!=SqlIntegration`, job SQL chạy `Category=SqlIntegration`, gồm cả concurrency tests. Job SQL integration được bật khi variable `MF01_SCHEMA_REPOSITORY` trỏ tới repo Database. Đặt `MF01_SCHEMA_REF` tới branch/commit đã có migration (hiện `feature/mf01-monitoring-rules`), `MF01_SCHEMA_FILE` (mặc định baseline V0.1), `MF01_MONITORING_MIGRATION_FILE` (mặc định `migrations/20261003_01_monitoring_rules_erd_v3.sql`) và secret read-only `MF01_SCHEMA_READ_TOKEN` nếu private. Job skipped không phải bằng chứng SQL đã được kiểm tra trên GitHub.
-
-Nếu SQL nằm ở vị trí khác, truyền `-p:Mf01SchemaPath=<baseline SQL>`, `-p:Mf01MonitoringMigrationPath=<migration01 SQL>` và `-p:Mf02MonitoringRuntimeMigrationPath=<migration02 SQL>`. CI có `MF02_RUNTIME_MIGRATION_FILE` tương ứng; Schema repo/ref cần chứa cả01/02. Test không cần SQL: `dotnet test -c Release --filter "Category!=SqlIntegration"`; toàn bộ test SQL có Category=SqlIntegration. Full suite cần đủ schema/migrations/SQL Server. [Deploy Dev](docs/DEPLOY_DEV.md) tự chạy từ nhánh `dev`; rollout VPS, public HTTPS, Swagger và smoke test auth đã được xác minh ngày 04/10/2026. Cloudinary upload, video/camera health, Python AI và monitoring runtime vẫn cần acceptance riêng.
-
-## Các điểm còn chờ team đồng bộ
-
-- Context baseline 02/10 xác định camera thuộc floor, N:M zone và model confidence chỉ là input filter. Đối chiếu các tài liệu/source cũ với [guide đầy đủ](docs/PROJECT_CONTEXT.md) trước khi mở rộng hành vi.
-- ERD V6 lưu measurement metadata tại `OperationalEventType`, không phải `IncidentType`. Monitoring setup hiện tạo `OPERATIONAL_EVENT` rule với `event_type_id` duy nhất; trường/route IncidentType cũ trong API setup chỉ là adapter tương thích cho frontend hiện tại. Direct `INCIDENT` persistence có sẵn nhưng runtime activation fail-closed cho tới khi có measurement/model contract đã được xác nhận. Measurement-source, checkout-counter và Manager-on-duty vẫn chờ team; không tự thêm schema.
-- Store Layout đã có tạo/sửa floor, zone editing, camera→zone selector và camera-frame ROI editor. Cameras/ROI editor có link tới AI Config đúng zone. AI Config có Review/Activate/Deactivate và Delete với xác nhận/version guard. Dashboard đã nối `GET /api/setup/overview` để hiển thị saved setup counts, readiness dùng chung Review/Activate, camera health và unresolved events; action links chọn đúng floor/camera/zone. Health-event Investigation/Resolve UI và mini-map Cameras geometry vẫn cần hoàn thiện. Store mặc định từ seed; không thêm flow tạo/chọn store.
-- Rule CRUD Draft và review/activate MF-01 đã có. Checkout capacity chỉ lưu disabled Draft vì chưa có counter/composite measurement. Waiting-time rule lưu đơn vị MINUTES nhưng preview chưa đo entry-to-counter; runtime cần thiết kế counter khi triển khai MF-02.
-- Increment runtime đã có ROI counts, evaluator, OperationalEvent episode, nhánh Incident theo `outcome_type`, cooldown và worker. Chỉ hỗ trợ count/queue, đúng một ACTIVE camera mapping per-zone. OperationalEvent không tự sinh Incident; health events vẫn tách biệt Operational Incidents; dispatch/tasks và close workflow chưa triển khai.
-- Multiple-camera measurement-source selection và một số operational limits còn mở ([PROJECT_CONTEXT §33](docs/PROJECT_CONTEXT.md#33-implementation-questions-that-are-currently-open)); không tự cộng người từ các camera nhìn cùng zone hay suy ra cross-camera identity. Chưa xác nhận full MF-01 UI acceptance hoặc hiệu năng live stream.
-- Backend dùng repository riêng `GFA26SE39-FA26SE103/Back-End`: `main` là stable, `dev` là integration, feature branches qua PR vào dev và cần review trước khi merge.
+For new work, start with **[AGENTS.md](AGENTS.md)**, then inspect the current branch, relevant source/tests, the newest project decisions, and the canonical Database scripts.
