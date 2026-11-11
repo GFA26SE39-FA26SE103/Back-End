@@ -1,6 +1,6 @@
 # AGENTS.md — FA26SE103 Backend
 
-> **Revision:** 06/11/2026 — synchronized with the workspace Review 2 baseline.
+> **Revision:** 11/11/2026 — synchronized with Report 3 business rules updated 09/11/2026 and the Review 2 baseline.
 > **Repository:** ASP.NET Core .NET 10 / EF Core / SQL Server backend.
 > **Purpose:** backend-specific instructions; the workspace-root `AGENTS.md` remains the cross-project business baseline.
 
@@ -15,7 +15,7 @@ Before implementation, read:
 5. `docs/VALIDATION.md` only as dated evidence, never as proof for later commits;
 6. BM04, Post-Review 2 and Reports 1–5 linked from the workspace guide.
 
-Precedence is: latest explicit mentor/team decision → BM04 → Post-Review 2 → current Reports 1–5 → approved database/ERD for persistence → UI/design/implementation details.
+Precedence is: latest explicit mentor/team decision → BM04 commitments/acceptance thresholds → Post-Review 2 → current Reports 1–5 → approved database/ERD for persistence → UI/design/implementation details. BM04 does not define the SLA-priority vocabulary; use current Report 3 BR-14 and BR-34–BR-41 for that contract.
 
 ## Current business baseline
 
@@ -41,18 +41,18 @@ Do not use the superseded four-Mainflow model or assume the backend is MF-01-onl
 
 ### Dispatch and SLA
 
-- Task SLA priorities are P1–P4, not LOW/MEDIUM/HIGH/CRITICAL.
-- Select SLA by exact Problem Type + Priority, then approved global-priority fallback; missing/ambiguous policy is an explicit exception.
+- `OperationalEvent.priority` is the Alert Level (`WARNING` or `CRITICAL`). `SLAPolicy.priority_code` is the independent SLA Response Priority (`CRITICAL`, `HIGH`, `MEDIUM`, or `LOW`); never infer one from the identically named value of the other.
+- Select exactly one approved active SLA policy by the applicable domain/type mapping: EventType for `OPERATIONAL_EVENT`, IncidentType-to-priority mapping for `INCIDENT`, and explicit TaskType-to-policy mapping for standalone routine/manual Tasks. Missing, disabled or ambiguous configuration is an explicit exception; do not invent a fallback.
 - Snapshot policy id/version/priority, response/resolution deadlines and provenance immutably.
 - Response clock is Task creation → first valid acceptance; Resolution clock is Task creation → Verified.
-- Warning at 80%, breach at 100%; expansion/rework/reassignment never resets deadlines.
-- P1 is continuous 24/7 with immediate Operator + Manager notification; P2–P4 use approved operating hours.
+- SLA clocks use continuous wall-clock time. Warning uses the policy's configured percentage (80% by default), breach is at 100%, and expansion/rework/reassignment/shift or store changes never pause or reset deadlines.
+- Warning, breach and escalation recipients follow the approved policy. Safety-critical cases may require immediate Operator/Manager notification, but an OperationalEvent Alert Level alone does not determine SLA priority or escalation.
 - Eligible Staff satisfy specialty, published active Shift, check-in/availability and workload.
 - Dispatch rings: Same Zone → adjacent same-Floor Zones → remaining same-Floor Zones → adjacent Floors → other Floors → Operator exception.
 - Offer concurrently inside one ring; advance when the ring is exhausted; do not impose a fixed global retry count.
 - Handle Now, Handle Later and Cannot Handle are explicit responses. Cannot Handle requires BUSY/UNAVAILABLE/NOT_QUALIFIED/OTHER.
 - First valid acceptance wins atomically; other offers become CANCELLED; unanswered offers become EXPIRED.
-- The current backend persists operational response through `SLAPolicy` matched by EventType and `SLAPolicyAction` matched by alert-level condition. Treat LOW/MEDIUM/HIGH/CRITICAL and fixed Same-Zone retry behavior in that implementation as migration gaps, not the target contract.
+- The backend persists operational response through `SLAPolicy` matched by EventType and `SLAPolicyAction` matched by alert-level condition. `CRITICAL/HIGH/MEDIUM/LOW` is the approved SLA-priority vocabulary; fixed Same-Zone retry behavior remains a migration gap.
 - `Task` has exactly one origin type: `OPERATIONAL_EVENT`, `INCIDENT`, `STAFF_REPORT`, or `MANUAL`, with exclusive nullable source FKs.
 
 ### Task execution and closure
@@ -60,7 +60,7 @@ Do not use the superseded four-Mainflow model or assume the backend is MF-01-onl
 - Staff starts only an assigned Accepted Task.
 - Corrective Incident Task submission requires After Photo OR Completion Note; Before Photo is optional in Review 2.
 - TT-01..TT-05 may verify from Staff completion + valid metrics without a photo.
-- P1 and TT-07/TT-12–TT-15 are MANUAL; other configured Tasks may AUTO verify only when their conditions pass.
+- Tasks whose snapshotted SLA Response Priority is `CRITICAL`, plus TT-07/TT-12–TT-15, are MANUAL. Do not use an OperationalEvent's `CRITICAL` Alert Level as a substitute for the Task's SLA priority. Other configured Tasks may AUTO verify only when their conditions pass.
 - Missing AUTO metrics produces an exception.
 - MANUAL reject #1 returns the Task to In Progress for the same assignee.
 - MANUAL reject #2 reassigns to a different eligible same-specialty Staff member without resetting SLA.
@@ -153,7 +153,7 @@ Do not claim completion until code and tests prove:
 
 - [ ] real StaffReport API and Incident qualification;
 - [ ] Zone/Floor ring expansion without fixed attempts;
-- [ ] P1–P4 SLA policy selection, operating calendar, warning/breach and escalation;
+- [ ] `CRITICAL/HIGH/MEDIUM/LOW` SLA policy selection, continuous wall-clock warning/breach and policy-based escalation;
 - [ ] AUTO/MANUAL verification and evidence-or-note semantics;
 - [ ] second-rejection automatic eligible reassignment;
 - [ ] mandatory-Task Incident auto-close with blocker guard;
