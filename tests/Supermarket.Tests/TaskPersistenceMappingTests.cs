@@ -66,7 +66,8 @@ public sealed class TaskPersistenceMappingTests
         var task = new WorkTask
         {
             TaskId = Guid.NewGuid(), ZoneId = Guid.NewGuid(), EventId = Guid.NewGuid(),
-            Title = "Clear the queue", OriginType = TaskOrigin.OperationalEvent, TaskTypeId = taskTypeId
+            Title = "Clear the queue", OriginType = TaskOrigin.OperationalEvent, TaskTypeId = taskTypeId,
+            VerificationMode = TaskVerificationMode.Auto, VerificationMethod = TaskVerificationMethod.OperationalMetric
         };
         var cycle = Guid.NewGuid();
         var offer = new Supermarket.Domain.TaskOffer
@@ -90,6 +91,8 @@ public sealed class TaskPersistenceMappingTests
         Assert.Equal(task.EventId, loadedTask.EventId);
         Assert.Equal(taskTypeId, loadedTask.TaskTypeId);
         Assert.Equal(TaskOrigin.OperationalEvent, loadedTask.OriginType);
+        Assert.Equal((TaskVerificationMode.Auto, TaskVerificationMethod.OperationalMetric),
+            (loadedTask.VerificationMode, loadedTask.VerificationMethod));
         Assert.Equal(WorkTaskStatus.Offered, loadedTask.Status);
         Assert.Equal((task.TaskId, offer.StaffUserId, TaskOfferStatus.Pending), (loadedOffer.TaskId, loadedOffer.StaffUserId, loadedOffer.Status));
         Assert.Equal(2, db.TaskOffers.Local.Count);

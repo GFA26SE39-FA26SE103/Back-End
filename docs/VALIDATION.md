@@ -403,3 +403,30 @@ The SQL-backed historical integration suite was not used: it requires an absent 
 - Focused backend Event history suite: **16 passed, 0 failed, 0 skipped**. Full non-SQL backend suite from the completed implementation run: **526 passed, 0 failed, 0 skipped**; backend build passed. SQL translation and bounded projection were verified without executing against a live SQL Server.
 - Frontend adds Operator/Manager Event history and detail, Analytics drill-down preserving date/Zone filters, and an **All tasks** option covering all six Task statuses. Focused Event/Task/Analytics suite: **21 passed, 0 failed**; production build passed. Edge interaction checks used mocked API responses.
 - `git diff --check`: **PASS** for both repositories. No schema, seed, generated scaffold, shared-data write, deployment, live SQL result check or staging end-to-end acceptance was performed.
+
+## D1 five-ring Task dispatch — 2026-11-09
+
+- Automatic TaskOffer dispatch now advances through `SAME_ZONE`, `ADJACENT_SAME_FLOOR`, `REMAINING_SAME_FLOOR`, `ADJACENT_FLOOR`, then `OTHER_FLOOR`. Same-Floor adjacency uses the Administrator-managed `ZoneAdjacency` links; the adjacent-Floor ring selects the nearest existing `Floor.floor_number` in the same Supermarket.
+- A non-empty ring waits one immutable Task `offer_timeout_sec`; empty rings advance immediately. A Staff member is not offered the same Task twice, legacy `task_offer.max_retry_count` no longer controls dispatch, and exhaustion creates one Operator exception without duplicating the Task or resetting its SLA snapshot/deadlines.
+- Focused Staff/dispatch/ZoneAdjacency suite: **44 passed, 0 failed, 0 skipped**. Full non-SQL backend regression: **542 passed, 0 failed, 0 skipped**. `git diff --check`: **PASS**.
+- No schema, seed, generated scaffold, shared database, deployment or live device acceptance was changed or executed. L5 ZoneAdjacency was integrated from the existing team commit before D1.
+
+## D4 rejection reassignment — 2026-11-09
+
+- The first rejected submission returns to the same Staff member for rework. Rejection two ends that assignment and immediately continues the D1 topology rings while excluding the prior performer. A rejected replacement submission stops automatic dispatch and notifies Operator; rejected performers remain excluded from automatic and manual candidates.
+- Acceptance now rechecks the Staff member against the Zone set represented by the offer's `dispatchScope`, allowing valid adjacent-Zone/Floor offers while still failing closed after a Zone assignment changes.
+- Focused Task evidence/dispatch suite: **39 passed, 0 failed, 0 skipped**. The regression verifies no repeated performer, no duplicate Task, immutable SLA snapshot/deadlines and one Operator escalation path.
+
+## D2 AUTO/MANUAL Task verification — 2026-11-10
+
+- Uses the existing V9 `Task.verification_mode` and `verification_method` columns; no schema or seed change. Operational Event TT-01–TT-05 select AUTO metric verification only when their snapshotted SLA Response Priority is not `CRITICAL`. Incident, SLA-`CRITICAL`, TT-07, TT-12–TT-15, missing/invalid SLA snapshots and unconfigured TaskTypes select MANUAL. The OperationalEvent `WARNING`/`CRITICAL` Alert Level is independent of this decision.
+- AUTO remains SUBMITTED while the Event is active. It verifies only after a CLEARED observation with a current, internally consistent metric contract and a recovery metric below the warning threshold. Missing source/metadata, inconsistent metric or invalid recovery fails safe to `MANUAL/OPERATOR_METRIC_EXCEPTION` and notifies Operator.
+- Task, offer and evidence contracts expose the selected verification mode/method. Focused rule/runtime/persistence/dispatch suite: **71 passed, 0 failed, 0 skipped**.
+
+## D7(a) SQL dispatch and D12 Event-cleared branches — 2026-11-10
+
+- The SQL fixture can now build a random, fixture-owned `FA26SE103_MF01_Test_<guid>` database from the canonical 18/10 snapshot plus Database V2→V10 when the current sibling Database repository is available. Historical operational rows are removed only inside that disposable database before bootstrap; `FA26SE103_Dev` is never selected or mutated. Fixture database names are regex-guarded before cleanup.
+- Added one rollback-isolated production EF/application test for the complete dispatch topology: `SAME_ZONE` → `ADJACENT_SAME_FLOOR` → `REMAINING_SAME_FLOOR` → `ADJACENT_FLOOR` → `OTHER_FLOOR`. Every wave persists a real `TaskOffer`; expired offers store `NO_RESPONSE`, a Staff member is not repeated, and the Task SLA snapshot/deadlines remain unchanged.
+- The same SQL test proves both D12 branches. Event clear before acceptance cancels the pending offer with `EVENT_CLEARED`, cancels the Task and writes `TASK_OFFER_WITHDRAWN`. Event clear after `HANDLE_LATER` keeps the Task `ACCEPTED`, preserves its assignee and SLA, writes `EVENT_CLEARED`, and does not auto-verify it.
+- Focused SQL test: **1 passed, 0 failed**. Full non-SQL regression: **552 passed, 0 failed, 0 skipped**. Release build: **PASS**, 0 warnings/errors.
+- The complete historical SQL category was also run against the current V9/V10 fixture: **13 passed, 8 failed**. The remaining tests are older monitoring/API assertions that conflict with current constraints/contracts (direct AI Incident rows without required provenance, Incident runtime without an exact SLA policy, dropping Event/Incident tables now referenced by V9 foreign keys, old catalog-count and camera-username response expectations). They are not counted as D7(a)/D12 acceptance and remain explicit follow-up work. D7(b)–(e), staging, live camera/AI, mobile and shared-database acceptance are not claimed.

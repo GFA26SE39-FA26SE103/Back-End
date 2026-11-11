@@ -8585,6 +8585,14 @@
             "type": "string",
             "nullable": true
           },
+          "verificationMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "verificationMethod": {
+            "type": "string",
+            "nullable": true
+          },
           "raisedFrom": {
             "type": "string",
             "nullable": true
@@ -9087,6 +9095,14 @@
             "type": "string",
             "nullable": true
           },
+          "verificationMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "verificationMethod": {
+            "type": "string",
+            "nullable": true
+          },
           "requiresBeforePhoto": {
             "type": "boolean"
           },
@@ -9146,6 +9162,14 @@
             "nullable": true
           },
           "priority": {
+            "type": "string",
+            "nullable": true
+          },
+          "verificationMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "verificationMethod": {
             "type": "string",
             "nullable": true
           },
@@ -9244,6 +9268,13 @@
           },
           "reason": {
             "type": "string",
+            "description": "Required for CANNOT_HANDLE. Allowed values: BUSY, UNAVAILABLE, NOT_QUALIFIED, OTHER.",
+            "enum": [
+              "BUSY",
+              "UNAVAILABLE",
+              "NOT_QUALIFIED",
+              "OTHER"
+            ],
             "nullable": true
           }
         },
@@ -9293,6 +9324,10 @@
             "type": "string",
             "nullable": true
           },
+          "missingPhotoReason": {
+            "type": "string",
+            "nullable": true
+          },
           "photos": {
             "type": "array",
             "items": {
@@ -9313,6 +9348,11 @@
           "expectedUpdatedAt": {
             "type": "string",
             "format": "date-time",
+            "nullable": true
+          },
+          "missingPhotoReason": {
+            "type": "string",
+            "description": "Required only for an Incident task submitted without an after photo. Maximum 1000 characters.",
             "nullable": true
           }
         },

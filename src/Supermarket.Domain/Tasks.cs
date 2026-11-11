@@ -158,7 +158,7 @@ public static class TaskAssignmentType
 /// <summary>Assignment-history status; live offer state belongs to TaskOfferStatus.</summary>
 public static class OfferStatus
 {
-    public const string Accepted = "ACCEPTED", Declined = "DECLINED", Cancelled = "CANCELLED", Expired = "EXPIRED";
+    public const string Pending = "PENDING", Accepted = "ACCEPTED", Declined = "DECLINED", Cancelled = "CANCELLED", Expired = "EXPIRED";
 }
 public static class TaskOfferStatus
 {
@@ -167,12 +167,19 @@ public static class TaskOfferStatus
 }
 public static class TaskDispatchScope
 {
-    // Zone expansion is deliberately not implemented until the ZoneAdjacency rule is approved.
-    public const string SameZone = "SAME_ZONE";
+    public const string SameZone = "SAME_ZONE", AdjacentSameFloor = "ADJACENT_SAME_FLOOR",
+        RemainingSameFloor = "REMAINING_SAME_FLOOR", AdjacentFloor = "ADJACENT_FLOOR",
+        OtherFloor = "OTHER_FLOOR", Manual = "MANUAL";
+    public static readonly string[] Automatic = [SameZone, AdjacentSameFloor, RemainingSameFloor, AdjacentFloor, OtherFloor];
 }
 public static class TaskResponse
 {
     public const string HandleNow = "HANDLE_NOW", HandleLater = "HANDLE_LATER", CannotHandle = "CANNOT_HANDLE";
+}
+public static class TaskDeclineReason
+{
+    public const string Busy = "BUSY", Unavailable = "UNAVAILABLE", NotQualified = "NOT_QUALIFIED", Other = "OTHER";
+    public static readonly string[] Allowed = [Busy, Unavailable, NotQualified, Other];
 }
 public static class TaskRules
 {
@@ -181,9 +188,10 @@ public static class TaskRules
     /// <summary>Check-in opens this long before the shift starts.</summary>
     public static readonly TimeSpan CheckInOpensBefore = TimeSpan.FromMinutes(15);
     public const string RetryIntervalSetting = "task_offer.retry_interval_sec";
+    /// <summary>Legacy key retained for configuration compatibility; ring dispatch no longer reads it.</summary>
     public const string MaxRetryCountSetting = "task_offer.max_retry_count";
-    /// <summary>BR-22 baseline when SystemSetting has no valid override: re-notify every 60 s, 3 attempts in total.</summary>
-    public const int DefaultRetryIntervalSec = 60, DefaultMaxAttempts = 3;
+    /// <summary>Fallback offer timeout when the Task has no SLA policy or snapshot.</summary>
+    public const int DefaultRetryIntervalSec = 60;
 
     public static int Rank(string priority) => priority switch { "CRITICAL" => 2, "WARNING" => 1, _ => 0 };
 
@@ -191,7 +199,11 @@ public static class TaskRules
     {
         Rules.Status(response ?? "", TaskResponse.HandleNow, TaskResponse.HandleLater, TaskResponse.CannotHandle);
         if (response == TaskResponse.CannotHandle)
+        {
             Rules.Require(!string.IsNullOrWhiteSpace(reason), "REASON_REQUIRED", "A reason is required when the task cannot be handled.");
+            Rules.Require(TaskDeclineReason.Allowed.Contains(reason!.Trim()), "INVALID_DECLINE_REASON",
+                $"The decline reason must be one of: {string.Join(", ", TaskDeclineReason.Allowed)}.");
+        }
         Rules.Optional(reason, 200, "Reason");
     }
     /// <summary>A deferred start keeps responsibility with the Staff member; it must be in the future and inside the current shift.</summary>

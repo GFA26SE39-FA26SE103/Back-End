@@ -126,6 +126,7 @@ builder.Services.AddScoped<ITaskSchema, EfTaskSchema>();
 builder.Services.AddScoped<IOperatorTaskQueries, EfOperatorTaskQueries>();
 builder.Services.AddScoped<StaffRoster>();
 builder.Services.AddScoped<TaskNotifier>();
+builder.Services.AddScoped<TaskVerification>();
 builder.Services.AddScoped<TaskDispatch>();
 builder.Services.AddScoped<IOperationalEventResponder>(s => s.GetRequiredService<TaskDispatch>());
 builder.Services.AddScoped<TaskViews>();

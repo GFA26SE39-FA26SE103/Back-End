@@ -435,7 +435,7 @@ public sealed class StaffReportWorkTests
     {
         var notifier = new TaskNotifier(store, clock);
         var roster = new StaffRoster(store, new StoreCalendar(StoreCalendar.Zone(null)));
-        var dispatch = new TaskDispatch(store, roster, notifier, clock, new Schema());
+        var dispatch = new TaskDispatch(store, roster, notifier, new TaskVerification(store, clock, notifier), clock, new Schema());
         return new StaffReportWork(store, current, clock, new Media(), new IncidentSlaPolicyService(store, clock),
             new StandaloneTaskSlaPolicyService(store, clock), notifier, dispatch, audio);
     }

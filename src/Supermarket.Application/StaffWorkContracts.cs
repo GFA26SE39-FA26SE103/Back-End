@@ -7,14 +7,16 @@ public sealed record EligibilityView(bool CheckedIn, Guid? ShiftAssignmentId, Da
 
 /// <summary>One V7 TaskOffer for the calling Staff member.</summary>
 public sealed record TaskOfferView(Guid OfferId, Guid TaskId, string Origin, string SourceCode, string? EventTypeCode, string Title, string? Instructions,
-    string Priority, Guid ZoneId, string ZoneName, string? CameraCode, string? CameraName, decimal? MetricValue, string? MeasurementMode, string? MeasurementUnit,
+    string Priority, string? VerificationMode, string? VerificationMethod, Guid ZoneId, string ZoneName, string? CameraCode, string? CameraName,
+    decimal? MetricValue, string? MeasurementMode, string? MeasurementUnit,
     DateTime CreatedAt, int Recipients, int Attempt, int MaxAttempts, DateTime? NextAlertAt, string Status, string? ClosedReason, DateTime? EventClearedAt,
     Guid StaffUserId, string? StaffName, Guid DispatchCycleId, int WaveNumber, string DispatchScope, DateTime ExpiresAt, DateTime? RespondedAt);
 public sealed record TaskResponseRequest(string Response, DateTime? PlannedStartAt, string? Reason);
 public sealed record TaskResponseResult(string Response, StaffTaskView? Task);
 
 public sealed record StaffTaskView(Guid TaskId, string Origin, string SourceCode, string? EventTypeCode, string Title, string? Instructions, string Priority,
-    string? RaisedFrom, Guid ZoneId, string ZoneName, string? CameraCode, string Status, string AssignmentType, Guid? AssigneeUserId, string? AssigneeName,
+    string? VerificationMode, string? VerificationMethod, string? RaisedFrom, Guid ZoneId, string ZoneName, string? CameraCode,
+    string Status, string AssignmentType, Guid? AssigneeUserId, string? AssigneeName,
     DateTime CreatedAt, DateTime? AssignedAt, DateTime? AcceptedAt, DateTime? PlannedStartAt, DateTime? StartedAt, DateTime? SubmittedAt,
     DateTime? EventClearedAt, bool NeedsAssignment, DateTime UpdatedAt, Guid? SlaPolicyId, string? SlaPriorityCode, int? SlaPolicyVersion,
     DateTime? ResponseDeadlineAt, DateTime? ResolutionDeadlineAt);

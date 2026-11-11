@@ -11,6 +11,33 @@ public sealed class TaskEvidenceTests
     private static readonly DateTime Now = new(2026, 10, 11, 3, 0, 0, DateTimeKind.Utc);
     private static readonly byte[] Jpeg = [0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4];
 
+    [Theory]
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", "MEDIUM", "TT-01", TaskVerificationMode.Auto)]
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", "CRITICAL", "TT-01", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.Incident, "HIGH", "HIGH", "TT-01", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", "HIGH", "TT-07", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", "HIGH", "TT-12", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", "HIGH", "TT-15", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", "HIGH", "TT-06", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", null, "TT-01", TaskVerificationMode.Manual)]
+    public void VerificationLaneFailsSafeForOriginSlaPriorityAndTaskType(string origin, string taskPriority, string? slaPriority, string code, string expected)
+    {
+        var task = new WorkTask { OriginType = origin, Priority = taskPriority };
+        TaskVerificationRules.Initialize(task, new TaskType { Code = code }, slaPriority);
+        Assert.Equal(expected, task.VerificationMode);
+        Assert.Equal(expected == TaskVerificationMode.Auto ? TaskVerificationMethod.OperationalMetric : TaskVerificationMethod.OperatorEvidence,
+            task.VerificationMethod);
+    }
+
+    [Fact]
+    public void CriticalAlertLevelAloneDoesNotForceManualWhenSlaPriorityIsHigh()
+    {
+        var task = new WorkTask { OriginType = TaskOrigin.OperationalEvent, Priority = "CRITICAL" };
+        TaskVerificationRules.Initialize(task, new TaskType { Code = "TT-01" }, "HIGH");
+        Assert.Equal((TaskVerificationMode.Auto, TaskVerificationMethod.OperationalMetric),
+            (task.VerificationMode, task.VerificationMethod));
+    }
+
     [Fact]
     public async Task AnOperationalTaskIsSubmittedWithItsNoteAndWaitsForTheOperator()
     {
@@ -35,6 +62,46 @@ public sealed class TaskEvidenceTests
     }
 
     [Fact]
+    public async Task MetricBackedOperationalTaskAutoVerifiesOnlyAfterAValidRecovery()
+    {
+        var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia");
+        var task = await w.InProgress(a); var ev = w.AutoEvent(task, cleared: false, validMetric: true);
+
+        var submitted = await w.Evidence(a).Submit(task.TaskId, new("Opened another checkout"), default);
+        Assert.Equal((WorkTaskStatus.Submitted, TaskVerificationMode.Auto, TaskVerificationMethod.OperationalMetric),
+            (submitted.Status, submitted.Evidence.VerificationMode, submitted.Evidence.VerificationMethod));
+        Assert.Equal("AUTO_VERIFICATION_PENDING", (await Assert.ThrowsAsync<AppError>(() => w.Evidence(op).Verify(task.TaskId, new(), default))).Code);
+        Assert.Empty(w.Notifications(task, TaskEvidenceWork.Submitted));
+
+        w.Clock.UtcNow = Now.AddMinutes(1);
+        ev.Status = "CLEARED"; ev.ClearedAt = w.Clock.UtcNow; ev.LastObservedAt = w.Clock.UtcNow; ev.MetricValue = 1;
+        ev.MetadataJson = World.MetricJson(1, valid: true);
+        await w.Dispatch.Cleared(ev, default);
+
+        var verified = await w.Evidence(a).Get(task.TaskId, default);
+        Assert.Equal((WorkTaskStatus.Verified, TaskVerificationMode.Auto, TaskVerificationMethod.OperationalMetric),
+            (verified.TaskStatus, verified.VerificationMode, verified.VerificationMethod));
+        Assert.Null(task.VerifiedByUserId);
+        Assert.Equal(w.Clock.UtcNow, task.VerifiedAt);
+        Assert.All(w.Store.Values.OfType<TaskEvidence>(), row => Assert.Equal(TaskEvidenceReview.Verified, row.ReviewStatus));
+        Assert.Equal([a], w.Recipients(Assert.Single(w.Notifications(task, TaskVerification.AutoVerified))));
+    }
+
+    [Fact]
+    public async Task MissingOrInvalidAutoMetricFallsBackToManualOperatorVerification()
+    {
+        var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia");
+        var task = await w.InProgress(a); w.AutoEvent(task, cleared: false, validMetric: false);
+
+        var submitted = await w.Evidence(a).Submit(task.TaskId, new("Completed"), default);
+
+        Assert.Equal((WorkTaskStatus.Submitted, TaskVerificationMode.Manual, TaskVerificationMethod.MetricException),
+            (submitted.Status, submitted.Evidence.VerificationMode, submitted.Evidence.VerificationMethod));
+        Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskVerification.VerificationException))));
+        Assert.Equal(WorkTaskStatus.Verified, (await w.Evidence(op).Verify(task.TaskId, new(), default)).Status);
+    }
+
+    [Fact]
     public async Task OnlyTheAssigneeAddsEvidenceAndOnlyWhileTheTaskIsInProgress()
     {
         var w = new World(); var a = w.Staff("An"); var b = w.Staff("Binh");
@@ -49,24 +116,58 @@ public sealed class TaskEvidenceTests
     }
 
     [Fact]
-    public async Task AHazardIncidentTaskNeedsBeforeAndAfterPhotosAndARetriedUploadReplacesTheDraft()
+    public async Task AnIncidentTaskCanBeSubmittedWithANoteAndNoPhotos()
     {
-        var w = new World(); var a = w.Staff("An");
+        var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia");
         var task = await w.InProgress(a, incidentRequiresBefore: true);
         var staff = w.Evidence(a);
 
-        var first = await w.Upload(a, task, TaskEvidenceType.AfterPhoto);
-        Assert.True(first.RequiresBeforePhoto && first.RequiresAfterPhoto);
-        var retried = await w.Upload(a, task, TaskEvidenceType.AfterPhoto);
-        Assert.Single(retried.Drafts);
-        Assert.Single(w.Files.Deleted);
-        Assert.Equal("EVIDENCE_REQUIRED", (await Assert.ThrowsAsync<AppError>(() => staff.Submit(task.TaskId, new("Mopped"), default))).Code);
+        var evidence = await staff.Get(task.TaskId, default);
+        Assert.False(evidence.RequiresBeforePhoto);
+        Assert.False(evidence.RequiresAfterPhoto);
 
-        var withBefore = await w.Upload(a, task, TaskEvidenceType.BeforePhoto);
-        var removed = await staff.RemoveDraft(task.TaskId, withBefore.Drafts.Single(d => d.EvidenceType == TaskEvidenceType.BeforePhoto).EvidenceId, default);
-        Assert.Single(removed.Drafts);
-        await w.Upload(a, task, TaskEvidenceType.BeforePhoto);
-        Assert.Equal(WorkTaskStatus.Submitted, (await staff.Submit(task.TaskId, new("Mopped and dried"), default)).Status);
+        Assert.Equal("MISSING_PHOTO_REASON_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() =>
+            staff.Submit(task.TaskId, new("Mopped and dried"), default))).Code);
+        var result = await staff.Submit(task.TaskId,
+            new("Mopped and dried", MissingPhotoReason: "The aisle camera was blocked by the cleanup barrier"), default);
+        Assert.Equal(WorkTaskStatus.Submitted, result.Status);
+        var submission = Assert.Single(result.Evidence.Submissions);
+        Assert.Empty(submission.Photos);
+        Assert.Equal("The aisle camera was blocked by the cleanup barrier", submission.MissingPhotoReason);
+        Assert.Equal(WorkTaskStatus.Verified, (await w.Evidence(op).Verify(task.TaskId, new(), default)).Status);
+        Assert.All(w.Store.Values.OfType<TaskEvidence>(), e => Assert.Equal(TaskEvidenceReview.Verified, e.ReviewStatus));
+    }
+
+    [Fact]
+    public async Task AnIncidentTaskCanUseAnAfterPhotoInsteadOfANoteButCannotSubmitNeither()
+    {
+        var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia");
+        var task = await w.InProgress(a, incidentRequiresBefore: false);
+        var staff = w.Evidence(a);
+
+        Assert.Equal("EVIDENCE_REQUIRED", (await Assert.ThrowsAsync<AppError>(() => staff.Submit(task.TaskId, new(null), default))).Code);
+        await w.Upload(a, task, TaskEvidenceType.AfterPhoto);
+
+        var result = await staff.Submit(task.TaskId, new(" "), default);
+        var submission = Assert.Single(result.Evidence.Submissions);
+        Assert.Equal(WorkTaskStatus.Submitted, result.Status);
+        Assert.Equal("", submission.Note);
+        Assert.Equal(TaskEvidenceType.AfterPhoto, Assert.Single(submission.Photos).EvidenceType);
+        Assert.Equal(WorkTaskStatus.Verified, (await w.Evidence(op).Verify(task.TaskId, new(), default)).Status);
+    }
+
+    [Fact]
+    public async Task MissingPhotoReasonIsRejectedWhenAnAfterPhotoExistsOrTheTaskIsNotAnIncident()
+    {
+        var w = new World(); var a = w.Staff("An");
+        var incident = await w.InProgress(a, incidentRequiresBefore: false);
+        await w.Upload(a, incident, TaskEvidenceType.AfterPhoto);
+        Assert.Equal("MISSING_PHOTO_REASON_NOT_APPLICABLE", (await Assert.ThrowsAsync<DomainException>(() => w.Evidence(a).Submit(
+            incident.TaskId, new("Done", MissingPhotoReason: "Camera unavailable"), default))).Code);
+
+        var routine = await w.InProgress(a);
+        Assert.Equal("MISSING_PHOTO_REASON_NOT_APPLICABLE", (await Assert.ThrowsAsync<DomainException>(() => w.Evidence(a).Submit(
+            routine.TaskId, new("Done", MissingPhotoReason: "No photo"), default))).Code);
     }
 
     [Fact]
@@ -95,10 +196,11 @@ public sealed class TaskEvidenceTests
     }
 
     [Fact]
-    public async Task ARejectionReturnsTheTaskForReworkAndTheSecondSendsItToAnotherStaffMember()
+    public async Task SecondRejectionAutomaticallyDispatchesAnotherStaffThenNextRejectionStopsAtOperator()
     {
-        var w = new World(); var a = w.Staff("An"); var b = w.Staff("Binh"); var op = w.User("OPERATOR", "Olivia");
+        var w = new World(); var a = w.Staff("An"); var b = w.Staff("Binh", adjacent: true); var op = w.User("OPERATOR", "Olivia");
         var task = await w.InProgress(a);
+        var deadlines = (task.ResponseDeadlineAt, task.ResolutionDeadlineAt, task.SlaSnapshotJson);
         await w.Evidence(a).Submit(task.TaskId, new("Done"), default);
         Assert.Equal("INVALID_FIELD", (await Assert.ThrowsAsync<DomainException>(() => w.Evidence(op).Reject(task.TaskId, new(""), default))).Code);
 
@@ -115,18 +217,33 @@ public sealed class TaskEvidenceTests
         Assert.Equal((WorkTaskStatus.Offered, 2, (Guid?)null), (second.Status, second.RejectionCount, second.AssigneeUserId));
         Assert.Equal(2, second.Evidence.Submissions.Length);
         Assert.Single(second.Evidence.Submissions[0].Photos);
-        Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskEvidenceWork.ReassignmentRequired))));
-        Assert.True((await w.Operator(op).Get(task.TaskId, default)).NeedsAssignment);
-        // The retry worker leaves it to the Operator, who cannot give it back to the same Staff member.
-        w.Clock.UtcNow = Now.AddHours(1); await w.Dispatch.Tick(default);
+        Assert.Empty(w.Notifications(task, TaskEvidenceWork.ReassignmentRequired));
+        var replacementOffer = Assert.Single(w.Store.Values.OfType<TaskOffer>(), o => o.TaskId == task.TaskId && o.Status == TaskOfferStatus.Pending);
+        Assert.Equal((b, 2, TaskDispatchScope.AdjacentSameFloor), (replacementOffer.StaffUserId, replacementOffer.WaveNumber, replacementOffer.DispatchScope));
         Assert.Empty(await w.StaffTasks(a).Offers(true, default));
         Assert.DoesNotContain(await w.Operator(op).AssignableStaff(task.TaskId, default), s => s.UserId == a);
         Assert.Equal("STAFF_REJECTED_TWICE", (await Assert.ThrowsAsync<AppError>(() => w.Operator(op).Assign(task.TaskId, new(a, "Retry"), default))).Code);
-        var reassigned = await w.Operator(op).Assign(task.TaskId, new(b, null), default);
-        Assert.Equal((WorkTaskStatus.Accepted, b), (reassigned.Status, reassigned.AssigneeUserId));
+
+        var reassigned = (await w.StaffTasks(b).Respond(replacementOffer.OfferId, new(TaskResponse.HandleNow, null, null), default)).Task!;
+        Assert.Equal((WorkTaskStatus.InProgress, b), (reassigned.Status, reassigned.AssigneeUserId));
         // The former performer still sees their own submissions, the new one starts clean.
         Assert.Equal(2, (await w.Evidence(a).Get(task.TaskId, default)).Submissions.Length);
         Assert.Empty((await w.Evidence(b).Get(task.TaskId, default)).Submissions);
+
+        w.Clock.UtcNow = Now.AddMinutes(10);
+        await w.Evidence(b).Submit(task.TaskId, new("Replacement completed"), default);
+        var terminal = await w.Evidence(op).Reject(task.TaskId, new("Replacement still failed"), default);
+        Assert.Equal((WorkTaskStatus.Offered, 3, (Guid?)null), (terminal.Status, terminal.RejectionCount, terminal.AssigneeUserId));
+        Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskEvidenceWork.ReassignmentRequired))));
+        Assert.True((await w.Operator(op).Get(task.TaskId, default)).NeedsAssignment);
+        Assert.DoesNotContain(w.Store.Values.OfType<TaskOffer>(), o => o.TaskId == task.TaskId && o.Status == TaskOfferStatus.Pending);
+        Assert.DoesNotContain(await w.Operator(op).AssignableStaff(task.TaskId, default), s => s.UserId == b);
+        Assert.Equal("STAFF_REJECTED_TWICE", (await Assert.ThrowsAsync<AppError>(() => w.Operator(op).Assign(task.TaskId, new(b, "Retry"), default))).Code);
+        Assert.Equal(deadlines, (task.ResponseDeadlineAt, task.ResolutionDeadlineAt, task.SlaSnapshotJson));
+        Assert.Single(w.Store.Values.OfType<WorkTask>(), t => t.TaskId == task.TaskId);
+        Assert.Equal(1, await w.Dispatch.Tick(default));
+        Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment));
+        Assert.Equal(0, await w.Dispatch.Tick(default));
     }
 
     [Fact]
@@ -182,36 +299,48 @@ public sealed class TaskEvidenceTests
         public TaskDispatch Dispatch { get; }
         private readonly StoreCalendar calendar = new(StoreCalendar.Zone(null));
         private readonly Zone zone;
+        private readonly Zone adjacentZone;
         private readonly Schema schema = new();
         private readonly StaffRoster roster;
         private readonly TaskNotifier notifier;
+        private readonly TaskVerification verification;
         private readonly TaskViews views;
-        private readonly Guid shiftId = Guid.NewGuid();
+        private readonly Guid shiftId = Guid.NewGuid(), specialtyId = Guid.NewGuid(), taskTypeId = Guid.NewGuid();
 
         public World()
         {
-            zone = new Zone { ZoneId = Guid.NewGuid(), FloorId = Guid.NewGuid(), Code = "B", Name = "Zone B · Checkout" };
+            var market = new Supermarket.Domain.Supermarket { SupermarketId = Guid.NewGuid(), Code = "SM-01", Name = "Test market" };
+            var floor = new Floor { FloorId = Guid.NewGuid(), SupermarketId = market.SupermarketId, FloorNumber = 1, Name = "Floor 1" };
+            zone = new Zone { ZoneId = Guid.NewGuid(), FloorId = floor.FloorId, Code = "B", Name = "Zone B · Checkout" };
+            adjacentZone = new Zone { ZoneId = Guid.NewGuid(), FloorId = floor.FloorId, Code = "C", Name = "Zone C · Produce" };
             foreach (var role in new[] { "ADMIN", "OPERATOR", "MANAGER", "STAFF" }) Store.Values.Add(new Role { RoleId = Guid.NewGuid(), Name = role });
-            Store.Values.AddRange([zone, new Shift { ShiftId = shiftId, Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
+            Store.Values.AddRange([market, floor, zone, adjacentZone,
+                new ZoneAdjacency { ZoneAdjacencyId = Guid.NewGuid(), ZoneId = zone.ZoneId, AdjacentZoneId = adjacentZone.ZoneId, CreatedAt = Now },
+                new StaffSpecialty { SpecialtyId = specialtyId, Code = "SPC-01", Name = "Cashier" },
+                new TaskType { TaskTypeId = taskTypeId, Code = "TT-01", Name = "Open checkout", RequiredSpecialtyId = specialtyId },
+                new Shift { ShiftId = shiftId, SupermarketId = market.SupermarketId, Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
             roster = new StaffRoster(Store, calendar);
             notifier = new TaskNotifier(Store, Clock);
-            Dispatch = new TaskDispatch(Store, roster, notifier, Clock, schema);
-            views = new TaskViews(Store, Dispatch);
+            verification = new TaskVerification(Store, Clock, notifier);
+            Dispatch = new TaskDispatch(Store, roster, notifier, verification, Clock, schema);
+            views = new TaskViews(Store);
         }
 
         public Guid User(string role, string name)
         {
-            var user = new UserAccount { UserId = Guid.NewGuid(), RoleId = Store.Values.OfType<Role>().Single(r => r.Name == role).RoleId, FullName = name, Email = $"{name}@test", Status = "ACTIVE" };
+            var user = new UserAccount { UserId = Guid.NewGuid(), RoleId = Store.Values.OfType<Role>().Single(r => r.Name == role).RoleId, FullName = name, Email = $"{name}@test", Status = "ACTIVE",
+                SpecialtyId = role == "STAFF" ? specialtyId : null };
             Store.Values.Add(user);
             return user.UserId;
         }
 
-        public Guid Staff(string name)
+        public Guid Staff(string name, bool adjacent = false)
         {
             var id = User("STAFF", name);
             var assignment = new ShiftAssignment { ShiftAssignmentId = Guid.NewGuid(), UserId = id, ShiftId = shiftId, WorkDate = new(2026, 10, 11), CheckInAt = Now.AddHours(-2) };
             Store.Values.Add(assignment);
-            Store.Values.Add(new StaffZoneAssignment { StaffZoneAssignmentId = Guid.NewGuid(), ShiftAssignmentId = assignment.ShiftAssignmentId, ZoneId = zone.ZoneId, AssignedAt = Now.AddHours(-3) });
+            Store.Values.Add(new StaffZoneAssignment { StaffZoneAssignmentId = Guid.NewGuid(), ShiftAssignmentId = assignment.ShiftAssignmentId,
+                ZoneId = adjacent ? adjacentZone.ZoneId : zone.ZoneId, AssignedAt = Now.AddHours(-3) });
             return id;
         }
 
@@ -228,7 +357,9 @@ public sealed class TaskEvidenceTests
             }
             var task = new WorkTask { TaskId = Guid.NewGuid(), ZoneId = zone.ZoneId, Title = "Clear the queue", Priority = "WARNING", Status = WorkTaskStatus.Accepted,
                 OriginType = incidentId is null ? TaskOrigin.OperationalEvent : TaskOrigin.Incident, IncidentId = incidentId,
-                CurrentAssigneeUserId = staff, AssignedAt = Now.AddMinutes(-10), AcceptedAt = Now.AddMinutes(-10), CreatedAt = Now.AddMinutes(-11) };
+                TaskTypeId = taskTypeId, CurrentAssigneeUserId = staff, AssignedAt = Now.AddMinutes(-10), AcceptedAt = Now.AddMinutes(-10), CreatedAt = Now.AddMinutes(-11),
+                ResponseDeadlineAt = Now.AddMinutes(5), ResolutionDeadlineAt = Now.AddHours(1), SlaSnapshotJson = "{\"offerTimeoutSec\":60}",
+                VerificationMode = TaskVerificationMode.Manual, VerificationMethod = TaskVerificationMethod.OperatorEvidence };
             Store.Values.Add(task);
             Store.Values.Add(new TaskAssignmentHistory { TaskAssignmentId = Guid.NewGuid(), TaskId = task.TaskId, StaffUserId = staff, AssignmentType = TaskAssignmentType.Offer,
                 Status = OfferStatus.Accepted, AssignedAt = Now.AddMinutes(-11), RespondedAt = Now.AddMinutes(-10) });
@@ -248,7 +379,22 @@ public sealed class TaskEvidenceTests
         public List<Notification> Notifications(WorkTask task, string type) => Store.Values.OfType<Notification>().Where(n => n.TaskId == task.TaskId && n.NotificationType == type).ToList();
         public Guid[] Recipients(Notification n) => Store.Values.OfType<NotificationRecipient>().Where(r => r.NotificationId == n.NotificationId).Select(r => r.UserId).ToArray();
 
-        public TaskEvidenceWork Evidence(Guid user) => new(Store, Current(user), Clock, notifier, schema, Files);
+        public OperationalEvent AutoEvent(WorkTask task, bool cleared, bool validMetric)
+        {
+            task.VerificationMode = TaskVerificationMode.Auto; task.VerificationMethod = TaskVerificationMethod.OperationalMetric;
+            task.EventId = Guid.NewGuid();
+            var ev = new OperationalEvent { EventId = task.EventId.Value, CameraId = Guid.NewGuid(), ZoneId = task.ZoneId,
+                MetricValue = cleared ? 1 : 5, Status = cleared ? "CLEARED" : "ACTIVE", DetectedAt = Now.AddMinutes(-5),
+                LastObservedAt = Now, ClearedAt = cleared ? Now : null, MetadataJson = MetricJson(cleared ? 1 : 5, validMetric) };
+            Store.Values.Add(ev);
+            return ev;
+        }
+
+        public static string MetricJson(decimal metric, bool valid) => valid
+            ? $$"""{"measurementMode":"QUEUE_LENGTH","thresholdUnit":"PEOPLE","metric":{{metric}},"warningThreshold":3}"""
+            : "{\"measurementMode\":\"QUEUE_LENGTH\",\"metric\":999}";
+
+        public TaskEvidenceWork Evidence(Guid user) => new(Store, Current(user), Clock, notifier, Dispatch, verification, schema, Files);
         public StaffTasks StaffTasks(Guid user) => new(Store, Current(user), Clock, calendar, roster, Dispatch, views, schema);
         public OperatorTasks Operator(Guid user) => new(Store, Current(user), Clock, roster, Dispatch, notifier, views, schema,
             new StaffTaskTests.OperatorQueries(Store), new StandaloneTaskSlaPolicyService(Store, Clock));
