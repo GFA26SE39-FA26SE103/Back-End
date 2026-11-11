@@ -31,6 +31,8 @@ public partial class Zone
 
     public virtual ICollection<CameraZoneMapping> CameraZoneMappings { get; set; } = new List<CameraZoneMapping>();
 
+    public virtual ICollection<CheckoutCounter> CheckoutCounters { get; set; } = new List<CheckoutCounter>();
+
     public virtual Floor Floor { get; set; } = null!;
 
     public virtual ICollection<Incident> Incidents { get; set; } = new List<Incident>();

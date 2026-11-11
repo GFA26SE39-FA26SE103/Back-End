@@ -2,7 +2,8 @@ using System.Text.Json;
 using Supermarket.Domain;
 namespace Supermarket.Application;
 
-public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICameraStream streams, ICredentialProtector secrets, IClock clock)
+public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICameraStream streams, ICredentialProtector secrets, IClock clock,
+    CheckoutSourceGuard? checkoutGuard=null)
 {
     public async Task<Camera> Get(Guid id, CancellationToken ct)
     {
@@ -70,6 +71,7 @@ public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICamera
         return store.Transaction(async () =>
         {
             var camera = await Get(id, ct);
+            if(checkoutGuard is not null) await checkoutGuard.EnsureCameraEditable(id,ct);
             foreach (var mapping in await store.List<CameraZoneMapping>(m => m.CameraId == id && m.Status == "ACTIVE", ct))
                 if ((await store.List<MonitoringConfiguration>(m => m.ZoneId == mapping.ZoneId && m.Status == "ACTIVE", ct)).Count > 0)
                     throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before replacing the camera source.");

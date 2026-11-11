@@ -2,7 +2,8 @@ using Supermarket.Domain;
 
 namespace Supermarket.Application;
 
-public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPreviewClient client,IMonitoringSessionOwnership? ownership=null)
+public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPreviewClient client,IMonitoringSessionOwnership? ownership=null,
+    CheckoutSourceGuard? checkoutGuard=null)
 {
     public async Task<AiPreviewStatusView> Start(Guid cameraId, CancellationToken ct, Guid? zoneId = null)
     {
@@ -27,6 +28,8 @@ public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPrevie
         {
             var zone = UseCase.Found(await store.Find<Zone>(zoneId.Value, ct));
             Rules.SameFloor(camera, zone);
+            if(owned && checkoutGuard is not null && await checkoutGuard.IsActive(cameraId,zoneId,ct))
+                return await Attach(cameraId,ct);
             var mapping = (await store.List<CameraZoneMapping>(m => m.CameraId == cameraId && m.ZoneId == zoneId.Value && m.Status == "ACTIVE", ct)).SingleOrDefault()
                 ?? throw new ApplicationException("ZONE_NOT_MAPPED", "Map this camera to the selected zone before testing its confidence.");
             try { Rules.Polygon(System.Text.Json.JsonSerializer.Deserialize<Point[]>(mapping.RoiPolygon)); }
@@ -71,6 +74,7 @@ public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPrevie
     private async Task<bool> Owned(Guid cameraId,CancellationToken ct)
     {
         if(ownership?.IsMonitoringOwned(cameraId)==true) return true;
+        if(checkoutGuard is not null && await checkoutGuard.IsActive(cameraId,null,ct)) return true;
         foreach(var mapping in await store.List<CameraZoneMapping>(m=>m.CameraId==cameraId && m.Status=="ACTIVE",ct))
             if((await store.List<MonitoringConfiguration>(c=>c.ZoneId==mapping.ZoneId && c.Status=="ACTIVE",ct)).Count>0) return true;
         return false;

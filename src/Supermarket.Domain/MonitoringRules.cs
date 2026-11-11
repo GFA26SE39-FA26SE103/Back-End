@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Supermarket.Domain.CheckoutCounters;
 namespace Supermarket.Domain;
 
 public sealed class IncidentType : TrackedEntity
@@ -42,6 +43,10 @@ public static class MonitoringPolicy
     public static int RecoverySeconds(MonitoringRule rule) => rule.ClearDurationSec;
     public static RuntimeMeasurementDefinition RuntimeDefinition(MonitoringRule rule, OperationalEventType type)
     {
+        if (type.Code=="CHECKOUT_CAPACITY")
+            return rule.ThresholdUnit=="PEOPLE_PER_STAFFED_COUNTER"
+                ? new("CHECKOUT_CAPACITY","PEOPLE_PER_STAFFED_COUNTER",true,null)
+                : new("CHECKOUT_CAPACITY",rule.ThresholdUnit,false,"Checkout capacity requires configured PEOPLE_PER_STAFFED_COUNTER thresholds.");
         if (type.Code=="LONG_QUEUE" && type.MeasurementType=="QUEUE_LENGTH" && rule.ThresholdUnit=="PEOPLE")
             return new("QUEUE_LENGTH","PEOPLE",true,null);
         if (type.Code=="CONGESTION" && type.MeasurementType=="CROWD_DENSITY")
@@ -63,7 +68,7 @@ public static class MonitoringPolicy
         var runtime=RuntimeDefinition(rule,type);
         Rules.Require(!rule.Enabled || runtime.Supported,"RULE_RUNTIME_UNSUPPORTED",runtime.Reason??"Measurement runtime is unsupported.");
     }
-    // Agreed measurement/unit pairs. Checkout remains pending counter/composite design.
+    // Agreed defaults only. Checkout thresholds must be explicitly configured.
     public static MeasurementDefinition? Definition(OperationalEventType type) => (type.Code, type.MeasurementType) switch
     {
         ("LONG_QUEUE", "QUEUE_LENGTH") => new("PEOPLE", 3, 5),
@@ -88,17 +93,27 @@ public static class MonitoringPolicy
         rule.ThresholdUnit = Rules.Text(rule.ThresholdUnit, 30, "Threshold unit");
         Rules.Require(rule.SustainSec >= 0 && rule.CooldownSec >= 0 && rule.ClearDurationSec is >= 1 and <= 86400,
             "INVALID_RULE_TIMING", "Sustain and cooldown must be non-negative; clear duration must be from 1 to 86400 seconds.");
-        var definition = Definition(type);
-        Rules.Require(!rule.Enabled || definition is not null, "RULE_UNSUPPORTED", "This measurement is not ready; keep its rule disabled in Draft.");
-        if (definition is not null && rule.Enabled)
+        var checkout = type.Code == "CHECKOUT_CAPACITY";
+        if (checkout && rule.Enabled)
         {
-            var unit=RuntimeDefinition(rule,type).Supported ? "PEOPLE" : definition.Unit;
-            Rules.Require(rule.ThresholdUnit == unit, "INVALID_RULE_UNIT", $"The measurement requires {unit} and an explicit matching measurement mode.");
-            if (unit == "PEOPLE") Rules.Require(decimal.Truncate(rule.WarningThreshold) == rule.WarningThreshold && decimal.Truncate(rule.CriticalThreshold) == rule.CriticalThreshold,
-                "INVALID_THRESHOLDS", "Thresholds must be whole people counts.");
+            Rules.Require(rule.WarningThreshold > 0, "INVALID_THRESHOLDS", "Checkout thresholds require 0 < warning < critical.");
+            Rules.Require(rule.ThresholdUnit == "PEOPLE_PER_STAFFED_COUNTER", "INVALID_RULE_UNIT", "Checkout capacity requires PEOPLE_PER_STAFFED_COUNTER thresholds.");
+            _ = CheckoutRuleParameters.Parse(rule.ParametersJson);
+        }
+        else
+        {
+            var definition = Definition(type);
+            Rules.Require(!rule.Enabled || definition is not null, "RULE_UNSUPPORTED", "This measurement is not ready; keep its rule disabled in Draft.");
+            if (definition is not null && rule.Enabled)
+            {
+                var unit=RuntimeDefinition(rule,type).Supported ? "PEOPLE" : definition.Unit;
+                Rules.Require(rule.ThresholdUnit == unit, "INVALID_RULE_UNIT", $"The measurement requires {unit} and an explicit matching measurement mode.");
+                if (unit == "PEOPLE") Rules.Require(decimal.Truncate(rule.WarningThreshold) == rule.WarningThreshold && decimal.Truncate(rule.CriticalThreshold) == rule.CriticalThreshold,
+                    "INVALID_THRESHOLDS", "Thresholds must be whole people counts.");
+            }
         }
         Rules.Optional(rule.ParametersJson, 16000, "Rule parameters");
-        if (rule.ParametersJson is not null)
+        if (rule.ParametersJson is not null && !(checkout && !rule.Enabled && string.IsNullOrWhiteSpace(rule.ParametersJson)))
         {
             try
             {

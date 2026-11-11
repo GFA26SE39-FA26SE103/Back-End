@@ -165,6 +165,7 @@ Task from OPERATIONAL_EVENT / INCIDENT / STAFF_REPORT / MANUAL
 - Task evidence may require before/after photos by category; no universal before-photo requirement.
 - `TaskEvidence.reject_reason` already exists. `Task.rejection_count` supports BR-28 **reassign after two rejections**.
 - A linked Incident closes only after all mandatory corrective Tasks are verified and closure conditions hold; safety mitigation is not the same as closure.
+- **K5 / BR-21 (11/11/2026):** only catalog TaskType `TT-12` is designated for mitigation. Operator MANUAL verification sets the linked open Incident's `mitigated_at` to the successful verification timestamp once, inside the verification transaction, with audit. Submission, TT-13 and all other TaskTypes do not trigger it. Existing timestamps are preserved; mitigation neither closes the Incident nor stops/resets resolution SLA. No designated Task means `mitigated_at` remains null. TT-12 isolation and TT-13 correction are independent milestones; closure still waits for every mandatory Task and existing closure conditions.
 
 ## MF-04 — Manager Operations Planning, Analytics & Reporting
 

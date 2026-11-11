@@ -1,8 +1,10 @@
 using Supermarket.Domain;
 namespace Supermarket.Application;
 
-public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser current,IMonitoringIncidentQueries? runtimeQueries=null,IMonitoringSessionOwnership? ownership=null)
+public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser current,IMonitoringIncidentQueries? runtimeQueries=null,IMonitoringSessionOwnership? ownership=null,
+    CheckoutMonitoringOptions? checkoutOptions=null,ICheckoutSchema? checkoutSchema=null,ICheckoutConfigurationQueries? checkoutQueries=null)
 {
+    private readonly CheckoutMonitoringOptions checkout=checkoutOptions??new();
     public async Task<IncidentTypeView[]> IncidentTypes(CancellationToken ct)
     {
         UseCase.Admin(current);
@@ -12,6 +14,15 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             .Select(x =>
         {
             var t=x.Type;
+            if(t.Code=="CHECKOUT_CAPACITY_ISSUE" || x.EventType?.Code=="CHECKOUT_CAPACITY")
+            {
+                var checkoutSupported=t.Status=="ACTIVE" && x.EventType?.Status=="ACTIVE" && checkout.AiContractEnabled;
+                var reason=checkoutSupported?null:x.EventType is null?"The checkout operational event catalog is unavailable."
+                    :"Checkout AI contract is disabled or the catalog is inactive; enable only after checkout observations have been validated.";
+                return new IncidentTypeView(t.IncidentTypeId,t.Code,t.Name,t.Description,"AI_DETECTED",x.EventType?.MeasurementType??"CHECKOUT_CAPACITY",t.Status,
+                    checkoutSupported,"PEOPLE_PER_STAFFED_COUNTER",null,null,reason,
+                    [new("CHECKOUT_CAPACITY","PEOPLE_PER_STAFFED_COUNTER",checkoutSupported,reason)],t.RequiresBeforePhoto);
+            }
             if (x.EventType is null)
                 return new IncidentTypeView(t.IncidentTypeId,t.Code,t.Name,t.Description,"STAFF_REPORTED",null,t.Status,
                     true,null,null,null,null,null,t.RequiresBeforePhoto);
@@ -121,11 +132,10 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
                 if(runtimeQueries is not null) await runtimeQueries.EnsureSchema(ct);
                 var review = await BuildReview(zoneId, ct);
                 if (!review.CanActivate) throw new ApplicationException("MONITORING_NOT_READY", string.Join(" ", review.Issues.Select(i => i.Message)));
-                foreach(var camera in review.Cameras.Where(c=>c.Ready))
+                foreach(var camera in review.Cameras.Where(c=>c.Ready).DistinctBy(c=>c.CameraId))
                 {
                     if(ownership?.IsMonitoringOwned(camera.CameraId)!=true) continue;
-                    var mappedZones=(await store.List<CameraZoneMapping>(m=>m.CameraId==camera.CameraId && m.Status=="ACTIVE",ct)).Select(m=>m.ZoneId).ToArray();
-                    if(!(await store.List<MonitoringConfiguration>(c=>c.Status=="ACTIVE" && mappedZones.Contains(c.ZoneId),ct)).Any())
+                    if(!await HasActiveMonitoringOwner(camera.CameraId,ct))
                         throw new ApplicationException("MONITORING_STOP_PENDING","Monitoring owner is stopping. Wait for STOPPED runtime before reactivating to replay.");
                 }
             }
@@ -133,6 +143,30 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             await store.Update(configuration, ct);
             return await View(configuration, ct);
         }, ct);
+    }
+    private async Task<bool> HasActiveMonitoringOwner(Guid cameraId,CancellationToken ct)
+    {
+        var mappedZones=(await store.List<CameraZoneMapping>(m=>m.CameraId==cameraId && m.Status=="ACTIVE",ct)).Select(m=>m.ZoneId).ToHashSet();
+        var active=await store.List<MonitoringConfiguration>(c=>c.Status=="ACTIVE",ct);
+        if(active.Any(c=>mappedZones.Contains(c.ZoneId))) return true; // Preserve generic ownership.
+        if(active.Count==0) return false;
+        var eventTypes=await store.List<OperationalEventType>(t=>t.Code=="CHECKOUT_CAPACITY",ct);
+        if(eventTypes.Count!=1) return false;
+        var typeId=eventTypes[0].EventTypeId;
+        var configIds=active.Select(c=>c.ConfigId).ToArray();
+        var checkoutRules=await store.List<MonitoringRule>(r=>r.Enabled && r.OutcomeType=="OPERATIONAL_EVENT"
+            && r.EventTypeId==typeId && configIds.Contains(r.ConfigId),ct);
+        CheckoutSnapshotPreparation.Limit(checkoutRules.Count,128,128,"Active checkout owner rules");
+        if(checkoutRules.Count==0) return false; // Generic-only configurations never query checkout tables/schema.
+        if(checkoutSchema is null || !await checkoutSchema.Ready(ct))
+            throw new ApplicationException("CHECKOUT_SCHEMA_NOT_READY","Checkout configuration schema is not ready; monitoring remains disabled.",503);
+        var checkoutConfigIds=checkoutRules.Select(r=>r.ConfigId).ToHashSet();
+        var checkoutZones=active.Where(c=>checkoutConfigIds.Contains(c.ConfigId)).Select(c=>c.ZoneId).ToHashSet();
+        CheckoutSnapshotPreparation.Limit(checkoutZones.Count,checkout.MaxZones,128,"Active checkout zones");
+        var mappings=await CheckoutSnapshotPreparation.CameraMappings(store,checkoutQueries,checkout,cameraId,ct);
+        foreach(var counterId in mappings.Select(m=>m.CheckoutCounterId).Distinct())
+            if(await store.Find<CheckoutCounter>(counterId,ct) is { IsEnabled:true } counter && checkoutZones.Contains(counter.ZoneId)) return true;
+        return false;
     }
     private async Task<MonitoringConfiguration> Configuration(Guid zoneId, CancellationToken ct)
         => UseCase.Found((await store.List<MonitoringConfiguration>(m => m.ZoneId == zoneId, ct)).SingleOrDefault());

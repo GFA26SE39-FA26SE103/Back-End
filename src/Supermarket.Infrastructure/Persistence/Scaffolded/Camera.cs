@@ -43,6 +43,8 @@ public partial class Camera
 
     public string? LastMaintenanceNote { get; set; }
 
+    public virtual ICollection<CameraCheckoutMapping> CameraCheckoutMappings { get; set; } = new List<CameraCheckoutMapping>();
+
     public virtual CameraConnection? CameraConnection { get; set; }
 
     public virtual ICollection<CameraHealthEvent> CameraHealthEvents { get; set; } = new List<CameraHealthEvent>();

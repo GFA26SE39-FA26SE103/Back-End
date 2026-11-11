@@ -42,7 +42,7 @@ public sealed class AiMonitoringClientTests
     [Fact]
     public async Task RejectsInvalidCountAndUnknownProtocolWithSanitizedError()
     {
-        var handler=new Handler(_=>Task.FromResult(Json(new { protocol_version=2,session_id=Guid.NewGuid(),oldest_sequence=1,newest_sequence=0,gap=false,state="LIVE",batches=Array.Empty<object>() })));
+        var handler=new Handler(_=>Task.FromResult(Json(new { protocol_version=3,session_id=Guid.NewGuid(),oldest_sequence=1,newest_sequence=0,gap=false,state="LIVE",batches=Array.Empty<object>() })));
         var client=new AiMonitoringClient(new HttpClient(handler){BaseAddress=new("http://ai.test")},Options.Create(new AiPreviewOptions()),new Protector());
         var error=await Assert.ThrowsAsync<Supermarket.Application.ApplicationException>(()=>client.Read(Guid.NewGuid(),Guid.NewGuid(),null,0,64,default));
         Assert.Equal("AI_MEASUREMENT_INVALID",error.Code);

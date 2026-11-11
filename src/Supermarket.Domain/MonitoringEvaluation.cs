@@ -14,12 +14,14 @@ public static class MonitoringRuleEvaluator
     public static RuleEvaluationResult Evaluate(MonitoringEvaluationSettings settings,RuleEvaluationState state,RuleObservation observation)
     {
         if(!settings.Enabled) return new(new(),null,0,0,"RULE_DISABLED",false);
-        if(settings.Mode is not ("PEOPLE_COUNT" or "QUEUE_LENGTH") || settings.Unit!="PEOPLE") return new(new(),null,0,0,"RULE_RUNTIME_UNSUPPORTED",false);
-        if(observation.MetricValue<0 || decimal.Truncate(observation.MetricValue)!=observation.MetricValue || observation.Sequence<1
+        var checkout=settings.Mode=="CHECKOUT_CAPACITY" && settings.Unit=="PEOPLE_PER_STAFFED_COUNTER";
+        if(!checkout && (settings.Mode is not ("PEOPLE_COUNT" or "QUEUE_LENGTH") || settings.Unit!="PEOPLE")) return new(new(),null,0,0,"RULE_RUNTIME_UNSUPPORTED",false);
+        if(observation.MetricValue<0 || (!checkout && decimal.Truncate(observation.MetricValue)!=observation.MetricValue) || observation.Sequence<1
            || observation.SourceElapsedMs<0 || observation.SessionId==Guid.Empty || observation.ContinuityId==Guid.Empty)
             return new(new(),null,0,0,"MEASUREMENT_INVALID",false);
         var recoverySec=settings.ClearDurationSec??settings.SustainSec;
-        if(settings.SustainSec<0 || settings.CooldownSec<0 || recoverySec<0 || settings.WarningThreshold<0 || settings.CriticalThreshold<=settings.WarningThreshold)
+        if(settings.SustainSec<0 || settings.CooldownSec<0 || recoverySec<0 || settings.WarningThreshold<0 || settings.CriticalThreshold<=settings.WarningThreshold
+           || (checkout && settings.WarningThreshold==0))
             return new(new(),null,0,0,"RULE_INVALID",false);
         var matching=state.SessionId==observation.SessionId && state.ContinuityId==observation.ContinuityId && state.ConfigFingerprint==observation.ConfigFingerprint;
         if(matching && state.Sequence==observation.Sequence)

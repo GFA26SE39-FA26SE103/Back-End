@@ -244,6 +244,8 @@ public sealed class RecordedVideoTests
             {
                 services.RemoveAll<ISetupStore>();
                 services.AddSingleton<ISetupStore>(h.Store);
+                services.RemoveAll<ICheckoutSchema>(); services.AddSingleton<ICheckoutSchema,NoCheckoutSchema>();
+                services.RemoveAll<ICheckoutConfigurationQueries>(); services.AddSingleton<ICheckoutConfigurationQueries,NoCheckoutConfigurationQueries>();
                 services.RemoveAll<ICameraStream>();
                 services.AddSingleton<ICameraStream>(new FakeStream());
                 services.RemoveAll<IAiPreviewClient>();

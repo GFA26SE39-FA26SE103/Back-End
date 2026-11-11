@@ -291,6 +291,78 @@ public sealed class TaskEvidenceTests
         Assert.Empty(w.Store.Values.OfType<AuditLog>());
     }
 
+    [Theory]
+    [InlineData("TT-12", true)]
+    [InlineData("TT-13", false)]
+    [InlineData("TT-06", false)]
+    public async Task OnlyManualVerificationOfTt12RecordsIncidentMitigation(string code, bool mitigates)
+    {
+        var w = new World(); var staff = w.Staff("An"); var op = w.User("OPERATOR", "Olivia");
+        var task = await w.InProgress(staff, incidentRequiresBefore: false);
+        var type = w.Store.Values.OfType<TaskType>().Single(t => t.TaskTypeId == task.TaskTypeId);
+        type.Code = code; type.Name = "Unrelated display name";
+        var incident = w.Store.Values.OfType<Incident>().Single(i => i.IncidentId == task.IncidentId);
+        await w.Upload(staff, task, TaskEvidenceType.AfterPhoto);
+        await w.Evidence(staff).Submit(task.TaskId, new("Area secured"), default);
+        Assert.Null(incident.MitigatedAt);
+
+        w.Clock.UtcNow = Now.AddMinutes(2);
+        await w.Evidence(op).Verify(task.TaskId, new(), default);
+
+        Assert.Equal(mitigates ? w.Clock.UtcNow : (DateTime?)null, incident.MitigatedAt);
+        Assert.Null(incident.ClosedAt);
+        var audits = w.Store.Values.OfType<AuditLog>().Where(a => a.Action == "MITIGATE_INCIDENT").ToList();
+        Assert.Equal(mitigates ? 1 : 0, audits.Count);
+        if (mitigates) Assert.Equal((incident.IncidentId, op), (audits.Single().EntityId!.Value, audits.Single().UserId!.Value));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Tt12AndTt13KeepMitigationAndClosureIndependentInEitherVerificationOrder(bool isolationFirst)
+    {
+        var w = new World(); var staff = w.Staff("An"); var op = w.User("OPERATOR", "Olivia");
+        var isolation = await w.InProgress(staff, incidentRequiresBefore: false);
+        w.Store.Values.OfType<TaskType>().Single(t => t.TaskTypeId == isolation.TaskTypeId).Code = "TT-12";
+        isolation.IsMandatory = true;
+        var incident = w.Store.Values.OfType<Incident>().Single(i => i.IncidentId == isolation.IncidentId);
+        var correctionType = new TaskType { TaskTypeId = Guid.NewGuid(), Code = "TT-13", Name = "Resolve Electrical Hazard" };
+        var correction = new WorkTask { TaskId = Guid.NewGuid(), TaskTypeId = correctionType.TaskTypeId,
+            IncidentId = incident.IncidentId, ZoneId = isolation.ZoneId, OriginType = TaskOrigin.Incident,
+            Status = WorkTaskStatus.InProgress, IsMandatory = true, CurrentAssigneeUserId = staff,
+            VerificationMode = TaskVerificationMode.Manual, CreatedAt = Now };
+        w.Store.Values.AddRange([correctionType, correction]);
+        var first = isolationFirst ? isolation : correction;
+        var second = isolationFirst ? correction : isolation;
+        await w.Upload(staff, first, TaskEvidenceType.AfterPhoto);
+        await w.Evidence(staff).Submit(first.TaskId, new("Work completed"), default);
+        await w.Evidence(op).Verify(first.TaskId, new(), default);
+        Assert.Equal(isolationFirst ? Now : (DateTime?)null, incident.MitigatedAt);
+        Assert.Null(incident.ClosedAt);
+
+        w.Clock.UtcNow = Now.AddMinutes(5);
+        await w.Upload(staff, second, TaskEvidenceType.AfterPhoto);
+        await w.Evidence(staff).Submit(second.TaskId, new("Work completed"), default);
+        await w.Evidence(op).Verify(second.TaskId, new(), default);
+        Assert.Equal(isolationFirst ? Now : w.Clock.UtcNow, incident.MitigatedAt);
+        Assert.Equal((IncidentClosure.ClosedStatus, (DateTime?)w.Clock.UtcNow), (incident.Status, incident.ClosedAt));
+    }
+
+    [Fact]
+    public async Task VerifyingAnotherTt12PreservesTheFirstMitigationTimestamp()
+    {
+        var w = new World(); var staff = w.Staff("An"); var op = w.User("OPERATOR", "Olivia");
+        var task = await w.InProgress(staff, incidentRequiresBefore: false);
+        w.Store.Values.OfType<TaskType>().Single(t => t.TaskTypeId == task.TaskTypeId).Code = "TT-12";
+        var incident = w.Store.Values.OfType<Incident>().Single(i => i.IncidentId == task.IncidentId);
+        incident.MitigatedAt = Now.AddMinutes(-1);
+        await w.Upload(staff, task, TaskEvidenceType.AfterPhoto);
+        await w.Evidence(staff).Submit(task.TaskId, new("Isolation checked"), default);
+        await w.Evidence(op).Verify(task.TaskId, new(), default);
+        Assert.Equal(Now.AddMinutes(-1), incident.MitigatedAt);
+        Assert.DoesNotContain(w.Store.Values.OfType<AuditLog>(), a => a.Action == "MITIGATE_INCIDENT");
+    }
+
     private sealed class World
     {
         public MonitoringSetupTests.MemoryStore Store { get; } = new();

@@ -147,6 +147,7 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
             await store.Update(task, ct);
             await EndAssignment(task, null, now, null, ct);
             await notifier.Send(Verified, "Task verified", $"{task.Title}: the Operator confirmed the work.", task, [submission.SubmittedByUserId], "PERFORMER", ct);
+            await new IncidentMitigation(store).AfterManualTaskVerified(task, current.UserId, ct);
             await new IncidentClosure(store, clock, notifier).AfterTaskVerified(task, current.UserId, ct);
             return 0;
         }, ct);

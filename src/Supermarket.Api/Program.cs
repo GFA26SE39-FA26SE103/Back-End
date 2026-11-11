@@ -62,6 +62,19 @@ builder.Services.AddOptions<HealthWorkerOptions>().Bind(builder.Configuration.Ge
     .Validate(o => o.GoodObservationsToResolve is >= 1 and <= 100, "CameraHealth:GoodObservationsToResolve must be 1 to 100.")
     .ValidateOnStart();
 builder.Services.Configure<MonitoringWorkerOptions>(builder.Configuration.GetSection("Monitoring"));
+builder.Services.AddOptions<CheckoutConfigurationOptions>().Bind(builder.Configuration.GetSection("Checkout:Configuration"))
+    .Validate(o => o.IsValid() && o.MaxCountersPerZone <= 128 && o.MaxMappingsPerCounter <= 16 && o.MaxMappingsPerCamera <= 128,
+        "Checkout configuration capacities exceed supported protocol limits.").ValidateOnStart();
+builder.Services.AddSingleton(s => s.GetRequiredService<IOptions<CheckoutConfigurationOptions>>().Value);
+builder.Services.AddOptions<CheckoutMonitoringOptions>().Bind(builder.Configuration.GetSection("Checkout:Monitoring"))
+    .Configure<CheckoutConfigurationOptions>((o,c) => {
+        o.MaxCountersPerZone=c.MaxCountersPerZone; o.MaxSourcesPerCounter=c.MaxMappingsPerCounter; o.MaxMappingsPerCamera=c.MaxMappingsPerCamera;
+    })
+    .Validate(o => o.PresentSeconds is >=1 and <=3600 && o.AbsentSeconds is >=1 and <=3600
+        && o.MaxObservationAgeSeconds is >=1 and <=300 && o.MaxObservationGapMs is >=1 and <=300000
+        && o.MaxClockSkewSeconds is >=0 and <=60 && o.MaxZones is >=1 and <=128,
+        "Checkout observation timing/capacity options are invalid.").ValidateOnStart();
+builder.Services.AddSingleton(s => s.GetRequiredService<IOptions<CheckoutMonitoringOptions>>().Value);
 builder.Services.Configure<TaskOfferWorkerOptions>(builder.Configuration.GetSection("TaskOffers"));
 builder.Services.AddOptions<TaskEvidenceOptions>().Bind(builder.Configuration.GetSection("TaskEvidence"))
     .Validate(o => o.MaxBytes is > 0 and <= 10485760, "TaskEvidence:MaxBytes must be between 1 and 10485760.")
@@ -81,6 +94,7 @@ builder.Services.AddOptions<AiPreviewOptions>().Bind(builder.Configuration.GetSe
     .PostConfigure(o => o.Classes = o.Classes.Distinct().ToArray())
     .Validate(o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https", "AiPreview:BaseUrl must be an absolute HTTP(S) URI.")
     .Validate(o => o.TimeoutSeconds is > 0 and <= 120, "AiPreview timeout must be 1 to 120 seconds.")
+    .Validate(o => o.MaxMonitoringResponseBytes is >=1024 and <=67108864, "AI monitoring response limit must be 1 KiB to 64 MiB.")
     .Validate(o => o.Confidence is >= 0 and <= 1, "AiPreview confidence must be in [0,1].")
     .Validate(o => o.Classes.SequenceEqual([0]), "AiPreview:Classes must contain only the person class 0.")
     .ValidateOnStart();
@@ -118,6 +132,14 @@ builder.Services.AddScoped<Accounts>();
 builder.Services.AddScoped<StoreSetup>();
 builder.Services.AddScoped<ZoneAdjacencies>();
 builder.Services.AddScoped<CameraSetup>();
+builder.Services.AddScoped<ICheckoutSchema, EfCheckoutSchema>();
+builder.Services.AddScoped<ICheckoutConfigurationQueries, EfCheckoutConfigurationQueries>();
+builder.Services.AddScoped<CheckoutConfiguration>();
+builder.Services.AddScoped<CheckoutSourceGuard>();
+builder.Services.AddScoped<ICheckoutCameraUsability, CheckoutCameraUsability>();
+builder.Services.AddScoped<ICheckoutEventHistory, EfCheckoutEventHistory>();
+builder.Services.AddSingleton<CheckoutMonitoringRuntime>();
+builder.Services.AddSingleton<ICheckoutRuntimeState>(s => s.GetRequiredService<CheckoutMonitoringRuntime>());
 builder.Services.AddScoped<CameraPlayback>();
 builder.Services.AddScoped<MonitoringSetup>();
 builder.Services.AddScoped<IMonitoringSnapshotReader,MonitoringSnapshotReader>();

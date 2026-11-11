@@ -8,6 +8,7 @@ try {
     $tables = @(
         'Role','UserAccount','Supermarket','Floor','Zone',
         'Camera','CameraConnection','CameraZoneMapping','CameraHealthEvent',
+        'CheckoutCounter','CameraCheckoutMapping',
         'MonitoringConfiguration','MonitoringRule','OperationalEventType','OperationalEvent','ZoneMetric',
         'IncidentType','Incident','IncidentMedia','StaffReport','StaffReportMedia',
         'StaffSpecialty','TaskType','Task','TaskOffer','TaskAssignmentHistory','TaskEvidence',

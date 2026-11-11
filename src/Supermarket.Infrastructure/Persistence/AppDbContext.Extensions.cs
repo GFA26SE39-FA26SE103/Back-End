@@ -34,5 +34,30 @@ public partial class AppDbContext
             .HasForeignKey(o => o.TaskId)
             .OnDelete(DeleteBehavior.ClientSetNull)
             .HasConstraintName("FK_TaskOffer_Task");
+
+        // Filtered uniqueness limits only enabled queue sources, not the camera coverage
+        // relation. A counter may have many enabled staff-observation camera mappings.
+        var mappingType = modelBuilder.Entity<CameraCheckoutMapping>().Metadata;
+        var counterForeignKey = mappingType.GetForeignKeys().Single(f => f.PrincipalEntityType.ClrType == typeof(CheckoutCounter));
+        mappingType.RemoveForeignKey(counterForeignKey);
+        modelBuilder.Entity<CheckoutCounter>().Ignore(c => c.CameraCheckoutMapping);
+        modelBuilder.Entity<CameraCheckoutMapping>()
+            .HasOne(m => m.CheckoutCounter)
+            .WithMany()
+            .HasForeignKey(m => m.CheckoutCounterId)
+            .OnDelete(DeleteBehavior.ClientSetNull)
+            .HasConstraintName("FK_CameraCheckoutMapping_Counter");
+
+        // The standalone-policy filtered unique index allows historical/disabled
+        // versions. Preserve its many-to-one FK after every database-first scaffold.
+        var policyType = modelBuilder.Entity<Slapolicy>().Metadata;
+        var taskTypeForeignKey = policyType.GetForeignKeys().Single(f => f.PrincipalEntityType.ClrType == typeof(TaskType));
+        policyType.RemoveForeignKey(taskTypeForeignKey);
+        modelBuilder.Entity<TaskType>().Ignore(t => t.Slapolicy);
+        modelBuilder.Entity<Slapolicy>()
+            .HasOne(p => p.TaskType)
+            .WithMany()
+            .HasForeignKey(p => p.TaskTypeId)
+            .HasConstraintName("FK_SLAPolicy_TaskType");
     }
 }

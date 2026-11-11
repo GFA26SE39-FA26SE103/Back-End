@@ -235,6 +235,8 @@ public sealed class FloorPlanTests
             {
                 services.RemoveAll<ISetupStore>();
                 services.AddSingleton<ISetupStore>(store);
+                services.RemoveAll<ICheckoutSchema>(); services.AddSingleton<ICheckoutSchema,NoCheckoutSchema>();
+                services.RemoveAll<ICheckoutConfigurationQueries>(); services.AddSingleton<ICheckoutConfigurationQueries,NoCheckoutConfigurationQueries>();
                 services.PostConfigure<Supermarket.Api.JwtOptions>(o => o.Key = new string('x', 48));
                 services.PostConfigure<Supermarket.Infrastructure.HealthWorkerOptions>(o => o.Enabled = false);
                 services.AddAuthentication(o =>

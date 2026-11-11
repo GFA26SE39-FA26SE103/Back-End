@@ -97,9 +97,9 @@ This is a **status-oriented summary based on repository documentation checked on
 
 **Never infer implementation or production readiness solely because an entity, route description, SQL migration, or historical test result exists.**
 
-## Checkout counter design — planned, not yet implemented
+## Checkout counters — Backend implemented, AI-Service/Frontend integration pending
 
-The current Task-plan decision introduces two tables in the canonical Database repository. This describes approved direction, not existing schema/API/runtime behavior.
+V17 was applied and metadata verified on `FA26SE103_Dev` on 2026-11-11, and the two tables below were re-scaffolded. Backend configuration APIs, readiness/version guards, shared-camera coordinator, bounded AI protocol v2 adapter, aggregation, OE-04 evaluation and runtime API are implemented. `Checkout:Monitoring:AiContractEnabled` defaults to `false` until AI-Service implements and validates v2; configuration APIs remain available. See [API contract](docs/CHECKOUT_API.md) and [private AI protocol](docs/CHECKOUT_AI_PROTOCOL.md). Frontend/AI-Service changes and real-footage end-to-end acceptance are not included; another environment or deployed version is not inferred.
 
 - `CheckoutCounter`: logical counter/lane identity tied to a Checkout Zone (`zone_id`, `code`, `name`, `is_enabled`). Floor-plan geometry is not part of the current K9 schema scope unless separately approved in the ERD.
 - `CameraCheckoutMapping`: Camera↔Counter mapping with `lane_roi`, `staff_roi`, `is_enabled` and an explicit queue-measurement-source selection. Multiple cameras may observe a counter; exactly one enabled mapping is selected to count that counter’s queue. Camera and counter must be on the same Floor. Keep generic `CameraZoneMapping` unchanged.
@@ -107,7 +107,7 @@ The current Task-plan decision introduces two tables in the canonical Database r
 
 **Multi-camera staff presence (approved planning rule):** aggregate by `counterId`. `PRESENT` after at least one enabled, healthy, fresh and sufficiently observable mapping confirms staff presence for about 15 seconds. `ABSENT` only after all enabled mappings are healthy/fresh/sufficiently observable and confirm absence for about 15 seconds. Otherwise return `UNKNOWN`/`UNAVAILABLE`; unknown time does not count. Persisted PRESENT wins a source disagreement, which should remain diagnosable. Validate both 15-second persistence values with footage. This is staff-presence aggregation, not cross-camera person ReID or automatic queue-source failover.
 
-Queue demand is measured only from the selected mapping per counter; do not sum overlapping detections across cameras. The existing standing-≥5-second queue definition is provisional until validated. The initial metric is **Observed Staffed Checkout Ratio**, not active transaction utilization. OE-04 should compare valid queue demand `Q` with distinct observed staffed counters `S` using configurable MonitoringRule thresholds/persistence; incomplete coverage yields unavailable, not zero. OE-01 Long Queue and OE-04 Checkout Capacity Issue may coexist; check their cross-event Task deduplication before enabling automatic Task creation (Task plan K9.8). Waiting time needs separately validated queue-entry/service-start signals.
+Queue demand is measured only from the selected mapping per counter; do not sum overlapping detections across cameras. Existing queue logic is continuous track dwell inside ROI ≥5 seconds, not motion-based proof of standing or checkout waiting; validate against footage. The metric is **Observed Staffed Checkout Ratio**, not active transaction utilization. OE-04 compares valid demand `Q` with distinct staffed counters `S` using explicit MonitoringRule parameters/thresholds; incomplete coverage yields unavailable, not zero. OE-01 and OE-04 may coexist. K9.8 audit confirms dispatch deduplicates per EventId, not across event types; separate events can create separate Tasks. No dispatch coordination change was made. Waiting time needs separately validated queue-entry/service-start signals.
 
 ## Database-first workflow
 ## Database-first workflow

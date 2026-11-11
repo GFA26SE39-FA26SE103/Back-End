@@ -3,7 +3,7 @@ using Supermarket.Domain;
 using Store = Supermarket.Domain.Supermarket;
 namespace Supermarket.Application;
 
-public sealed class StoreSetup(ISetupStore store, ICurrentUser current)
+public sealed class StoreSetup(ISetupStore store, ICurrentUser current, CheckoutSourceGuard? checkoutGuard=null)
 {
     public Task<List<Store>> Stores(CancellationToken ct)
     {
@@ -89,6 +89,7 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current)
         {
             var x = id is null ? new Zone { ZoneId = Guid.NewGuid(), FloorId = floorId!.Value } : UseCase.Found(await store.Find<Zone>(id.Value, ct));
             UseCase.Found(await store.Find<Floor>(x.FloorId, ct));
+            if(id is not null && checkoutGuard is not null) await checkoutGuard.EnsureZoneTypeChange(x,r.ZoneType,ct);
             if (id is not null && x.AreaM2 != r.AreaM2
                 && (await store.List<MonitoringConfiguration>(m => m.ZoneId == x.ZoneId && m.Status == "ACTIVE", ct)).Count > 0)
                 throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before changing the physical zone area used by its measurements.");

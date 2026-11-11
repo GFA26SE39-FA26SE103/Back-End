@@ -19,5 +19,7 @@ public partial class TaskType
 
     public virtual StaffSpecialty RequiredSpecialty { get; set; } = null!;
 
+    public virtual Slapolicy? Slapolicy { get; set; }
+
     public virtual ICollection<Task> Tasks { get; set; } = new List<Task>();
 }
