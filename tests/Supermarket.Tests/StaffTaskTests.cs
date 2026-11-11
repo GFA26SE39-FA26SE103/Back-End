@@ -48,7 +48,7 @@ public sealed class StaffTaskTests
         var ev = await w.Raise("CRITICAL");
 
         var task = Assert.Single(w.Tasks, t => t.EventId == ev.EventId);
-        Assert.Equal((WorkTaskStatus.Offered, TaskOrigin.OperationalEvent, "CRITICAL", w.Zone.ZoneId), (task.Status, task.OriginType, task.Priority, task.ZoneId));
+        Assert.Equal((WorkTaskStatus.Offered, TaskOrigin.OperationalEvent, "MEDIUM", w.Zone.ZoneId), (task.Status, task.OriginType, task.Priority, task.ZoneId));
         Assert.Equal((TaskVerificationMode.Auto, TaskVerificationMethod.OperationalMetric), (task.VerificationMode, task.VerificationMethod));
         Assert.Equal("Clear the queue", task.Title); Assert.Equal("Open one more counter", task.Description);
         Assert.Equal(new[] { a, b }.Order(), w.Offers(task).Select(o => o.StaffUserId).Order());
@@ -140,17 +140,34 @@ public sealed class StaffTaskTests
         await w.Dispatch.Raised(ev, "WARNING", default);
         await w.Dispatch.Raised(ev, "CRITICAL", default);
         var task = Assert.Single(w.Tasks);
-        Assert.Equal("CRITICAL", task.Priority);
+        Assert.Equal("MEDIUM", task.Priority);
         Assert.Equal(ev.EventId, task.EventId);
         Assert.Empty(w.Notifications(task, TaskNotifier.PriorityRaised));
         Assert.Single(w.Notifications(task, TaskNotifier.Offer));
         Assert.Single(w.Offers(task));
         Assert.Single(w.Store.Values.OfType<Notification>(), n => n.TaskId is null && n.EventId == ev.EventId);
         var offer = Assert.Single(await w.StaffTasks(a).Offers(true, default));
-        Assert.Equal("CRITICAL", offer.Priority);
+        Assert.Equal("MEDIUM", offer.Priority);
         var view = Assert.Single(await w.Views.Tasks([task], default));
-        Assert.Equal("CRITICAL", view.Priority);
+        Assert.Equal("MEDIUM", view.Priority);
+        Assert.Equal("MEDIUM", view.SlaPriorityCode);
+        Assert.Equal(TaskVerificationMode.Auto, task.VerificationMode);
         Assert.Null(view.RaisedFrom);
+    }
+
+    [Fact]
+    public async Task CriticalSlaPriorityForcesManualVerificationIndependentlyOfEventAlertLevel()
+    {
+        var w = new World(); w.Staff("An", checkedIn: true); w.Policy(priorityCode: "CRITICAL");
+
+        await w.Raise("CRITICAL");
+
+        var task = Assert.Single(w.Tasks);
+        Assert.Equal("CRITICAL", task.Priority);
+        Assert.Equal((TaskVerificationMode.Manual, TaskVerificationMethod.OperatorEvidence),
+            (task.VerificationMode, task.VerificationMethod));
+        var snapshot = IncidentSlaPolicyService.ReadSnapshot(task.SlaSnapshotJson);
+        Assert.Equal("CRITICAL", snapshot?.PriorityCode);
     }
 
     [Fact]
@@ -569,7 +586,7 @@ public sealed class StaffTaskTests
         await writer.Apply(Command(3, 3, "CRITICAL"), default);
         await writer.Apply(Command(4, 3, "CRITICAL"), default);
         var task = Assert.Single(w.Tasks);
-        Assert.Equal("CRITICAL", task.Priority);
+        Assert.Equal("MEDIUM", task.Priority);
         Assert.Equal(warning.EventId, task.EventId);
         Assert.Empty(w.Notifications(task, TaskNotifier.PriorityRaised));
         Assert.Single(w.Notifications(task, TaskNotifier.Offer));
@@ -644,10 +661,10 @@ public sealed class StaffTaskTests
             for (var i = 0; i < count; i++)
                 Store.Values.Add(new WorkTask { TaskId = Guid.NewGuid(), ZoneId = Zone.ZoneId, Title = "Busy", Status = WorkTaskStatus.InProgress, CurrentAssigneeUserId = user });
         }
-        public void Policy(Guid? rule = null, string mode = "AUTOMATIC", int offerTimeoutSec = 60)
+        public void Policy(Guid? rule = null, string mode = "AUTOMATIC", int offerTimeoutSec = 60, string priorityCode = "MEDIUM")
         {
             var policy = new SlaPolicy { PolicyId = Guid.NewGuid(), EventTypeId = Store.Values.OfType<MonitoringRule>().Single(r => r.RuleId == (rule ?? ruleId)).EventTypeId,
-                ProblemDomain = "OPERATIONAL_EVENT", IsEnabled = true, Version = 1, PriorityCode = "MEDIUM",
+                ProblemDomain = "OPERATIONAL_EVENT", IsEnabled = true, Version = 1, PriorityCode = priorityCode,
                 ResponseTargetSec = 300, ResolutionTargetSec = 3600, OfferTimeoutSec = offerTimeoutSec, WarningPercent = 80 };
             Store.Values.Add(policy);
             Store.Values.Add(new SlaPolicyAction { ActionId = Guid.NewGuid(), PolicyId = policy.PolicyId, ActionType = "NOTIFY_OPERATOR", ExecutionMode = "AUTOMATIC",

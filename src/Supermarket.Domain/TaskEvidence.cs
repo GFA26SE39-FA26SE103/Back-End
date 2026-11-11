@@ -78,21 +78,12 @@ public static class TaskVerificationRules
     {
         if (!string.IsNullOrWhiteSpace(task.VerificationMode)) return;
         var code = taskType?.Code?.Trim().ToUpperInvariant();
-        var manual = IsP1(task, slaPriorityCode)
+        var priority = slaPriorityCode?.Trim().ToUpperInvariant();
+        var manual = priority is not ("LOW" or "MEDIUM" or "HIGH" or "CRITICAL")
+            || priority == "CRITICAL"
             || task.OriginType != TaskOrigin.OperationalEvent
             || code is null || AlwaysManualTaskTypes.Contains(code) || !MetricTaskTypes.Contains(code);
         task.VerificationMode = manual ? TaskVerificationMode.Manual : TaskVerificationMode.Auto;
         task.VerificationMethod = manual ? TaskVerificationMethod.OperatorEvidence : TaskVerificationMethod.OperationalMetric;
     }
-
-    public static void EnforceP1(WorkTask task, string? slaPriorityCode = null)
-    {
-        if (!IsP1(task, slaPriorityCode)) return;
-        task.VerificationMode = TaskVerificationMode.Manual;
-        task.VerificationMethod = TaskVerificationMethod.OperatorEvidence;
-    }
-
-    private static bool IsP1(WorkTask task, string? slaPriorityCode)
-        => task.Priority.Equals("P1", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(slaPriorityCode, "P1", StringComparison.OrdinalIgnoreCase);
 }

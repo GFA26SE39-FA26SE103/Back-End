@@ -237,7 +237,7 @@ Event `CLEARED` (tạm theo open point 5): task chưa ai nhận → offer `CANCE
 
 Notification types: `TASK_OFFER`, `TASK_OFFER_WITHDRAWN`, `TASK_ASSIGNED`, `TASK_NEEDS_ASSIGNMENT`, `TASK_PRIORITY_RAISED`, `EVENT_CLEARED`, cùng các loại MF-03 bên dưới. Web inbox dùng kênh `IN_APP`; device-token API và optional Firebase delivery worker đã có, nhưng external push chỉ hoạt động khi provider/credentials được cấu hình và policy được bật. `sourceCode` (`EVT-xxxxxxxx`) là mã hiển thị suy từ ID, không phải cột DB. Chưa làm: StaffReport. Đổi ca: xem mục MF-04 bên dưới.
 
-Task/offer/evidence views trả thêm `verificationMode` và `verificationMethod`. Operational Event TT-01–TT-05 mặc định `AUTO` với method `OPERATIONAL_EVENT_METRIC`; Task origin Incident, priority/SLA P1, TT-07 và TT-12–TT-15 luôn `MANUAL` với `OPERATOR_EVIDENCE`. Các TaskType khác fail-safe về MANUAL khi chưa có metric/checklist tự động đã duyệt.
+Task/offer/evidence views trả thêm `verificationMode` và `verificationMethod`. Operational Event TT-01–TT-05 mặc định `AUTO` với method `OPERATIONAL_EVENT_METRIC` khi SLA Response Priority không phải `CRITICAL` và có metric hợp lệ; Task origin Incident, SLA Response Priority `CRITICAL`, TT-07 và TT-12–TT-15 luôn `MANUAL` với `OPERATOR_EVIDENCE`. `OperationalEvent.priority` (`WARNING`/`CRITICAL`) là Alert Level độc lập và không quyết định verification lane. Các TaskType khác fail-safe về MANUAL khi chưa có metric/checklist tự động đã duyệt.
 
 ### MF-03 evidence, submit và Operator verify
 

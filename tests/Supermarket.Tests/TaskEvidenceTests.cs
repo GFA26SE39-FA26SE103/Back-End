@@ -12,28 +12,29 @@ public sealed class TaskEvidenceTests
     private static readonly byte[] Jpeg = [0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4];
 
     [Theory]
-    [InlineData(TaskOrigin.OperationalEvent, "P2", "TT-01", TaskVerificationMode.Auto)]
-    [InlineData(TaskOrigin.OperationalEvent, "P1", "TT-01", TaskVerificationMode.Manual)]
-    [InlineData(TaskOrigin.Incident, "P2", "TT-01", TaskVerificationMode.Manual)]
-    [InlineData(TaskOrigin.OperationalEvent, "P2", "TT-07", TaskVerificationMode.Manual)]
-    [InlineData(TaskOrigin.OperationalEvent, "P2", "TT-12", TaskVerificationMode.Manual)]
-    [InlineData(TaskOrigin.OperationalEvent, "P2", "TT-15", TaskVerificationMode.Manual)]
-    [InlineData(TaskOrigin.OperationalEvent, "P2", "TT-06", TaskVerificationMode.Manual)]
-    public void VerificationLaneFailsSafeForOriginPriorityAndTaskType(string origin, string priority, string code, string expected)
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", "MEDIUM", "TT-01", TaskVerificationMode.Auto)]
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", "CRITICAL", "TT-01", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.Incident, "HIGH", "HIGH", "TT-01", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", "HIGH", "TT-07", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", "HIGH", "TT-12", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", "HIGH", "TT-15", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", "HIGH", "TT-06", TaskVerificationMode.Manual)]
+    [InlineData(TaskOrigin.OperationalEvent, "CRITICAL", null, "TT-01", TaskVerificationMode.Manual)]
+    public void VerificationLaneFailsSafeForOriginSlaPriorityAndTaskType(string origin, string taskPriority, string? slaPriority, string code, string expected)
     {
-        var task = new WorkTask { OriginType = origin, Priority = priority };
-        TaskVerificationRules.Initialize(task, new TaskType { Code = code });
+        var task = new WorkTask { OriginType = origin, Priority = taskPriority };
+        TaskVerificationRules.Initialize(task, new TaskType { Code = code }, slaPriority);
         Assert.Equal(expected, task.VerificationMode);
         Assert.Equal(expected == TaskVerificationMode.Auto ? TaskVerificationMethod.OperationalMetric : TaskVerificationMethod.OperatorEvidence,
             task.VerificationMethod);
     }
 
     [Fact]
-    public void P1SlaSnapshotForcesManualEvenWhileLegacyEventPriorityIsCritical()
+    public void CriticalAlertLevelAloneDoesNotForceManualWhenSlaPriorityIsHigh()
     {
         var task = new WorkTask { OriginType = TaskOrigin.OperationalEvent, Priority = "CRITICAL" };
-        TaskVerificationRules.Initialize(task, new TaskType { Code = "TT-01" }, "P1");
-        Assert.Equal((TaskVerificationMode.Manual, TaskVerificationMethod.OperatorEvidence),
+        TaskVerificationRules.Initialize(task, new TaskType { Code = "TT-01" }, "HIGH");
+        Assert.Equal((TaskVerificationMode.Auto, TaskVerificationMethod.OperationalMetric),
             (task.VerificationMode, task.VerificationMethod));
     }
 

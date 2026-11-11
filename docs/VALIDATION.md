@@ -419,7 +419,7 @@ The SQL-backed historical integration suite was not used: it requires an absent 
 
 ## D2 AUTO/MANUAL Task verification — 2026-11-10
 
-- Uses the existing V9 `Task.verification_mode` and `verification_method` columns; no schema or seed change. Operational Event TT-01–TT-05 select AUTO metric verification unless Task/SLA priority is P1. Incident, P1, TT-07, TT-12–TT-15 and unconfigured TaskTypes select MANUAL.
+- Uses the existing V9 `Task.verification_mode` and `verification_method` columns; no schema or seed change. Operational Event TT-01–TT-05 select AUTO metric verification only when their snapshotted SLA Response Priority is not `CRITICAL`. Incident, SLA-`CRITICAL`, TT-07, TT-12–TT-15, missing/invalid SLA snapshots and unconfigured TaskTypes select MANUAL. The OperationalEvent `WARNING`/`CRITICAL` Alert Level is independent of this decision.
 - AUTO remains SUBMITTED while the Event is active. It verifies only after a CLEARED observation with a current, internally consistent metric contract and a recovery metric below the warning threshold. Missing source/metadata, inconsistent metric or invalid recovery fails safe to `MANUAL/OPERATOR_METRIC_EXCEPTION` and notifies Operator.
 - Task, offer and evidence contracts expose the selected verification mode/method. Focused rule/runtime/persistence/dispatch suite: **71 passed, 0 failed, 0 skipped**.
 

@@ -153,7 +153,7 @@ public interface IOperationalEventResponder
 /// <summary>
 /// OperationalEvent → SLAPolicy → alert-conditioned action → notification or Task offered to eligible Zone Staff,
 /// re-offered every retry interval, then handed to the Operator for manual assignment (BR-19, BR-21, BR-22).
-/// One episode yields at most one Task; a priority rise updates it.
+/// One episode yields at most one Task. Alert-level changes never rewrite the Task's snapshotted SLA priority.
 /// </summary>
 public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNotifier notifier, TaskVerification verification, IClock clock, ITaskSchema schema) : IOperationalEventResponder
 {
@@ -184,17 +184,7 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
         if (!await schema.Ready(ct)) return;
         var existing = (await store.List<WorkTask>(t => t.EventId == ev.EventId, ct)).FirstOrDefault();
         if (existing is not null)
-        {
-            if (TaskRules.Rank(ev.Priority) > TaskRules.Rank(existing.Priority))
-            {
-                existing.Priority = ev.Priority;
-                TaskVerificationRules.EnforceP1(existing, IncidentSlaPolicyService.ReadSnapshot(existing.SlaSnapshotJson)?.PriorityCode);
-                await store.Update(existing, ct);
-                var to = existing.CurrentAssigneeUserId is { } assignee ? [assignee] : await OpenOfferStaff(existing.TaskId, ct);
-                await notifier.Send(TaskNotifier.PriorityRaised, $"Priority raised to {ev.Priority}", $"{existing.Title}: the event is now {ev.Priority}.", existing, to, "TASK_PARTICIPANT", ct, ev.CameraId);
-            }
             return;
-        }
         var match = await TaskAction(ev, ct);
         if (match is null) return;
         var (policy, action) = match.Value;
@@ -226,7 +216,7 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
             policy.ResponseTargetSec, policy.ResolutionTargetSec, policy.OfferTimeoutSec, policy.WarningPercent, now,
             now.AddSeconds(policy.ResponseTargetSec), now.AddSeconds(policy.ResolutionTargetSec));
         var task = new WorkTask { TaskId = Guid.NewGuid(), ZoneId = ev.ZoneId, Title = title.Length <= 200 ? title : title[..200], Description = parameters?.Instructions,
-            Priority = ev.Priority, Status = WorkTaskStatus.Offered, OriginType = TaskOrigin.OperationalEvent, EventId = ev.EventId, TaskTypeId = taskType.TaskTypeId,
+            Priority = policy.PriorityCode, Status = WorkTaskStatus.Offered, OriginType = TaskOrigin.OperationalEvent, EventId = ev.EventId, TaskTypeId = taskType.TaskTypeId,
             SlaPolicyId = policy.PolicyId, SlaSnapshotJson = JsonSerializer.Serialize(snapshot, Json),
             ResponseDeadlineAt = snapshot.ResponseDeadlineAt, ResolutionDeadlineAt = snapshot.ResolutionDeadlineAt };
         TaskVerificationRules.Initialize(task, taskType, policy.PriorityCode);
