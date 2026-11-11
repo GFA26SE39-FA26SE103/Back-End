@@ -86,10 +86,13 @@ public sealed class StaffTasks(ISetupStore store, ICurrentUser current, IClock c
             {
                 var offer = await MyOffer(offerId, ct);
                 var task = UseCase.Found(await store.Find<WorkTask>(offer.TaskId, ct));
+                var manual = offer.DispatchScope == TaskDispatchScope.Manual;
                 taskId = task.TaskId;
                 if (offer.ExpiresAt <= clock.UtcNow && offer.Status == TaskOfferStatus.Pending)
                     throw new ApplicationException("OFFER_EXPIRED", "This TaskOffer expired before it was claimed.");
-                if (offer.Status != TaskOfferStatus.Pending || task.Status != WorkTaskStatus.Offered || task.CurrentAssigneeUserId is not null)
+                var openTask = task.Status == WorkTaskStatus.Offered && task.CurrentAssigneeUserId is null;
+                var manualReassignment = manual && task.Status == WorkTaskStatus.Accepted && task.CurrentAssigneeUserId != current.UserId;
+                if (offer.Status != TaskOfferStatus.Pending || (!openTask && !manualReassignment))
                 {
                     // A retry of my own acceptance (e.g. after a timeout) returns the task as it is now.
                     if (offer.Status == TaskOfferStatus.Accepted && task.CurrentAssigneeUserId == current.UserId && request.Response != TaskResponse.CannotHandle) return true;
@@ -102,20 +105,44 @@ public sealed class StaffTasks(ISetupStore store, ICurrentUser current, IClock c
                     offer.Status = TaskOfferStatus.Declined; offer.RespondedAt = now; offer.DeclineReasonCode = request.Reason!.Trim();
                     await store.Update(offer, ct);
                     await dispatch.Audit(offer, OfferStatus.Declined, offer.DeclineReasonCode, now, ct);
+                    foreach (var expired in await store.List<TaskOffer>(a => a.TaskId == task.TaskId && a.Status == TaskOfferStatus.Pending
+                        && a.ExpiresAt <= now, ct))
+                    {
+                        expired.Status = TaskOfferStatus.Expired; expired.RespondedAt = now; expired.DeclineReasonCode = "NO_RESPONSE";
+                        await store.Update(expired, ct);
+                        await dispatch.Audit(expired, OfferStatus.Expired, "NO_RESPONSE", now, ct);
+                    }
                     var stillOpen = (await store.List<TaskOffer>(a => a.TaskId == task.TaskId && a.Status == TaskOfferStatus.Pending, ct))
-                        .Any(a => a.OfferId != offer.OfferId);
-                    if (!stillOpen) await dispatch.NeedsOperator(task, "Every offered Staff member answered Cannot handle.", ct);
+                        .Any(a => a.OfferId != offer.OfferId && a.ExpiresAt > now);
+                    if (!stillOpen && task.CurrentAssigneeUserId is null)
+                    {
+                        if (manual) await dispatch.NeedsOperator(task, "The manually selected Staff member declined the task.", ct);
+                        else await dispatch.Advance(task, null, ct);
+                    }
                     return false;
                 }
                 var me = (await roster.OnShift(now, ct)).SingleOrDefault(s => s.User.UserId == current.UserId)
                     ?? throw new ApplicationException("NOT_ON_SHIFT", "Check in to a current shift before accepting tasks.");
                 if (me.ActiveTasks >= TaskRules.MaxActiveTasks)
                     throw new ApplicationException("WORKLOAD_LIMIT", $"You already have {me.ActiveTasks} active tasks; the limit is {TaskRules.MaxActiveTasks}.");
-                if (!me.ZoneIds.Contains(task.ZoneId))
-                    throw new ApplicationException("NOT_ELIGIBLE", "You are no longer assigned to the Task Zone.");
-                if (!await roster.HasRequiredSpecialty(task, me.User, ct))
+                if (!manual && !await dispatch.InScope(task.ZoneId, offer.DispatchScope, me.ZoneIds, ct))
+                    throw new ApplicationException("NOT_ELIGIBLE", "You are no longer assigned to a Zone covered by this offer.");
+                if (task.TaskTypeId is not null && !await roster.HasRequiredSpecialty(task, me.User, ct))
                     throw new ApplicationException("SPECIALTY_MISMATCH", "Your Staff specialty no longer matches this TaskType.");
                 if (request.Response == TaskResponse.HandleLater) TaskRules.PlannedStart(request.PlannedStartAt, now, me.EndsAt);
+                if (manual)
+                {
+                    foreach (var previous in await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId
+                        && a.Status == OfferStatus.Accepted && a.EndedAt == null, ct))
+                    {
+                        previous.EndedAt = now; previous.Reason = "REASSIGNED";
+                        await store.Update(previous, ct);
+                    }
+                    var proposal = (await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId && a.StaffUserId == current.UserId
+                        && a.AssignmentType == TaskAssignmentType.Manual && a.Status == OfferStatus.Pending && a.EndedAt == null, ct))
+                        .OrderByDescending(a => a.AssignedAt).FirstOrDefault();
+                    task.AssignedByUserId = proposal?.AssignedByUserId;
+                }
                 TaskRules.Accept(task, now, request.Response, request.PlannedStartAt, current.UserId);
                 await store.Update(task, ct);
                 offer.Status = TaskOfferStatus.Accepted; offer.RespondedAt = now;
@@ -159,6 +186,8 @@ public sealed class StaffTasks(ISetupStore store, ICurrentUser current, IClock c
                 if (task.Status != WorkTaskStatus.Accepted) throw new ApplicationException("TASK_NOT_ACCEPTED", "Only an accepted task that has not started can be started.");
                 task.Status = WorkTaskStatus.InProgress; task.StartedAt = clock.UtcNow;
                 await store.Update(task, ct);
+                // Starting the current assignment wins over an outstanding manual reassignment proposal.
+                await dispatch.CloseOpenOffers(task.TaskId, TaskOfferStatus.Cancelled, "TASK_STARTED", task.StartedAt.Value, ct);
             }
             return task.TaskId;
         }, ct);

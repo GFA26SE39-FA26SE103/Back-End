@@ -103,7 +103,9 @@ public sealed class OperationalSlaPolicyTests
                 new TaskType { TaskTypeId = Guid.NewGuid(), Code = "TT-01" },
                 new SlaPolicyAction { ActionId = Guid.NewGuid(), PolicyId = Policy.PolicyId, IsEnabled = true, ExecutionMode = "AUTOMATIC", ActionType = "NOTIFY_OPERATOR", ConditionJson = "{\"alert_level\":\"WARNING\"}" },
                 new SlaPolicyAction { ActionId = Guid.NewGuid(), PolicyId = Policy.PolicyId, IsEnabled = true, ExecutionMode = "AUTOMATIC", ActionType = "CREATE_OPERATIONAL_TASK", ConditionJson = "{\"alert_level\":\"CRITICAL\"}", ActionParametersJson = "{\"taskTypeCode\":\"TT-01\"}" }]);
-            Dispatch = new TaskDispatch(Store, new StaffRoster(Store, new StoreCalendar(StoreCalendar.Zone(null))), new TaskNotifier(Store, Clock), Clock, new Schema());
+            var notifier = new TaskNotifier(Store, Clock);
+            Dispatch = new TaskDispatch(Store, new StaffRoster(Store, new StoreCalendar(StoreCalendar.Zone(null))), notifier,
+                new TaskVerification(Store, Clock, notifier), Clock, new Schema());
         }
     }
     public sealed class Clock : IClock { public DateTime UtcNow => new(2026, 11, 6, 3, 0, 0, DateTimeKind.Utc); }

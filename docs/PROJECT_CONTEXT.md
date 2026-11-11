@@ -6,7 +6,7 @@
 > **Repository:** [GFA26SE39-FA26SE103/Back-End](https://github.com/GFA26SE39-FA26SE103/Back-End)
 > **Inspected branch:** `feature/staff-report-incident-type-flow`
 > **Source baseline:** **11/11/2026** — reconciled the approved Physical ERD **V7**, the Database changes through **V16** referenced by current Backend docs, the current feature branch, and the StaffReport/SLA contracts recorded in `docs/API.md` and `docs/VALIDATION.md`.
-> **Implementation reconciliation:** The current Backend branch is `feature/staff-report-incident-type-flow`. It includes the StaffReport submit/draft/Incident/routine-Task paths, standalone TaskType SLA policy, operational SLA milestones, and specialty-aware same-Zone dispatch described below. This does not claim live provider, production database, camera, frontend or mobile acceptance.
+> **Implementation reconciliation:** The current Backend branch is `dev` after the five-ring dispatch and task-verification merge. It includes the StaffReport submit/draft/Incident/routine-Task paths, standalone TaskType SLA policy, operational SLA milestones, and specialty-aware same-Zone dispatch described below. This does not claim live provider, production database, camera, frontend or mobile acceptance.
 > **Purpose:** repository-owned guide for developers and coding agents. It defines **working target behavior** separately from **verified source-code implementation**. It is not a substitute for the official reports or the canonical SQL schema.
 > **Important:** ERD V7 is the current physical design reference; Database scripts are versioned artifacts and do not prove a target database was updated. Working requirements not represented in approved schema/code remain requirements, not implementation facts. External links are references, **not automatic synchronization**.
 > **Integration note:** Distinguish this feature branch from `dev` and other repositories. The source baseline contains **32 Use Cases** and **38 Business Rules**; do not invent new rule numbers. See §§36, 41–43.
@@ -496,7 +496,7 @@ A validated sustained breach opens/updates a corresponding unresolved episode. P
 
 ### Task dispatch and acceptance
 
-Notify eligible checked-in/on-shift Staff assigned to the target Zone according to the approved dispatch scope, subject to workload and channel settings. Explicit first valid acceptance wins atomically. `NotificationRecipient` delivery/read and retry state is not proof of assignment. Unaccepted offers retry according to *configured* values in the current implementation, then Operator escalation; critical Incident routing may also notify duty Manager subject to approved policy. Current code has target-Zone offers only. See §33.1 for the single ZoneAdjacency decision rule.
+Notify eligible checked-in/on-shift Staff assigned to the target Zone according to the approved dispatch scope, subject to workload and channel settings. Explicit first valid acceptance wins atomically. `NotificationRecipient` delivery/read and retry state is not proof of assignment. Unaccepted offers retry according to *configured* values in the current implementation, then Operator escalation; critical Incident routing may also notify duty Manager subject to approved policy. Merged dev includes five-ring Zone/Floor dispatch via ZoneAdjacency; this is source state, not deployment acceptance. See §33.1 for the single ZoneAdjacency decision rule.
 
 ### Shift/Zone eligibility
 
@@ -672,7 +672,7 @@ Do not mix camera-frame ROI with floor polygon. Do not treat camera health as a 
 | Incident closure | Task verification flow and API contract | Verifying a linked Task closes the Incident in the same transaction only when every mandatory linked Task is verified; cancelled mandatory work blocks auto-closure. See API contract and dated validation before asserting runtime acceptance. |
 | MF-04 SWAP/COVER and shift planning | `ShiftSwaps`, `ShiftPlanning`, controllers, workers and tests | **Merged to `dev`** with the bounded behavior in §42. |
 | Camera playback/editing | `CameraPlayback`, `MediaMtxGateway`, `CameraSetup`, camera tests | Dynamic MediaMTX playback paths, sanitized WHEP URLs and preserve-password editing are present; see §43. |
-| MF-03 Task evidence and verification | `TaskEvidenceWork`, Task routes/storage and focused tests | **Implemented on `feature/mf03-task-evidence`**: upload, submit, verify/reject, rework and reassign-after-two-rejections. The new AUTO/MANUAL, evidence-or-note, P1/safety and automatic Incident-closure target is not yet proven by this snapshot. |
+| MF-03 Task evidence and verification | `TaskEvidenceWork`, `TaskVerification`, Task routes/storage and focused tests | Evidence-or-note, AUTO/MANUAL selection and fail-safe metric verification are implemented. Operational Event TT-01–TT-05 may AUTO verify only from a valid recovered Event metric and a non-`CRITICAL` SLA Response Priority; Incident, SLA-`CRITICAL`, TT-07 and TT-12–TT-15 remain MANUAL. Rejection two automatically continues D1 dispatch; a rejected replacement stops at Operator. Automatic Incident closure remains separate. |
 | Manager analytics API (WF-05 / FE-09–10 subset) | `ManagerAnalytics`, `EfAnalyticsQueries`, Manager analytics controller | Read-only overview, daily cohorts and Zone aggregates for recorded Event/Incident/Task data. Task SLA reporting uses stored deadlines. [Contract/KPI definitions](MANAGER_ANALYTICS_API.md); UI, export, recommendations, staging latency and end-to-end acceptance remain open. |
 | `SystemSetting`, `ServiceHealthEvent`, Zone staffing fields | Scaffold and focused application reads | MF-02 consumes two retry settings; Admin manages four approved `notification.*` keys. Other settings and service-health workflows require separate verification. |
 | Deployment health / CI results | Historical README, workflow and VALIDATION docs | **Dated evidence only**, no live deployment check performed for this synchronization. |
@@ -708,7 +708,7 @@ A reviewer sees: authorized Admin prepares floor/zone/camera/ROI and monitoring 
 - The Post-Review 2 working target narrows the demo to four camera/rule OperationalEvents and five StaffReport IncidentTypes; it does not claim five IncidentTypes are AI-detected.
 - `SLAPolicy` is the V7 SLA/timing persistence layer. IncidentType, EventType and TaskType policy matching and timing snapshots are implemented in current source; the SLA worker emits warning/breach milestones. The V11 legacy-table removal was applied and verified on Development; target DB state still requires direct checking.
 - Seven fixed StaffSpecialties and sixteen fixed TaskTypes are present in V7/V10. The current feature branch uses them for target-Zone eligibility and exposes Staff specialty assignment through the Admin account contract.
-- Cross-Zone ring expansion and return-to-Home-Zone remain future MF-02 work. Offer expiry, SLA warning/breach milestones and exception-based Operator involvement are implemented for the current scope.
+- Five-ring Zone/Floor expansion is implemented in merged dev; return-to-Home-Zone remains future MF-02 work. Offer expiry, SLA warning/breach milestones and exception-based Operator involvement are implemented for the current scope.
 - Monitoring episodes require configurable Persistence, ClearDuration and Cooldown. A brief clear interval keeps the same episode and does not create a duplicate Task; accepted/in-progress Task SLA clocks are not reset by Event clear.
 - StaffReport duplicate/overlap choices, confirmed TaskType handling and mandatory-task Incident closure are implemented in the current Backend source. Incident severity/override remains removed and must not be reintroduced as a scenario substitute.
 - Staff A → B → Manager remains the normal SWAP/COVER flow; Staff may escalate missing cover to Manager, and Manager may directly adjust future slots with mandatory reason/audit. Peer requests keep the 24h-before-shift expiry and cancellation fields carried forward from ERD V6 into V7.
@@ -758,15 +758,16 @@ The current feature branch implements this bounded V7 workflow. It is source/bui
 ```text
 AUTOMATIC CREATE_OPERATIONAL_TASK policy
 → resolve TaskType and RequiredSpecialty
-→ create SAME_ZONE TaskOffer rows for eligible checked-in/on-shift Staff with matching specialty and capacity
+→ create TaskOffer rows for eligible checked-in/on-shift Staff with matching specialty and capacity
+→ expand SAME_ZONE → adjacent same-Floor Zones → remaining same-Floor Zones → nearest Floors → remaining Floors
 → HANDLE_NOW / HANDLE_LATER / CANNOT_HANDLE
 → first valid acceptance wins atomically
-→ expire PENDING offers, retry in a new dispatch cycle, then flag for Operator assignment
+→ expire PENDING offers, advance one topology ring without repeating Staff, then flag for Operator assignment after exhaustion
 ```
 
 Runtime offer truth is `TaskOffer` (`PENDING/ACCEPTED/DECLINED/EXPIRED/CANCELLED`). `TaskAssignmentHistory` is audit/current-assignment history only. The branch also contains Operator candidate lookup/manual assignment and preserves accepted Tasks when an Event clears while cancelling unaccepted offers. Exact routes and dated validation evidence are in [`docs/API.md`](API.md) and [`docs/VALIDATION.md`](VALIDATION.md).
 
-Retry overrides still use compatibility `SystemSetting` keys `task_offer.retry_interval_sec` and `task_offer.max_retry_count`; invalid or absent values fall back to 60 seconds and three total attempts. When a Task has an SLA policy, `offer_timeout_sec` controls TaskOffer expiry. Those fixed retry settings remain an implementation gap against the no-fixed-retry target. `NotificationConfig` remains retired.
+When a Task has an SLA policy, `offer_timeout_sec` controls TaskOffer expiry; otherwise `task_offer.retry_interval_sec` falls back to 60 seconds. The legacy `task_offer.max_retry_count` key is retained for configuration compatibility but no longer controls the fixed five-ring topology. `NotificationConfig` remains retired.
 
 ### StaffReport and standalone Task paths in the current feature branch
 

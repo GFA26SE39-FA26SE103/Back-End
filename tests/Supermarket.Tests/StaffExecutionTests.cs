@@ -23,7 +23,8 @@ public sealed class StaffExecutionTests
         Assert.Equal((first.TaskId, WorkTaskStatus.InProgress, a), (retry.TaskId, retry.Status, retry.AssigneeUserId));
         Assert.Equal(first.StartedAt, retry.StartedAt);
         // Declining a task I already hold is not a retry.
-        Assert.Equal("OFFER_CLOSED", (await Assert.ThrowsAsync<AppError>(() => staff.Respond(offer.OfferId, new(TaskResponse.CannotHandle, null, "Busy"), default))).Code);
+        Assert.Equal("OFFER_CLOSED", (await Assert.ThrowsAsync<AppError>(() => staff.Respond(offer.OfferId,
+            new(TaskResponse.CannotHandle, null, TaskDeclineReason.Busy), default))).Code);
         Assert.Equal(a, Assert.Single(w.Store.Values.OfType<WorkTask>()).CurrentAssigneeUserId);
     }
 
@@ -59,25 +60,21 @@ public sealed class StaffExecutionTests
     }
 
     [Fact]
-    public async Task DemoRetrySettingsOfferThreeTimesTenSecondsApartThenAskTheOperatorOnce()
+    public async Task DispatchDoesNotRepeatStaffAndIgnoresLegacyRetryCount()
     {
-        // MF-02 contract baseline: retry_interval_sec = 10, max_retry_count = 2 → three offers in total.
+        // D1 replaces the fixed retry count with five topology rings and never repeats a Staff member.
         var w = new World(); var a = w.Staff("An"); var op = w.User("OPERATOR", "Olivia"); w.Policy(offerTimeoutSec: 10);
         w.Setting(TaskRules.RetryIntervalSetting, "10"); w.Setting(TaskRules.MaxRetryCountSetting, "2");
         await w.Raise();
         var task = Assert.Single(w.Store.Values.OfType<WorkTask>());
 
         var first = Assert.Single(await w.StaffTasks(a).Offers(true, default));
-        Assert.Equal((1, 3, Now.AddSeconds(10)), (first.Attempt, first.MaxAttempts, first.NextAlertAt));
+        Assert.Equal((1, 5, Now.AddSeconds(10)), (first.Attempt, first.MaxAttempts, first.NextAlertAt));
         w.Clock.UtcNow = Now.AddSeconds(9); Assert.Equal(0, await w.Tick());
         w.Clock.UtcNow = Now.AddSeconds(10); Assert.Equal(1, await w.Tick());
-        w.Clock.UtcNow = Now.AddSeconds(20); Assert.Equal(1, await w.Tick());
-        var last = Assert.Single(await w.StaffTasks(a).Offers(true, default));
-        Assert.Equal((3, (DateTime?)null), (last.Attempt, last.NextAlertAt));
-
-        w.Clock.UtcNow = Now.AddSeconds(30); await w.Tick();
-        w.Clock.UtcNow = Now.AddSeconds(40); await w.Tick();
-        Assert.Equal(3, w.Notifications(task, TaskNotifier.Offer).Count);
+        w.Clock.UtcNow = Now.AddSeconds(20); Assert.Equal(0, await w.Tick());
+        Assert.Single(w.Notifications(task, TaskNotifier.Offer));
+        Assert.Equal(5, w.Notifications(task, TaskNotifier.DispatchRing).Count);
         Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment))));
         Assert.Equal((WorkTaskStatus.Offered, (Guid?)null), (task.Status, task.CurrentAssigneeUserId));
         Assert.Equal((TaskOfferStatus.Expired, "NO_RESPONSE"), (w.OfferFor(a).Status, w.OfferFor(a).DeclineReasonCode));
@@ -85,7 +82,7 @@ public sealed class StaffExecutionTests
     }
 
     [Fact]
-    public async Task WithNoEligibleStaffNobodyIsAssignedAndRetriesReachStaffWhoCheckInLater()
+    public async Task ExhaustedRingsWaitForOperatorInsteadOfRestartingForLateCheckIn()
     {
         var w = new World(); var late = w.Staff("An", checkedIn: false); var op = w.User("OPERATOR", "Olivia"); w.Policy(offerTimeoutSec: 10);
         w.Setting(TaskRules.RetryIntervalSetting, "10"); w.Setting(TaskRules.MaxRetryCountSetting, "2");
@@ -96,10 +93,10 @@ public sealed class StaffExecutionTests
         Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment))));
         Assert.Empty(await w.StaffTasks(late).Offers(true, default));
 
-        // The Staff member checks in before the next round and is offered the same Task.
+        // Exhaustion is terminal for automatic dispatch; a late check-in does not restart ring 1.
         w.Store.Values.OfType<ShiftAssignment>().Single(s => s.UserId == late).CheckInAt = Now.AddSeconds(5);
-        w.Clock.UtcNow = Now.AddSeconds(10); await w.Tick();
-        Assert.Equal(task.TaskId, Assert.Single(await w.StaffTasks(late).Offers(true, default)).TaskId);
+        w.Clock.UtcNow = Now.AddSeconds(10); Assert.Equal(0, await w.Tick());
+        Assert.Empty(await w.StaffTasks(late).Offers(true, default));
         Assert.Single(w.Store.Values.OfType<WorkTask>());
         Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment));
     }
@@ -139,8 +136,9 @@ public sealed class StaffExecutionTests
                 new OperationalEventType { EventTypeId = eventTypeId, Code = "LONG_QUEUE", Name = "Long queue", MeasurementType = "QUEUE_LENGTH" },
                 new Shift { ShiftId = shiftId, WeekStart = new(2026, 10, 5), Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
             roster = new StaffRoster(Store, calendar);
-            dispatch = new TaskDispatch(Store, roster, new TaskNotifier(Store, Clock), Clock, schema);
-            views = new TaskViews(Store, dispatch);
+            var notifier = new TaskNotifier(Store, Clock);
+            dispatch = new TaskDispatch(Store, roster, notifier, new TaskVerification(Store, Clock, notifier), Clock, schema);
+            views = new TaskViews(Store);
         }
 
         public Guid User(string role, string name)

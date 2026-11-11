@@ -3,7 +3,7 @@ using Supermarket.Domain;
 namespace Supermarket.Application;
 
 /// <summary>Builds offer/task views with Zone, camera and OperationalEvent context.</summary>
-public sealed class TaskViews(ISetupStore store, TaskDispatch dispatch)
+public sealed class TaskViews(ISetupStore store)
 {
     public async Task<StaffTaskView[]> Tasks(List<WorkTask> tasks, CancellationToken ct)
     {
@@ -24,6 +24,7 @@ public sealed class TaskViews(ISetupStore store, TaskDispatch dispatch)
             var firstPriority = context.FirstOfferPriority.GetValueOrDefault(t.TaskId);
             var sla = IncidentSlaPolicyService.ReadSnapshot(t.SlaSnapshotJson);
             return new StaffTaskView(t.TaskId, t.OriginType, SourceCode(t), ev is null ? null : context.EventTypes.GetValueOrDefault(ev.EventTypeId)?.Code, t.Title, t.Description, t.Priority,
+                t.VerificationMode, t.VerificationMethod,
                 firstPriority is not null && TaskRules.Rank(firstPriority) < TaskRules.Rank(t.Priority) ? firstPriority : null,
                 t.ZoneId, context.Zones.GetValueOrDefault(t.ZoneId)?.Name ?? "", ev is null ? null : context.Cameras.GetValueOrDefault(ev.CameraId)?.Code, t.Status,
                 current?.AssignmentType ?? TaskAssignmentType.Offer, t.CurrentAssigneeUserId, t.CurrentAssigneeUserId is { } id ? names.GetValueOrDefault(id) : null,
@@ -42,20 +43,21 @@ public sealed class TaskViews(ISetupStore store, TaskDispatch dispatch)
         var allOffers = await store.List<TaskOffer>(a => taskIds.Contains(a.TaskId), ct);
         var staffIds = offers.Select(o => o.StaffUserId).Distinct().ToList();
         var staffNames = (await store.List<UserAccount>(u => staffIds.Contains(u.UserId), ct)).ToDictionary(u => u.UserId, u => u.FullName);
-        var rounds = await store.List<Notification>(n => n.TaskId != null && taskIds.Contains(n.TaskId.Value) && n.NotificationType == TaskNotifier.Offer, ct);
-        var (_, maxAttempts) = await dispatch.Retry(ct);
         return offers.Where(o => tasks.ContainsKey(o.TaskId)).Select(o =>
         {
             var t = tasks[o.TaskId];
             var ev = t.EventId is { } eventId ? context.Events.GetValueOrDefault(eventId) : null;
-            // Notification rows represent dispatch cycles even when a cycle found no eligible recipient.
-            var attempt = Math.Max(1, rounds.Count(n => n.TaskId == t.TaskId && n.CreatedAt <= o.OfferedAt));
-            DateTime? next = o.Status == TaskOfferStatus.Pending && attempt < maxAttempts ? o.ExpiresAt : null;
+            var manual = o.DispatchScope == TaskDispatchScope.Manual;
+            var attempt = manual ? 1 : o.WaveNumber;
+            var offerMaxAttempts = manual ? 1 : TaskDispatchScope.Automatic.Length;
+            DateTime? next = o.Status == TaskOfferStatus.Pending && attempt < offerMaxAttempts ? o.ExpiresAt : null;
             var camera = ev is null ? null : context.Cameras.GetValueOrDefault(ev.CameraId);
             var (mode, unit) = Measurement(ev?.MetadataJson);
             return new TaskOfferView(o.OfferId, t.TaskId, t.OriginType, SourceCode(t), ev is null ? null : context.EventTypes.GetValueOrDefault(ev.EventTypeId)?.Code,
-                t.Title, t.Description, t.Priority, t.ZoneId, context.Zones.GetValueOrDefault(t.ZoneId)?.Name ?? "", camera?.Code, camera?.Name, ev?.MetricValue, mode, unit,
-                o.OfferedAt, allOffers.Where(a => a.TaskId == t.TaskId).Select(a => a.StaffUserId).Distinct().Count(), attempt, maxAttempts, next, o.Status, o.DeclineReasonCode, ev?.ClearedAt,
+                t.Title, t.Description, t.Priority, t.VerificationMode, t.VerificationMethod,
+                t.ZoneId, context.Zones.GetValueOrDefault(t.ZoneId)?.Name ?? "", camera?.Code, camera?.Name, ev?.MetricValue, mode, unit,
+                o.OfferedAt, manual ? 1 : allOffers.Count(a => a.TaskId == t.TaskId && a.DispatchCycleId == o.DispatchCycleId),
+                attempt, offerMaxAttempts, next, o.Status, o.DeclineReasonCode, ev?.ClearedAt,
                 o.StaffUserId, staffNames.GetValueOrDefault(o.StaffUserId), o.DispatchCycleId, o.WaveNumber, o.DispatchScope, o.ExpiresAt, o.RespondedAt);
         }).ToArray();
     }

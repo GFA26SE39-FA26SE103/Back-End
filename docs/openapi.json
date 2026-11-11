@@ -4296,6 +4296,121 @@
         }
       }
     },
+    "/api/zones/{zoneId}/adjacent-zones": {
+      "get": {
+        "tags": [
+          "ZoneAdjacencies"
+        ],
+        "parameters": [
+          {
+            "name": "zoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdjacentZoneView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdjacentZoneView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdjacentZoneView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "ZoneAdjacencies"
+        ],
+        "parameters": [
+          {
+            "name": "zoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZoneAdjacencyReplaceRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZoneAdjacencyReplaceRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZoneAdjacencyReplaceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdjacentZoneView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdjacentZoneView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdjacentZoneView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health/live": {
       "get": {
         "tags": [
@@ -8369,6 +8484,14 @@
             "type": "string",
             "nullable": true
           },
+          "verificationMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "verificationMethod": {
+            "type": "string",
+            "nullable": true
+          },
           "raisedFrom": {
             "type": "string",
             "nullable": true
@@ -8871,6 +8994,14 @@
             "type": "string",
             "nullable": true
           },
+          "verificationMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "verificationMethod": {
+            "type": "string",
+            "nullable": true
+          },
           "requiresBeforePhoto": {
             "type": "boolean"
           },
@@ -8930,6 +9061,14 @@
             "nullable": true
           },
           "priority": {
+            "type": "string",
+            "nullable": true
+          },
+          "verificationMode": {
+            "type": "string",
+            "nullable": true
+          },
+          "verificationMethod": {
             "type": "string",
             "nullable": true
           },
@@ -9028,6 +9167,13 @@
           },
           "reason": {
             "type": "string",
+            "description": "Required for CANNOT_HANDLE. Allowed values: BUSY, UNAVAILABLE, NOT_QUALIFIED, OTHER.",
+            "enum": [
+              "BUSY",
+              "UNAVAILABLE",
+              "NOT_QUALIFIED",
+              "OTHER"
+            ],
             "nullable": true
           }
         },
@@ -9077,6 +9223,10 @@
             "type": "string",
             "nullable": true
           },
+          "missingPhotoReason": {
+            "type": "string",
+            "nullable": true
+          },
           "photos": {
             "type": "array",
             "items": {
@@ -9097,6 +9247,11 @@
           "expectedUpdatedAt": {
             "type": "string",
             "format": "date-time",
+            "nullable": true
+          },
+          "missingPhotoReason": {
+            "type": "string",
+            "description": "Required only for an Incident task submitted without an after photo. Maximum 1000 characters.",
             "nullable": true
           }
         },
@@ -9466,6 +9621,48 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AdjacentZoneView": {
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "floorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ZoneAdjacencyReplaceRequest": {
+        "required": [
+          "adjacentZoneIds"
+        ],
+        "type": "object",
+        "properties": {
+          "adjacentZoneIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         },
         "additionalProperties": false
@@ -10089,6 +10286,9 @@
     },
     {
       "name": "ZoneStaffing"
+    },
+    {
+      "name": "ZoneAdjacencies"
     },
     {
       "name": "ManagerAnalytics"

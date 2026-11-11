@@ -1,17 +1,17 @@
 namespace Supermarket.Application;
 
 /// <summary>Evidence of one Task: what is required, the current draft, and every submission with its review.</summary>
-public sealed record TaskEvidenceView(Guid TaskId, string TaskStatus, bool RequiresBeforePhoto, bool RequiresAfterPhoto, int RejectionCount,
-    TaskEvidencePhotoView[] Drafts, TaskSubmissionView[] Submissions);
+public sealed record TaskEvidenceView(Guid TaskId, string TaskStatus, string? VerificationMode, string? VerificationMethod,
+    bool RequiresBeforePhoto, bool RequiresAfterPhoto, int RejectionCount, TaskEvidencePhotoView[] Drafts, TaskSubmissionView[] Submissions);
 
 /// <summary>One photo. <c>ImageUrl</c> is the authenticated API route that streams it.</summary>
 public sealed record TaskEvidencePhotoView(Guid EvidenceId, string EvidenceType, string ImageUrl, DateTime CapturedAt);
 
 /// <summary>A submitted completion record: the note, its photos and the Operator's decision.</summary>
 public sealed record TaskSubmissionView(Guid SubmissionId, Guid SubmittedByUserId, string? SubmittedByName, string Note, DateTime SubmittedAt,
-    string ReviewStatus, string? RejectReason, TaskEvidencePhotoView[] Photos);
+    string ReviewStatus, string? RejectReason, string? MissingPhotoReason, TaskEvidencePhotoView[] Photos);
 
-public sealed record TaskSubmitRequest(string Note, DateTime? ExpectedUpdatedAt = null);
+public sealed record TaskSubmitRequest(string? Note, DateTime? ExpectedUpdatedAt = null, string? MissingPhotoReason = null);
 public sealed record TaskVerifyRequest(DateTime? ExpectedUpdatedAt = null);
 public sealed record TaskRejectRequest(string Reason, DateTime? ExpectedUpdatedAt = null);
 
