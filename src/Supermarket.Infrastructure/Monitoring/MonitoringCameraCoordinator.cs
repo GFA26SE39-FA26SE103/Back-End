@@ -6,14 +6,15 @@ using Supermarket.Domain;
 using AppError=Supermarket.Application.ApplicationException;
 namespace Supermarket.Infrastructure.Monitoring;
 
-public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOptions<MonitoringWorkerOptions> configured,IClock clock):IMonitoringRuntimeState,IMonitoringSessionOwnership
+public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOptions<MonitoringWorkerOptions> configured,IClock clock,
+    CheckoutMonitoringRuntime? checkout=null):IMonitoringRuntimeState,IMonitoringSessionOwnership
 {
     private readonly MonitoringWorkerOptions options=configured.Value;
     private readonly Dictionary<Guid,Job> jobs=[];
     private readonly ConcurrentDictionary<Guid,MonitoringCameraRuntimeView> views=new();
     private readonly SemaphoreSlim gate=new(1,1);
     public MonitoringCameraRuntimeView? Get(Guid cameraId)=>views.GetValueOrDefault(cameraId);
-    public bool IsMonitoringOwned(Guid cameraId)=>views.TryGetValue(cameraId,out var view) && view.Zones.Any(z=>z.ConfigurationStatus=="ACTIVE");
+    public bool IsMonitoringOwned(Guid cameraId)=>views.TryGetValue(cameraId,out var view) && (view.HasCheckoutMonitoring || view.Zones.Any(z=>z.ConfigurationStatus=="ACTIVE"));
     public async Task Tick(CancellationToken ct)
     {
         await gate.WaitAsync(ct);
@@ -21,10 +22,11 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
         {
             using var scope=scopes.CreateScope(); var services=scope.ServiceProvider;
             MonitoringCameraSnapshot[] snapshots;
-            try { snapshots=await services.GetRequiredService<IMonitoringSnapshotReader>().ReadAll(ct); }
+            try { snapshots=await services.GetRequiredService<IMonitoringSnapshotReader>().ReadAll(ct); checkout?.Reconcile(snapshots); }
             catch(OperationCanceledException) when(ct.IsCancellationRequested) { throw; }
-            catch(Exception error) { foreach(var job in jobs.Values) Error(job,Code(error)); return; }
+            catch(Exception error) { foreach(var job in jobs.Values) { checkout?.Unavailable(job.Snapshot.CameraId); Error(job,Code(error)); } return; }
             var ai=services.GetRequiredService<IAiMonitoringClient>();
+            var drainedCheckoutSources=new HashSet<Guid>(); // Bounded by this tick's camera snapshot set.
             foreach(var id in jobs.Keys.Where(id=>!snapshots.Any(s=>s.CameraId==id)).ToArray())
             {
                 var removed=jobs[id];
@@ -38,6 +40,7 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
                 if(changed) { job.Snapshot=snapshot; job.RuleStates.Clear(); job.Samples.Clear(); job.Measurements.Clear(); job.RuleViews.Clear(); job.RetryAt=DateTime.MinValue; job.SourceMs=null; job.ObservedAt=null; }
                 if(snapshot.IssueCode is { } issue)
                 {
+                    checkout?.Unavailable(snapshot.CameraId);
                     if(job.Started) try { await ai.Stop(snapshot.CameraId,job.OwnerId,ct); job.Started=false; } catch(Exception) when(!ct.IsCancellationRequested) { }
                     Error(job,issue); continue;
                 }
@@ -62,8 +65,14 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
                         if(job.SessionId!=started.SessionId) { job.SessionId=started.SessionId; job.Sequence=0; job.RuleStates.Clear(); job.Samples.Clear(); }
                     }
                     var page=await ai.Read(snapshot.CameraId,job.OwnerId,job.SessionId,job.Sequence,Math.Clamp(options.MaxBatch,1,64),ct);
+                    var hasCheckout=(snapshot.CheckoutMappings?.Length??0)>0;
+                    if(hasCheckout && page.ProtocolVersion!=2) throw new AppError("CHECKOUT_PROTOCOL_UNSUPPORTED","Checkout monitoring requires AI protocol v2.",503);
+                    var checkoutUsable=!hasCheckout || services.GetService<ICheckoutCameraUsability>() is { } usability
+                        && await usability.Ready(snapshot.CameraId,ct);
+                    if(hasCheckout && !checkoutUsable) checkout?.Unavailable(snapshot.CameraId);
                     if(page.SessionId!=job.SessionId || page.Gap)
                     {
+                        checkout?.Unavailable(snapshot.CameraId);
                         job.SessionId=page.SessionId; job.Sequence=Math.Max(0,page.OldestSequence-1);
                         job.RuleStates.Clear(); job.Samples.Clear(); job.SourceMs=null;
                     }
@@ -111,25 +120,40 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
                             }
                             job.Measurements[zone.ZoneId]=measurement;
                         }
+                        if(hasCheckout) checkout?.Observe(snapshot,batch,checkoutUsable);
                         job.Sequence=batch.Sequence; job.SourceMs=batch.SourceElapsedMs; job.ObservedAt=batch.CapturedAt;
                     }
                     if(page.State is "ERROR" or "RECONNECTING" or "STOPPED")
                     {
+                        checkout?.Unavailable(snapshot.CameraId);
                         Error(job,page.ErrorCode??(page.State=="STOPPED"?"AI_PREVIEW_NOT_RUNNING":"CAMERA_STREAM_UNAVAILABLE"));
                         job.Started=page.State=="RECONNECTING"; continue;
                     }
                     job.Failures=0; job.RetryAt=DateTime.MinValue;
-                    var stateName=page.State=="COMPLETED" && job.Sequence>=page.NewestSequence?"COMPLETED":job.ObservedAt is null?"STARTING":"RUNNING";
+                    var completed=page.State=="COMPLETED" && job.Sequence>=page.NewestSequence;
+                    if(hasCheckout && completed) drainedCheckoutSources.Add(snapshot.CameraId);
+                    var stateName=completed?"COMPLETED":job.ObservedAt is null?"STARTING":"RUNNING";
                     Publish(job,stateName,stateName=="RUNNING"?"MEASUREMENTS_AVAILABLE":stateName);
                 }
                 catch(OperationCanceledException) when(ct.IsCancellationRequested) { throw; }
                 catch(Exception error)
                 {
+                    checkout?.Unavailable(snapshot.CameraId);
                     var code=Code(error);
                     // SQL retry keeps committed per-rule state and the frame cursor.
                     // Transport session loss requests a new owner-controlled start.
                     if(code is "AI_PREVIEW_NOT_RUNNING" or "AI_SESSION_OWNER_MISMATCH") job.Started=false;
                     Error(job,code,resetContinuity:false);
+                }
+            }
+            if(checkout is not null)
+            {
+                // Final buffered observations may complete sustain and must reach the writer before coverage retires.
+                await checkout.Evaluate(services,ct);
+                if(drainedCheckoutSources.Count>0)
+                {
+                    foreach(var cameraId in drainedCheckoutSources) checkout.Unavailable(cameraId);
+                    await checkout.Evaluate(services,ct); // Publish unavailable coverage without losing the final evaluation.
                 }
             }
         }
@@ -149,16 +173,17 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
             var rules=z.Rules.Select(r=>job.RuleViews.GetValueOrDefault(r.RuleId)??new MonitoringRuleRuntimeView(r.RuleId,r.Code,r.Name,r.Mode,r.Unit,r.WarningThreshold,r.CriticalThreshold,r.SustainSec,r.CooldownSec,r.ClearDurationSec??r.SustainSec,null,0,0,0,code??state)).ToArray();
             return new MonitoringZoneRuntimeView(z.ZoneId,z.ZoneName,z.ConfigId,z.ConfigVersion,"ACTIVE",z.Confidence,measured?.PeopleCount,measured?.QueueCount,rules,z.IssueCode);
         }).ToArray();
-        views[job.Snapshot.CameraId]=new(job.Snapshot.CameraId,state,reason,code,job.Snapshot.Connection.SourceType,job.SessionId,job.SourceMs,job.ObservedAt,stale,job.AnnotationContext,zones);
+        views[job.Snapshot.CameraId]=new(job.Snapshot.CameraId,state,reason,code,job.Snapshot.Connection.SourceType,job.SessionId,job.SourceMs,job.ObservedAt,stale,job.AnnotationContext,zones,
+            (job.Snapshot.CheckoutMappings?.Length??0)>0);
     }
     public async Task Shutdown(CancellationToken ct)
     {
         await gate.WaitAsync(ct);
         try {
-            if(jobs.Count==0) return; // Also permits the host's repeated stop/dispose.
+            if(jobs.Count==0) { checkout?.Clear(); return; } // Also permits the host's repeated stop/dispose.
             using var scope=scopes.CreateScope(); var ai=scope.ServiceProvider.GetRequiredService<IAiMonitoringClient>();
             foreach(var job in jobs.Values.Where(j=>j.Started)) try { await ai.Stop(job.Snapshot.CameraId,job.OwnerId,ct); } catch(Exception) when(!ct.IsCancellationRequested) { }
-            jobs.Clear(); views.Clear();
+            jobs.Clear(); views.Clear(); checkout?.Clear();
         } finally { gate.Release(); }
     }
     private static string Code(Exception error)=>error switch { AppError e=>e.Code,DomainException e=>e.Code,_=>"MONITORING_UNAVAILABLE" };

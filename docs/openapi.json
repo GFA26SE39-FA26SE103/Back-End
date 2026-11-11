@@ -970,6 +970,465 @@
         }
       }
     },
+    "/api/zones/{zoneId}/checkout-counters": {
+      "get": {
+        "tags": [
+          "CheckoutCounters"
+        ],
+        "parameters": [
+          {
+            "name": "zoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CheckoutCounterView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CheckoutCounterView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CheckoutCounterView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "CheckoutCounters"
+        ],
+        "parameters": [
+          {
+            "name": "zoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutCounterRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutCounterRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutCounterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/checkout-counters/{counterId}": {
+      "get": {
+        "tags": [
+          "CheckoutCounters"
+        ],
+        "parameters": [
+          {
+            "name": "counterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutCounterView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutCounterView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutCounterView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "CheckoutCounters"
+        ],
+        "parameters": [
+          {
+            "name": "counterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutCounterRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutCounterRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutCounterRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutCounterView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutCounterView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutCounterView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CheckoutCounters"
+        ],
+        "parameters": [
+          {
+            "name": "counterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "expectedUpdatedAt",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/cameras/{cameraId}/checkout-mappings": {
+      "get": {
+        "tags": [
+          "CheckoutCounters"
+        ],
+        "parameters": [
+          {
+            "name": "cameraId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CheckoutMappingView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CheckoutMappingView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CheckoutMappingView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/checkout-counters/{counterId}/camera-mappings": {
+      "get": {
+        "tags": [
+          "CheckoutCounters"
+        ],
+        "parameters": [
+          {
+            "name": "counterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CheckoutMappingView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CheckoutMappingView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CheckoutMappingView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/checkout-counters/{counterId}/camera-mappings/{cameraId}": {
+      "put": {
+        "tags": [
+          "CheckoutCounters"
+        ],
+        "parameters": [
+          {
+            "name": "counterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cameraId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutMappingRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutMappingRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutMappingRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutMappingView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutMappingView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutMappingView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "CheckoutCounters"
+        ],
+        "parameters": [
+          {
+            "name": "counterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cameraId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "expectedUpdatedAt",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/zones/{zoneId}/checkout-runtime": {
+      "get": {
+        "tags": [
+          "CheckoutRuntime"
+        ],
+        "parameters": [
+          {
+            "name": "zoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutZoneRuntimeView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutZoneRuntimeView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutZoneRuntimeView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/camera-health-events": {
       "get": {
         "tags": [
@@ -1235,6 +1694,335 @@
                   "items": {
                     "$ref": "#/components/schemas/IncidentTypeView"
                   }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "IncidentTypes"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentTypeCreateRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentTypeCreateRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentTypeCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentTypeAdminView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentTypeAdminView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentTypeAdminView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/incident-types/{incidentTypeId}": {
+      "put": {
+        "tags": [
+          "IncidentTypes"
+        ],
+        "parameters": [
+          {
+            "name": "incidentTypeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentTypeUpdateRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentTypeUpdateRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentTypeUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentTypeAdminView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentTypeAdminView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentTypeAdminView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/incident-types/{incidentTypeId}/sla-policy": {
+      "put": {
+        "tags": [
+          "IncidentTypeSlaPolicy"
+        ],
+        "parameters": [
+          {
+            "name": "incidentTypeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentSlaPolicySaveRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentSlaPolicySaveRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/IncidentSlaPolicySaveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentSlaPolicyView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentSlaPolicyView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IncidentSlaPolicyView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/manager/analytics/overview": {
+      "get": {
+        "tags": [
+          "ManagerAnalytics"
+        ],
+        "parameters": [
+          {
+            "name": "From",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "To",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "ZoneId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsOverview"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsOverview"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsOverview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/manager/analytics/trends": {
+      "get": {
+        "tags": [
+          "ManagerAnalytics"
+        ],
+        "parameters": [
+          {
+            "name": "From",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "To",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "ZoneId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsTrends"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsTrends"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsTrends"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/manager/analytics/zones": {
+      "get": {
+        "tags": [
+          "ManagerAnalytics"
+        ],
+        "parameters": [
+          {
+            "name": "From",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "To",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "ZoneId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsZones"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsZones"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsZones"
                 }
               }
             }
@@ -2026,6 +2814,264 @@
         }
       }
     },
+    "/api/operational-events": {
+      "get": {
+        "tags": [
+          "OperationalEvents"
+        ],
+        "parameters": [
+          {
+            "name": "Status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Priority",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ZoneId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "From",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "To",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "Page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "PageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalEventPage"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalEventPage"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalEventPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/operational-events/zones": {
+      "get": {
+        "tags": [
+          "OperationalEvents"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventZoneOption"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventZoneOption"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventZoneOption"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/operational-events/{eventId}": {
+      "get": {
+        "tags": [
+          "OperationalEvents"
+        ],
+        "parameters": [
+          {
+            "name": "eventId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalEventDetail"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalEventDetail"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationalEventDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/operator/task-offers": {
+      "get": {
+        "tags": [
+          "OperatorTaskOffers"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "taskId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskOfferView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskOfferView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TaskOfferView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/operator/task-offers/{offerId}": {
+      "get": {
+        "tags": [
+          "OperatorTaskOffers"
+        ],
+        "parameters": [
+          {
+            "name": "offerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskOfferView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskOfferView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskOfferView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/cameras/{id}/recorded-video": {
       "post": {
         "tags": [
@@ -2082,6 +3128,44 @@
               "text/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RecordedVideoView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/task-types": {
+      "get": {
+        "tags": [
+          "ResponsePolicies"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ResponseTaskTypeView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ResponseTaskTypeView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ResponseTaskTypeView"
+                  }
                 }
               }
             }
@@ -3123,6 +4207,44 @@
         }
       }
     },
+    "/api/sla-policies": {
+      "get": {
+        "tags": [
+          "SlaPolicies"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IncidentSlaPolicyView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IncidentSlaPolicyView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IncidentSlaPolicyView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/me/shifts": {
       "get": {
         "tags": [
@@ -3335,6 +4457,620 @@
                   "items": {
                     "$ref": "#/components/schemas/StaffTaskView"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/staff-reports/draft": {
+      "post": {
+        "tags": [
+          "StaffReports"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "Note": {
+                    "type": "string"
+                  },
+                  "Photos": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  },
+                  "Voice": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              },
+              "encoding": {
+                "Note": {
+                  "style": "form"
+                },
+                "Photos": {
+                  "style": "form"
+                },
+                "Voice": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportDraftView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportDraftView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportDraftView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/staff-reports/incident-types": {
+      "get": {
+        "tags": [
+          "StaffReports"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportIncidentTypeView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportIncidentTypeView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportIncidentTypeView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/staff-reports/task-types": {
+      "get": {
+        "tags": [
+          "StaffReports"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportTaskTypeView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportTaskTypeView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportTaskTypeView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/staff-reports/zones": {
+      "get": {
+        "tags": [
+          "StaffReports"
+        ],
+        "parameters": [
+          {
+            "name": "floorId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportZoneView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportZoneView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportZoneView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/staff-reports/duplicates": {
+      "get": {
+        "tags": [
+          "StaffReports"
+        ],
+        "parameters": [
+          {
+            "name": "zoneId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "incidentTypeCode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportDuplicateView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportDuplicateView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportDuplicateView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/staff-reports/routine-overlaps": {
+      "get": {
+        "tags": [
+          "StaffReports"
+        ],
+        "parameters": [
+          {
+            "name": "zoneId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "taskTypeCode",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportRoutineOverlapView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportRoutineOverlapView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StaffReportRoutineOverlapView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/staff-reports": {
+      "post": {
+        "tags": [
+          "StaffReports"
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "ReportCategory",
+                  "ReportId",
+                  "Title",
+                  "ZoneId"
+                ],
+                "type": "object",
+                "properties": {
+                  "ReportId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "ZoneId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "Title": {
+                    "maxLength": 200,
+                    "type": "string"
+                  },
+                  "ReportCategory": {
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  "Description": {
+                    "maxLength": 4000,
+                    "type": "string"
+                  },
+                  "LocationDescription": {
+                    "maxLength": 1000,
+                    "type": "string"
+                  },
+                  "IncidentTypeCode": {
+                    "maxLength": 50,
+                    "type": "string"
+                  },
+                  "TaskTypeCodes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "ConfirmedScenarioCode": {
+                    "maxLength": 50,
+                    "type": "string"
+                  },
+                  "DuplicateDecision": {
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  "RoutineTaskDecision": {
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  "Photos": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
+                  },
+                  "Voice": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              },
+              "encoding": {
+                "ReportId": {
+                  "style": "form"
+                },
+                "ZoneId": {
+                  "style": "form"
+                },
+                "Title": {
+                  "style": "form"
+                },
+                "ReportCategory": {
+                  "style": "form"
+                },
+                "Description": {
+                  "style": "form"
+                },
+                "LocationDescription": {
+                  "style": "form"
+                },
+                "IncidentTypeCode": {
+                  "style": "form"
+                },
+                "TaskTypeCodes": {
+                  "style": "form"
+                },
+                "ConfirmedScenarioCode": {
+                  "style": "form"
+                },
+                "DuplicateDecision": {
+                  "style": "form"
+                },
+                "RoutineTaskDecision": {
+                  "style": "form"
+                },
+                "Photos": {
+                  "style": "form"
+                },
+                "Voice": {
+                  "style": "form"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/staff-reports/{reportId}": {
+      "get": {
+        "tags": [
+          "StaffReports"
+        ],
+        "parameters": [
+          {
+            "name": "reportId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/staff-reports/{reportId}/media/{mediaId}": {
+      "get": {
+        "tags": [
+          "StaffReports"
+        ],
+        "parameters": [
+          {
+            "name": "reportId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "mediaId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/staff-reports/{reportId}/qualify-incident": {
+      "post": {
+        "tags": [
+          "StaffReports"
+        ],
+        "parameters": [
+          {
+            "name": "reportId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportIncidentView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportIncidentView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportIncidentView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/staff-reports/{reportId}/duplicate-decision": {
+      "put": {
+        "tags": [
+          "StaffReports"
+        ],
+        "parameters": [
+          {
+            "name": "reportId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffReportDuplicateDecisionRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffReportDuplicateDecisionRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffReportDuplicateDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffReportView"
                 }
               }
             }
@@ -4296,121 +6032,6 @@
         }
       }
     },
-    "/api/zones/{zoneId}/adjacent-zones": {
-      "get": {
-        "tags": [
-          "ZoneAdjacencies"
-        ],
-        "parameters": [
-          {
-            "name": "zoneId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/AdjacentZoneView"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/AdjacentZoneView"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/AdjacentZoneView"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "ZoneAdjacencies"
-        ],
-        "parameters": [
-          {
-            "name": "zoneId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ZoneAdjacencyReplaceRequest"
-              }
-            },
-            "text/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ZoneAdjacencyReplaceRequest"
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "$ref": "#/components/schemas/ZoneAdjacencyReplaceRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/AdjacentZoneView"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/AdjacentZoneView"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/AdjacentZoneView"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/health/live": {
       "get": {
         "tags": [
@@ -4581,6 +6202,54 @@
                   "items": {
                     "$ref": "#/components/schemas/StaffTaskView"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/manual": {
+      "post": {
+        "tags": [
+          "Tasks"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualTaskRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualTaskRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualTaskRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffTaskView"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffTaskView"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffTaskView"
                 }
               }
             }
@@ -5386,44 +7055,6 @@
         }
       }
     },
-    "/api/task-types": {
-      "get": {
-        "tags": [
-          "ResponsePolicies"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ResponseTaskTypeView"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ResponseTaskTypeView"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ResponseTaskTypeView"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/staff-specialties": {
       "get": {
         "tags": [
@@ -5672,6 +7303,121 @@
         }
       }
     },
+    "/api/zones/{zoneId}/adjacent-zones": {
+      "get": {
+        "tags": [
+          "ZoneAdjacencies"
+        ],
+        "parameters": [
+          {
+            "name": "zoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdjacentZoneView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdjacentZoneView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdjacentZoneView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "ZoneAdjacencies"
+        ],
+        "parameters": [
+          {
+            "name": "zoneId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZoneAdjacencyReplaceRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZoneAdjacencyReplaceRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZoneAdjacencyReplaceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdjacentZoneView"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdjacentZoneView"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdjacentZoneView"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/zones/{id}/minimum-staff": {
       "patch": {
         "tags": [
@@ -5730,338 +7476,36 @@
           }
         }
       }
-    },
-    "/api/manager/analytics/overview": {
-      "get": {
-        "tags": [
-          "ManagerAnalytics"
-        ],
-        "parameters": [
-          {
-            "name": "From",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "To",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "ZoneId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/AnalyticsOverview"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AnalyticsOverview"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AnalyticsOverview"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/manager/analytics/trends": {
-      "get": {
-        "tags": [
-          "ManagerAnalytics"
-        ],
-        "parameters": [
-          {
-            "name": "From",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "To",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "ZoneId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/AnalyticsTrends"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AnalyticsTrends"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AnalyticsTrends"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/manager/analytics/zones": {
-      "get": {
-        "tags": [
-          "ManagerAnalytics"
-        ],
-        "parameters": [
-          {
-            "name": "From",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "To",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "ZoneId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/AnalyticsZones"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AnalyticsZones"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AnalyticsZones"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/operational-events": {
-      "get": {
-        "tags": [
-          "OperationalEvents"
-        ],
-        "parameters": [
-          {
-            "name": "Status",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "Priority",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "ZoneId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "From",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "To",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date"
-            }
-          },
-          {
-            "name": "Page",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          },
-          {
-            "name": "PageSize",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/OperationalEventPage"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OperationalEventPage"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OperationalEventPage"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/operational-events/zones": {
-      "get": {
-        "tags": [
-          "OperationalEvents"
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/EventZoneOption"
-                  }
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/EventZoneOption"
-                  }
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/EventZoneOption"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/operational-events/{eventId}": {
-      "get": {
-        "tags": [
-          "OperationalEvents"
-        ],
-        "parameters": [
-          {
-            "name": "eventId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "$ref": "#/components/schemas/OperationalEventDetail"
-                }
-              },
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OperationalEventDetail"
-                }
-              },
-              "text/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OperationalEventDetail"
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
     "schemas": {
+      "AdjacentZoneView": {
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "floorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "AiPreviewStatusView": {
         "type": "object",
         "properties": {
@@ -6110,6 +7554,260 @@
           "viewerLeaseId": {
             "type": "string",
             "format": "uuid",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnalyticsDay": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/AnalyticsSummary"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnalyticsDuration": {
+        "type": "object",
+        "properties": {
+          "samples": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "averageSeconds": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnalyticsEvents": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "active": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cleared": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "latestCritical": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "clearTime": {
+            "$ref": "#/components/schemas/AnalyticsDuration"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnalyticsIncidents": {
+        "type": "object",
+        "properties": {
+          "recorded": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "open": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "closed": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "dismissed": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "resolutionTime": {
+            "$ref": "#/components/schemas/AnalyticsDuration"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnalyticsOverview": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "$ref": "#/components/schemas/AnalyticsWindow"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/AnalyticsSummary"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnalyticsSla": {
+        "type": "object",
+        "properties": {
+          "evaluated": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "met": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "breached": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "unavailable": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "metPercent": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnalyticsSummary": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "$ref": "#/components/schemas/AnalyticsEvents"
+          },
+          "incidents": {
+            "$ref": "#/components/schemas/AnalyticsIncidents"
+          },
+          "tasks": {
+            "$ref": "#/components/schemas/AnalyticsTasks"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnalyticsTasks": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "byStatus": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "nullable": true
+          },
+          "responseTime": {
+            "$ref": "#/components/schemas/AnalyticsDuration"
+          },
+          "completionTime": {
+            "$ref": "#/components/schemas/AnalyticsDuration"
+          },
+          "responseSla": {
+            "$ref": "#/components/schemas/AnalyticsSla"
+          },
+          "resolutionSla": {
+            "$ref": "#/components/schemas/AnalyticsSla"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnalyticsTrends": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "$ref": "#/components/schemas/AnalyticsWindow"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsDay"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnalyticsWindow": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "timeZone": {
+            "type": "string",
+            "nullable": true
+          },
+          "fromUtc": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "toUtcExclusive": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "zoneId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnalyticsZone": {
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "zoneName": {
+            "type": "string",
+            "nullable": true
+          },
+          "summary": {
+            "$ref": "#/components/schemas/AnalyticsSummary"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AnalyticsZones": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "$ref": "#/components/schemas/AnalyticsWindow"
+          },
+          "zones": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsZone"
+            },
             "nullable": true
           }
         },
@@ -6465,6 +8163,222 @@
         },
         "additionalProperties": false
       },
+      "CheckoutCounterRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "expectedUpdatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "CheckoutCounterRuntimeView": {
+        "type": "object",
+        "properties": {
+          "counterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "presence": {
+            "type": "string",
+            "nullable": true
+          },
+          "queueCount": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "disagreement": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CheckoutCounterView": {
+        "type": "object",
+        "properties": {
+          "checkoutCounterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CheckoutMappingRequest": {
+        "type": "object",
+        "properties": {
+          "laneRoi": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "nullable": true
+          },
+          "staffRoi": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "nullable": true
+          },
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "isQueueSource": {
+            "type": "boolean"
+          },
+          "expectedUpdatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "CheckoutMappingView": {
+        "type": "object",
+        "properties": {
+          "mappingId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cameraId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "checkoutCounterId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "laneRoi": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "nullable": true
+          },
+          "staffRoi": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Point"
+            },
+            "nullable": true
+          },
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "isQueueSource": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CheckoutZoneRuntimeView": {
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "configId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "configVersion": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "type": "string",
+            "nullable": true
+          },
+          "issueCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "queueCount": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "staffedCounterCount": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "queuePerStaffedCounter": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "noStaffedCapacity": {
+            "type": "boolean"
+          },
+          "counters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CheckoutCounterRuntimeView"
+            },
+            "nullable": true
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonitoringRuleRuntimeView"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "ConnectionRequest": {
         "type": "object",
         "properties": {
@@ -6647,6 +8561,54 @@
             "items": {
               "$ref": "#/components/schemas/ShiftZoneView"
             },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "EventTaskView": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "priority": {
+            "type": "string",
+            "nullable": true
+          },
+          "assigneeName": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EventZoneOption": {
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
             "nullable": true
           }
         },
@@ -6901,6 +8863,172 @@
         },
         "additionalProperties": false
       },
+      "IncidentSlaPolicySaveRequest": {
+        "type": "object",
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "priorityCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "responseTargetSec": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "resolutionTargetSec": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "offerTimeoutSec": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "warningPercent": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "IncidentSlaPolicyView": {
+        "type": "object",
+        "properties": {
+          "policyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incidentTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incidentTypeCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "incidentTypeName": {
+            "type": "string",
+            "nullable": true
+          },
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "priorityCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "responseTargetSec": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "resolutionTargetSec": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "offerTimeoutSec": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "warningPercent": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "IncidentTypeAdminView": {
+        "type": "object",
+        "properties": {
+          "incidentTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "requiresBeforePhoto": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "IncidentTypeCreateRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "requiresBeforePhoto": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "IncidentTypeUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "requiresBeforePhoto": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "IncidentTypeView": {
         "type": "object",
         "properties": {
@@ -6959,6 +9087,9 @@
               "$ref": "#/components/schemas/MonitoringMeasurementOptionView"
             },
             "nullable": true
+          },
+          "requiresBeforePhoto": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -7047,6 +9178,32 @@
             "nullable": true
           },
           "note": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ManualTaskRequest": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "taskTypeCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "instructions": {
             "type": "string",
             "nullable": true
           }
@@ -7160,6 +9317,9 @@
               "$ref": "#/components/schemas/MonitoringZoneRuntimeView"
             },
             "nullable": true
+          },
+          "hasCheckoutMonitoring": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -7502,6 +9662,15 @@
             "type": "string",
             "format": "uuid",
             "nullable": true
+          },
+          "operationalEventPriority": {
+            "type": "string",
+            "nullable": true
+          },
+          "operationalEventId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -7683,6 +9852,142 @@
         },
         "additionalProperties": false
       },
+      "OperationalEventDetail": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/OperationalEventView"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventTaskView"
+            },
+            "nullable": true
+          },
+          "hasMoreTasks": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "OperationalEventPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperationalEventView"
+            },
+            "nullable": true
+          },
+          "totalCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "timeZone": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "OperationalEventView": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventTypeCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "eventTypeName": {
+            "type": "string",
+            "nullable": true
+          },
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "zoneName": {
+            "type": "string",
+            "nullable": true
+          },
+          "cameraId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cameraCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "cameraName": {
+            "type": "string",
+            "nullable": true
+          },
+          "priority": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "metricValue": {
+            "type": "number",
+            "format": "double"
+          },
+          "measurementType": {
+            "type": "string",
+            "nullable": true
+          },
+          "detectedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastObservedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "clearedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "taskCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "sourceCode": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false
+      },
       "Point": {
         "type": "object",
         "properties": {
@@ -7722,7 +10027,7 @@
             "nullable": true
           }
         },
-        "additionalProperties": {}
+        "additionalProperties": { }
       },
       "PublishScheduleRequest": {
         "type": "object",
@@ -7893,6 +10198,32 @@
               "type": "string"
             },
             "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResponseTaskTypeView": {
+        "type": "object",
+        "properties": {
+          "taskTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "requiredSpecialtyId": {
+            "type": "string",
+            "format": "uuid"
           }
         },
         "additionalProperties": false
@@ -8453,6 +10784,321 @@
         },
         "additionalProperties": false
       },
+      "StaffReportDraftView": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "locationDescription": {
+            "type": "string",
+            "nullable": true
+          },
+          "reportCategory": {
+            "type": "string",
+            "nullable": true
+          },
+          "incidentTypeCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "needsReview": {
+            "type": "boolean"
+          },
+          "suggestedTaskTypeCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "suggestedZoneId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "confidenceLevel": {
+            "type": "string",
+            "nullable": true
+          },
+          "evidence": {
+            "type": "string",
+            "nullable": true
+          },
+          "transcript": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaffReportDuplicateDecisionRequest": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaffReportDuplicateView": {
+        "type": "object",
+        "properties": {
+          "incidentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "taskIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaffReportIncidentTypeView": {
+        "type": "object",
+        "properties": {
+          "incidentTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "allowedTaskTypeCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaffReportIncidentView": {
+        "type": "object",
+        "properties": {
+          "incidentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "staffReportId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incidentTypeId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaffReportMediaView": {
+        "type": "object",
+        "properties": {
+          "mediaId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "contentType": {
+            "type": "string",
+            "nullable": true
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "imageUrl": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaffReportRoutineOverlapView": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "originType": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaffReportTaskTypeView": {
+        "type": "object",
+        "properties": {
+          "taskTypeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceCategory": {
+            "type": "string",
+            "nullable": true
+          },
+          "routineEligible": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaffReportView": {
+        "type": "object",
+        "properties": {
+          "reportId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "incidentTypeId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "incidentTypeCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "locationDescription": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true
+          },
+          "confirmedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "photos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StaffReportMediaView"
+            },
+            "nullable": true
+          },
+          "incidentId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "reportCategory": {
+            "type": "string",
+            "nullable": true
+          },
+          "confirmedTaskTypeCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "confirmedScenarioCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "voiceNote": {
+            "$ref": "#/components/schemas/StaffReportMediaView"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaffReportZoneView": {
+        "type": "object",
+        "properties": {
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "floorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "floorName": {
+            "type": "string",
+            "nullable": true
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "StaffSpecialtyView": {
+        "type": "object",
+        "properties": {
+          "specialtyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "StaffTaskView": {
         "type": "object",
         "properties": {
@@ -8565,6 +11211,30 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "slaPolicyId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "slaPriorityCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "slaPolicyVersion": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "responseDeadlineAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "resolutionDeadlineAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -9134,6 +11804,35 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
+          },
+          "staffUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "staffName": {
+            "type": "string",
+            "nullable": true
+          },
+          "dispatchCycleId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "waveNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "dispatchScope": {
+            "type": "string",
+            "nullable": true
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "respondedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -9167,13 +11866,6 @@
           },
           "reason": {
             "type": "string",
-            "description": "Required for CANNOT_HANDLE. Allowed values: BUSY, UNAVAILABLE, NOT_QUALIFIED, OTHER.",
-            "enum": [
-              "BUSY",
-              "UNAVAILABLE",
-              "NOT_QUALIFIED",
-              "OTHER"
-            ],
             "nullable": true
           }
         },
@@ -9251,7 +11943,6 @@
           },
           "missingPhotoReason": {
             "type": "string",
-            "description": "Required only for an Incident task submitted without an after photo. Maximum 1000 characters.",
             "nullable": true
           }
         },
@@ -9484,54 +12175,6 @@
         },
         "additionalProperties": false
       },
-      "ResponseTaskTypeView": {
-        "type": "object",
-        "properties": {
-          "taskTypeId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "code": {
-            "type": "string",
-            "nullable": true
-          },
-          "name": {
-            "type": "string",
-            "nullable": true
-          },
-          "description": {
-            "type": "string",
-            "nullable": true
-          },
-          "requiredSpecialtyId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        },
-        "additionalProperties": false
-      },
-      "StaffSpecialtyView": {
-        "type": "object",
-        "properties": {
-          "specialtyId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "code": {
-            "type": "string",
-            "nullable": true
-          },
-          "name": {
-            "type": "string",
-            "nullable": true
-          },
-          "description": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
       "WorkShiftView": {
         "type": "object",
         "properties": {
@@ -9565,6 +12208,20 @@
           },
           "inUse": {
             "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ZoneAdjacencyReplaceRequest": {
+        "type": "object",
+        "properties": {
+          "adjacentZoneIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -9621,48 +12278,6 @@
             "type": "string",
             "format": "date-time",
             "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "AdjacentZoneView": {
-        "type": "object",
-        "properties": {
-          "zoneId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "floorId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "code": {
-            "type": "string",
-            "nullable": true
-          },
-          "name": {
-            "type": "string",
-            "nullable": true
-          },
-          "status": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "ZoneAdjacencyReplaceRequest": {
-        "required": [
-          "adjacentZoneIds"
-        ],
-        "type": "object",
-        "properties": {
-          "adjacentZoneIds": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "uuid"
-            }
           }
         },
         "additionalProperties": false
@@ -9758,444 +12373,6 @@
           }
         },
         "additionalProperties": false
-      },
-      "AnalyticsDay": {
-        "type": "object",
-        "properties": {
-          "date": {
-            "type": "string",
-            "format": "date"
-          },
-          "summary": {
-            "$ref": "#/components/schemas/AnalyticsSummary"
-          }
-        },
-        "additionalProperties": false
-      },
-      "AnalyticsDuration": {
-        "type": "object",
-        "properties": {
-          "samples": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "averageSeconds": {
-            "type": "number",
-            "format": "double",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "AnalyticsEvents": {
-        "type": "object",
-        "properties": {
-          "total": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "active": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "cleared": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "latestCritical": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "clearTime": {
-            "$ref": "#/components/schemas/AnalyticsDuration"
-          }
-        },
-        "additionalProperties": false
-      },
-      "AnalyticsIncidents": {
-        "type": "object",
-        "properties": {
-          "recorded": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "total": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "open": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "closed": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "dismissed": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "resolutionTime": {
-            "$ref": "#/components/schemas/AnalyticsDuration"
-          }
-        },
-        "additionalProperties": false
-      },
-      "AnalyticsOverview": {
-        "type": "object",
-        "properties": {
-          "period": {
-            "$ref": "#/components/schemas/AnalyticsWindow"
-          },
-          "summary": {
-            "$ref": "#/components/schemas/AnalyticsSummary"
-          }
-        },
-        "additionalProperties": false
-      },
-      "AnalyticsSla": {
-        "type": "object",
-        "properties": {
-          "evaluated": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "met": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "breached": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "pending": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "unavailable": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "metPercent": {
-            "type": "number",
-            "format": "double",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "AnalyticsSummary": {
-        "type": "object",
-        "properties": {
-          "events": {
-            "$ref": "#/components/schemas/AnalyticsEvents"
-          },
-          "incidents": {
-            "$ref": "#/components/schemas/AnalyticsIncidents"
-          },
-          "tasks": {
-            "$ref": "#/components/schemas/AnalyticsTasks"
-          }
-        },
-        "additionalProperties": false
-      },
-      "AnalyticsTasks": {
-        "type": "object",
-        "properties": {
-          "total": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "byStatus": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "integer",
-              "format": "int32"
-            },
-            "nullable": true
-          },
-          "responseTime": {
-            "$ref": "#/components/schemas/AnalyticsDuration"
-          },
-          "completionTime": {
-            "$ref": "#/components/schemas/AnalyticsDuration"
-          },
-          "responseSla": {
-            "$ref": "#/components/schemas/AnalyticsSla"
-          },
-          "resolutionSla": {
-            "$ref": "#/components/schemas/AnalyticsSla"
-          }
-        },
-        "additionalProperties": false
-      },
-      "AnalyticsTrends": {
-        "type": "object",
-        "properties": {
-          "period": {
-            "$ref": "#/components/schemas/AnalyticsWindow"
-          },
-          "days": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AnalyticsDay"
-            },
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "AnalyticsWindow": {
-        "type": "object",
-        "properties": {
-          "from": {
-            "type": "string",
-            "format": "date"
-          },
-          "to": {
-            "type": "string",
-            "format": "date"
-          },
-          "timeZone": {
-            "type": "string",
-            "nullable": true
-          },
-          "fromUtc": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "toUtcExclusive": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "generatedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "zoneId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "AnalyticsZone": {
-        "type": "object",
-        "properties": {
-          "zoneId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "zoneName": {
-            "type": "string",
-            "nullable": true
-          },
-          "summary": {
-            "$ref": "#/components/schemas/AnalyticsSummary"
-          }
-        },
-        "additionalProperties": false
-      },
-      "AnalyticsZones": {
-        "type": "object",
-        "properties": {
-          "period": {
-            "$ref": "#/components/schemas/AnalyticsWindow"
-          },
-          "zones": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AnalyticsZone"
-            },
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "OperationalEventView": {
-        "type": "object",
-        "properties": {
-          "eventId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "eventTypeId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "eventTypeCode": {
-            "type": "string",
-            "nullable": true
-          },
-          "eventTypeName": {
-            "type": "string",
-            "nullable": true
-          },
-          "zoneId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "zoneName": {
-            "type": "string",
-            "nullable": true
-          },
-          "cameraId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "cameraCode": {
-            "type": "string",
-            "nullable": true
-          },
-          "cameraName": {
-            "type": "string",
-            "nullable": true
-          },
-          "priority": {
-            "type": "string",
-            "nullable": true
-          },
-          "status": {
-            "type": "string",
-            "nullable": true
-          },
-          "metricValue": {
-            "type": "number",
-            "format": "double"
-          },
-          "measurementType": {
-            "type": "string",
-            "nullable": true
-          },
-          "detectedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "lastObservedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "clearedAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "updatedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "taskCount": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "sourceCode": {
-            "type": "string",
-            "nullable": true,
-            "readOnly": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "OperationalEventPage": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/OperationalEventView"
-            },
-            "nullable": true
-          },
-          "totalCount": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "page": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "pageSize": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "generatedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "timeZone": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "OperationalEventDetail": {
-        "type": "object",
-        "properties": {
-          "event": {
-            "$ref": "#/components/schemas/OperationalEventView"
-          },
-          "tasks": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/EventTaskView"
-            },
-            "nullable": true
-          },
-          "hasMoreTasks": {
-            "type": "boolean"
-          }
-        },
-        "additionalProperties": false
-      },
-      "EventTaskView": {
-        "type": "object",
-        "properties": {
-          "taskId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "title": {
-            "type": "string",
-            "nullable": true
-          },
-          "status": {
-            "type": "string",
-            "nullable": true
-          },
-          "priority": {
-            "type": "string",
-            "nullable": true
-          },
-          "assigneeName": {
-            "type": "string",
-            "nullable": true
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        },
-        "additionalProperties": false
-      },
-      "EventZoneOption": {
-        "type": "object",
-        "properties": {
-          "zoneId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "name": {
-            "type": "string",
-            "nullable": true
-          },
-          "status": {
-            "type": "string",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
       }
     },
     "securitySchemes": {
@@ -10208,7 +12385,7 @@
   },
   "security": [
     {
-      "Bearer": []
+      "Bearer": [ ]
     }
   ],
   "tags": [
@@ -10222,10 +12399,22 @@
       "name": "Cameras"
     },
     {
+      "name": "CheckoutCounters"
+    },
+    {
+      "name": "CheckoutRuntime"
+    },
+    {
       "name": "Health"
     },
     {
       "name": "IncidentTypes"
+    },
+    {
+      "name": "IncidentTypeSlaPolicy"
+    },
+    {
+      "name": "ManagerAnalytics"
     },
     {
       "name": "MeDevices"
@@ -10243,6 +12432,12 @@
       "name": "NotificationSettings"
     },
     {
+      "name": "OperationalEvents"
+    },
+    {
+      "name": "OperatorTaskOffers"
+    },
+    {
       "name": "RecordedVideos"
     },
     {
@@ -10258,7 +12453,13 @@
       "name": "ShiftSwaps"
     },
     {
+      "name": "SlaPolicies"
+    },
+    {
       "name": "StaffMe"
+    },
+    {
+      "name": "StaffReports"
     },
     {
       "name": "StaffSwaps"
@@ -10285,16 +12486,10 @@
       "name": "WorkShifts"
     },
     {
-      "name": "ZoneStaffing"
-    },
-    {
       "name": "ZoneAdjacencies"
     },
     {
-      "name": "ManagerAnalytics"
-    },
-    {
-      "name": "OperationalEvents"
+      "name": "ZoneStaffing"
     }
   ]
 }

@@ -11,6 +11,12 @@ public interface IMonitoringSnapshotReader
 {
     Task<MonitoringCameraSnapshot[]> ReadAll(CancellationToken ct);
     Task<bool> IsCurrent(MonitoringCameraSnapshot snapshot,Guid zoneId,CancellationToken ct);
+    async Task<bool> IsCurrentAggregate(MonitoringCameraSnapshot[] snapshots,Guid zoneId,CancellationToken ct)
+    {
+        foreach(var snapshot in snapshots)
+            if(!await IsCurrent(snapshot,zoneId,ct)) return false;
+        return snapshots.Length>0;
+    }
 }
 public interface IMonitoringIncidentQueries
 {

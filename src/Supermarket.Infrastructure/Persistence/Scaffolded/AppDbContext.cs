@@ -15,11 +15,15 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<Camera> Cameras { get; set; }
 
+    public virtual DbSet<CameraCheckoutMapping> CameraCheckoutMappings { get; set; }
+
     public virtual DbSet<CameraConnection> CameraConnections { get; set; }
 
     public virtual DbSet<CameraHealthEvent> CameraHealthEvents { get; set; }
 
     public virtual DbSet<CameraZoneMapping> CameraZoneMappings { get; set; }
+
+    public virtual DbSet<CheckoutCounter> CheckoutCounters { get; set; }
 
     public virtual DbSet<Floor> Floors { get; set; }
 
@@ -209,6 +213,49 @@ public partial class AppDbContext : DbContext
                 .HasConstraintName("FK_Camera_Floor");
         });
 
+        modelBuilder.Entity<CameraCheckoutMapping>(entity =>
+        {
+            entity.HasKey(e => e.MappingId);
+
+            entity.ToTable("CameraCheckoutMapping");
+
+            entity.HasIndex(e => e.CheckoutCounterId, "IX_CameraCheckoutMapping_CounterId");
+
+            entity.HasIndex(e => new { e.CameraId, e.CheckoutCounterId }, "UQ_CameraCheckoutMapping_Camera_Counter").IsUnique();
+
+            entity.HasIndex(e => e.CheckoutCounterId, "UX_CameraCheckoutMapping_EnabledQueueSource")
+                .IsUnique()
+                .HasFilter("([is_enabled]=(1) AND [is_queue_source]=(1))");
+
+            entity.Property(e => e.MappingId)
+                .HasDefaultValueSql("(newsequentialid())")
+                .HasColumnName("mapping_id");
+            entity.Property(e => e.CameraId).HasColumnName("camera_id");
+            entity.Property(e => e.CheckoutCounterId).HasColumnName("checkout_counter_id");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_CameraCheckoutMapping_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.IsEnabled).HasColumnName("is_enabled");
+            entity.Property(e => e.IsQueueSource).HasColumnName("is_queue_source");
+            entity.Property(e => e.LaneRoi).HasColumnName("lane_roi");
+            entity.Property(e => e.StaffRoi).HasColumnName("staff_roi");
+            entity.Property(e => e.UpdatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_CameraCheckoutMapping_UpdatedAt")
+                .HasColumnName("updated_at");
+
+            entity.HasOne(d => d.Camera).WithMany(p => p.CameraCheckoutMappings)
+                .HasForeignKey(d => d.CameraId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_CameraCheckoutMapping_Camera");
+
+            entity.HasOne(d => d.CheckoutCounter).WithOne(p => p.CameraCheckoutMapping)
+                .HasForeignKey<CameraCheckoutMapping>(d => d.CheckoutCounterId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_CameraCheckoutMapping_Counter");
+        });
+
         modelBuilder.Entity<CameraConnection>(entity =>
         {
             entity.HasKey(e => e.ConnectionId);
@@ -348,6 +395,38 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.ZoneId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_CameraZoneMapping_Zone");
+        });
+
+        modelBuilder.Entity<CheckoutCounter>(entity =>
+        {
+            entity.ToTable("CheckoutCounter");
+
+            entity.HasIndex(e => new { e.ZoneId, e.Code }, "UQ_CheckoutCounter_Zone_Code").IsUnique();
+
+            entity.Property(e => e.CheckoutCounterId)
+                .HasDefaultValueSql("(newsequentialid())")
+                .HasColumnName("checkout_counter_id");
+            entity.Property(e => e.Code)
+                .HasMaxLength(50)
+                .HasColumnName("code");
+            entity.Property(e => e.CreatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_CheckoutCounter_CreatedAt")
+                .HasColumnName("created_at");
+            entity.Property(e => e.IsEnabled).HasColumnName("is_enabled");
+            entity.Property(e => e.Name)
+                .HasMaxLength(100)
+                .HasColumnName("name");
+            entity.Property(e => e.UpdatedAt)
+                .HasPrecision(3)
+                .HasDefaultValueSql("(sysutcdatetime())", "DF_CheckoutCounter_UpdatedAt")
+                .HasColumnName("updated_at");
+            entity.Property(e => e.ZoneId).HasColumnName("zone_id");
+
+            entity.HasOne(d => d.Zone).WithMany(p => p.CheckoutCounters)
+                .HasForeignKey(d => d.ZoneId)
+                .OnDelete(DeleteBehavior.ClientSetNull)
+                .HasConstraintName("FK_CheckoutCounter_Zone");
         });
 
         modelBuilder.Entity<Floor>(entity =>
@@ -1132,10 +1211,6 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.IncidentTypeId, "IX_SLAPolicy_IncidentTypeId").HasFilter("([incident_type_id] IS NOT NULL)");
 
-            entity.HasIndex(e => e.TaskTypeId, "UX_SLAPolicy_Enabled_StandaloneTaskType")
-                .IsUnique()
-                .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'STANDALONE_TASK' AND [task_type_id] IS NOT NULL)");
-
             entity.HasIndex(e => e.ProblemDomain, "UX_SLAPolicy_Enabled_IncidentFallback")
                 .IsUnique()
                 .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'INCIDENT' AND [incident_type_id] IS NULL)");
@@ -1152,6 +1227,10 @@ public partial class AppDbContext : DbContext
                 .IsUnique()
                 .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'OPERATIONAL_EVENT')");
 
+            entity.HasIndex(e => e.TaskTypeId, "UX_SLAPolicy_Enabled_StandaloneTaskType")
+                .IsUnique()
+                .HasFilter("([is_enabled]=(1) AND [problem_domain]=N'STANDALONE_TASK' AND [task_type_id] IS NOT NULL)");
+
             entity.Property(e => e.PolicyId)
                 .HasDefaultValueSql("(newsequentialid())", "DF_SLAPolicy_Id")
                 .HasColumnName("policy_id");
@@ -1161,7 +1240,6 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("created_at");
             entity.Property(e => e.EventTypeId).HasColumnName("event_type_id");
             entity.Property(e => e.IncidentTypeId).HasColumnName("incident_type_id");
-            entity.Property(e => e.TaskTypeId).HasColumnName("task_type_id");
             entity.Property(e => e.IsEnabled)
                 .HasDefaultValue(true, "DF_SLAPolicy_Enabled")
                 .HasColumnName("is_enabled");
@@ -1174,6 +1252,7 @@ public partial class AppDbContext : DbContext
                 .HasColumnName("problem_domain");
             entity.Property(e => e.ResolutionTargetSec).HasColumnName("resolution_target_sec");
             entity.Property(e => e.ResponseTargetSec).HasColumnName("response_target_sec");
+            entity.Property(e => e.TaskTypeId).HasColumnName("task_type_id");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(3)
                 .HasDefaultValueSql("(sysutcdatetime())", "DF_SLAPolicy_UpdatedAt")
@@ -1193,8 +1272,8 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey<Slapolicy>(d => d.IncidentTypeId)
                 .HasConstraintName("FK_SLAPolicy_IncidentType");
 
-            entity.HasOne(d => d.TaskType).WithMany()
-                .HasForeignKey(d => d.TaskTypeId)
+            entity.HasOne(d => d.TaskType).WithOne(p => p.Slapolicy)
+                .HasForeignKey<Slapolicy>(d => d.TaskTypeId)
                 .HasConstraintName("FK_SLAPolicy_TaskType");
         });
 
@@ -1273,10 +1352,10 @@ public partial class AppDbContext : DbContext
                 .HasMaxLength(1000)
                 .HasColumnName("location_description");
             entity.Property(e => e.OriginalInputJson).HasColumnName("original_input_json");
-            entity.Property(e => e.ReportedByUserId).HasColumnName("reported_by_user_id");
             entity.Property(e => e.ReportCategory)
                 .HasMaxLength(32)
                 .HasColumnName("report_category");
+            entity.Property(e => e.ReportedByUserId).HasColumnName("reported_by_user_id");
             entity.Property(e => e.Status)
                 .HasMaxLength(40)
                 .HasColumnName("status");

@@ -23,11 +23,17 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
 
         return store.Transaction(async()=>
         {
-            if(!await snapshots.IsCurrent(command.Snapshot,command.Zone.ZoneId,ct))
+            if(!(command.AggregateSources is { } sources
+                ? await snapshots.IsCurrentAggregate(sources,command.Zone.ZoneId,ct)
+                : await snapshots.IsCurrent(command.Snapshot,command.Zone.ZoneId,ct)))
                 return new IncidentWriteResult(false,true,false,null,"CONFIGURATION_CHANGED");
 
+            EnsureEvidenceFresh(command);
+
             var rule=command.Rule; var zone=command.Zone; var batch=command.Batch;
-            var metric=rule.Mode=="QUEUE_LENGTH"?command.Measurement.QueueCount:command.Measurement.PeopleCount;
+            if(rule.Mode=="CHECKOUT_CAPACITY" && command.MetricOverride is null || rule.Mode!="CHECKOUT_CAPACITY" && command.MetricOverride is not null)
+                throw new ApplicationException("CHECKOUT_MEASUREMENT_INVALID","Checkout rules require a validated aggregate metric.",503);
+            var metric=command.MetricOverride??(rule.Mode=="QUEUE_LENGTH"?command.Measurement.QueueCount:command.Measurement.PeopleCount);
             var metadata=Metadata(command,metric);
 
             if(outcome=="INCIDENT")
@@ -62,6 +68,7 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
             }
 
             var active=(await store.List<OperationalEvent>(e=>e.RuleId==rule.RuleId && e.ZoneId==zone.ZoneId && e.ClearedAt==null,ct)).SingleOrDefault();
+            EnsureEvidenceFresh(command);
             if(active is not null && AlreadyApplied(active,batch))
                 return new(true,false,true,null,"IDEMPOTENT",0,active.EventId,active.Priority);
 
@@ -105,12 +112,23 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
         },ct);
     }
 
-    private static string Metadata(IncidentObservationCommand command,decimal metric)=>JsonSerializer.Serialize(new {
+    private void EnsureEvidenceFresh(IncidentObservationCommand command)
+    {
+        if(command.Rule.Mode=="CHECKOUT_CAPACITY" && (command.EvidenceValidUntil is not { } until || clock.UtcNow>until))
+            throw new ApplicationException("CHECKOUT_OBSERVATION_STALE","Checkout evidence expired before persistence.",503);
+    }
+
+    private static string Metadata(IncidentObservationCommand command,decimal metric)
+    {
+        var metadata=JsonSerializer.SerializeToNode(new {
         outcomeType=command.Rule.OutcomeType,eventTypeId=command.Rule.EventTypeId,eventTypeCode=command.Rule.EventTypeCode,measurementMode=command.Rule.Mode,thresholdUnit=command.Rule.Unit,
         command.Rule.WarningThreshold,command.Rule.CriticalThreshold,command.Rule.SustainSec,clearDurationSec=command.Rule.ClearDurationSec??command.Rule.SustainSec,
         command.Zone.ConfigId,configurationVersion=command.Zone.ConfigVersion,command.Zone.Confidence,
         videoSourceType=command.Snapshot.Connection.SourceType,command.Batch.SessionId,command.Batch.ContinuityId,command.Batch.Sequence,
-        command.Batch.SourceElapsedMs,command.Batch.ConfigurationFingerprint,metric,command.Measurement.PeopleCount,command.Measurement.QueueCount },Json);
+        command.Batch.SourceElapsedMs,command.Batch.ConfigurationFingerprint,metric,command.Measurement.PeopleCount,command.Measurement.QueueCount },Json)!.AsObject();
+        if(command.CheckoutEvidence is not null) metadata["checkout"]=JsonSerializer.SerializeToNode(command.CheckoutEvidence,Json);
+        return metadata.ToJsonString(Json);
+    }
 
     private static bool AlreadyApplied(OperationalEvent active,AiMeasurementBatch batch)
     {

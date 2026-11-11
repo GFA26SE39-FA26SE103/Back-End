@@ -24,6 +24,8 @@ Controller và use case cùng kiểm tra quyền; STAFF không đọc được d
 | Preview | GET /cameras/{id}/preview: image/svg+xml cho demo, image/jpeg cho FFmpeg |
 | Browser playback | POST /cameras/{id}/playback: provision MediaMTX path và trả WebRTC/WHEP URL đã sanitize |
 | Geometry | GET /cameras/{id}/zones; PUT/DELETE /cameras/{id}/zones/{zoneId} |
+| Checkout configuration | [Checkout API](CHECKOUT_API.md): GET/POST /zones/{zoneId}/checkout-counters; GET/PATCH/DELETE /checkout-counters/{counterId}; GET /cameras/{cameraId}/checkout-mappings; GET /checkout-counters/{counterId}/camera-mappings; PUT/DELETE /checkout-counters/{counterId}/camera-mappings/{cameraId} |
+| Checkout runtime | GET /zones/{zoneId}/checkout-runtime (ADMIN/OPERATOR/MANAGER; no-store, missing measurements stay null) |
 | AI catalog | GET /incident-types (ADMIN, read-only AI types) |
 | Monitoring | GET/PUT/DELETE /zones/{zoneId}/monitoring; GET .../review; POST .../activate, .../deactivate |
 | Setup dashboard | GET /setup/overview (ADMIN, read-only saved-data snapshot) |

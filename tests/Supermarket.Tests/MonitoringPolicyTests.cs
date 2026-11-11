@@ -43,7 +43,7 @@ public sealed class MonitoringPolicyTests
     [InlineData("json", "INVALID_RULE_PARAMETERS")]
     [InlineData("primitive", "INVALID_RULE_PARAMETERS")]
     [InlineData("inactive", "OPERATIONAL_EVENT_TYPE_INACTIVE")]
-    [InlineData("checkout", "RULE_UNSUPPORTED")]
+    [InlineData("checkout", "INVALID_RULE_UNIT")]
     public void RejectsInvalidRule(string reason, string code)
     {
         var rule = Rule; var type = Type;

@@ -11,7 +11,7 @@ public interface IRecordedVideoStorage
 public sealed record RecordedVideoView(Guid CameraId, string SourceType = "RECORDED", string Protocol = "FILE");
 
 public sealed class RecordedVideoUpload(ISetupStore store, ICurrentUser current, IRecordedVideoStorage files,
-    CameraSetup cameras, IAiPreviewClient ai)
+    CameraSetup cameras, IAiPreviewClient ai, CheckoutSourceGuard? checkoutGuard=null)
 {
     public const long MaxBytes = 200L * 1024 * 1024;
 
@@ -21,6 +21,7 @@ public sealed class RecordedVideoUpload(ISetupStore store, ICurrentUser current,
         var camera = UseCase.Found(await store.Find<Camera>(cameraId, ct));
         if (camera.Status != "ACTIVE")
             throw new ApplicationException("CAMERA_NOT_ACTIVE", "Activate the camera before uploading video.");
+        if(checkoutGuard is not null) await checkoutGuard.EnsureCameraEditable(cameraId,ct);
         var mappings = await store.List<CameraZoneMapping>(m => m.CameraId == cameraId && m.Status == "ACTIVE", ct);
         foreach (var mapping in mappings)
             if ((await store.List<MonitoringConfiguration>(m => m.ZoneId == mapping.ZoneId && m.Status == "ACTIVE", ct)).Count > 0)
