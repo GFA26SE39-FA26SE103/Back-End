@@ -173,6 +173,7 @@ public sealed class SetupOverviewTests
             {
                 services.RemoveAll<ISetupStore>(); services.AddSingleton<ISetupStore>(store);
                 services.RemoveAll<ICheckoutSchema>(); services.AddSingleton<ICheckoutSchema,NoCheckoutSchema>();
+                services.RemoveAll<ICheckoutConfigurationQueries>(); services.AddSingleton<ICheckoutConfigurationQueries,NoCheckoutConfigurationQueries>();
                 // This API harness uses an in-memory store, not the SQL runtime repository.
                 services.RemoveAll<IMonitoringIncidentQueries>();
                 services.PostConfigure<Supermarket.Infrastructure.Monitoring.MonitoringWorkerOptions>(o => o.Enabled = false);
