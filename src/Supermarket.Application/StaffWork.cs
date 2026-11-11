@@ -190,7 +190,9 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
         var (policy, action) = match.Value;
         if (action.ActionType == OperationalSlaPolicyRules.NotifyOperator)
         {
-            await EventNotice(ev, "OPERATIONAL_EVENT_WARNING", "Operational warning", "Review the operational event.", ct);
+            // L7: the WARNING action may target Managers instead of the default Operators.
+            var targetRole = action.TargetRoleId is Guid roleId ? await store.Find<Role>(roleId, ct) : null;
+            await EventNotice(ev, "OPERATIONAL_EVENT_WARNING", "Operational warning", "Review the operational event.", ct, targetRole?.Name);
             return;
         }
 
@@ -479,11 +481,12 @@ public sealed class TaskDispatch(ISetupStore store, StaffRoster roster, TaskNoti
     private Task ConfigurationException(OperationalEvent ev, string code, CancellationToken ct)
         => EventNotice(ev, "OPERATIONAL_SLA_CONFIGURATION_EXCEPTION", "Operational SLA configuration needs attention", code, ct);
 
-    private async Task EventNotice(OperationalEvent ev, string type, string title, string message, CancellationToken ct)
+    private async Task EventNotice(OperationalEvent ev, string type, string title, string message, CancellationToken ct, string? roleName = null)
     {
         // Runs within the event writer's serializable transaction: one notice per episode/type.
         if ((await store.List<Notification>(n => n.EventId == ev.EventId && n.NotificationType == type, ct)).Count != 0) return;
-        await notifier.Broadcast(type, title, message, await notifier.Operators(ct), "OPERATOR", ct, ev.EventId, ev.Priority, ev.CameraId);
+        var role = roleName ?? "OPERATOR";
+        await notifier.Broadcast(type, title, message, await notifier.RoleUsers(role, ct), role, ct, ev.EventId, ev.Priority, ev.CameraId);
     }
 
     private static TaskParameters? Parameters(string? json)
