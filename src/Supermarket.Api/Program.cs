@@ -177,6 +177,8 @@ builder.Services.AddSingleton<IMonitoringSessionOwnership>(s=>s.GetRequiredServi
 builder.Services.AddScoped<SetupOverview>();
 builder.Services.AddScoped<IAnalyticsQueries, EfAnalyticsQueries>();
 builder.Services.AddScoped<ManagerAnalytics>();
+builder.Services.AddSingleton<IAnalyticsReportRenderer, AnalyticsReportRenderer>();
+builder.Services.AddScoped<ManagerAnalyticsExport>();
 builder.Services.AddScoped<IOperationalEventQueries, EfOperationalEventQueries>();
 builder.Services.AddScoped<OperationalEventHistory>();
 builder.Services.AddScoped<CameraHealth>();

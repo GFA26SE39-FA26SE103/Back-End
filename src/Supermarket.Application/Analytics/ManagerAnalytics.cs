@@ -43,6 +43,26 @@ public sealed class ManagerAnalytics(IAnalyticsQueries queries, ISetupStore stor
             .Select(zone => new AnalyticsZone(zone.ZoneId, zone.Name, Summarize(rows[zone.ZoneId]))).ToArray());
     }
 
+    public async Task<AnalyticsReportData> Report(AnalyticsQuery query, CancellationToken ct)
+    {
+        var window = await Window(query, ct);
+        var data = await queries.Read(window, ct);
+        var byDay = data.ToLookup(row => row.Day);
+        var byZone = data.ToLookup(row => row.ZoneId);
+        var zones = await store.List<Zone>(z => window.ZoneId == null || z.ZoneId == window.ZoneId, ct);
+        return new(window, Summarize(data),
+            Enumerable.Range(0, window.DayStartsUtc.Length)
+                .Select(day => new AnalyticsDay(window.From.AddDays(day), Summarize(byDay[day]))).ToArray(),
+            zones.OrderBy(zone => zone.Name).ThenBy(zone => zone.ZoneId)
+                .Select(zone => new AnalyticsZone(zone.ZoneId, zone.Name, Summarize(byZone[zone.ZoneId]))).ToArray(),
+            [
+                "Incident KPI totals exclude records whose current status is DISMISSED; recorded and dismissed counts are retained for reconciliation.",
+                "Missing averages and SLA rates are unavailable, not zero.",
+                "Statuses are current at generation time; this report does not reconstruct historical end-of-day status.",
+                "This export contains recorded Operational Events, Incidents and Tasks. Camera-health and AI-measurement series are unavailable in the current analytics dataset."
+            ]);
+    }
+
     private static AnalyticsSummary Summarize(IEnumerable<AnalyticsBucket> source)
     {
         var rows = source.ToArray();
