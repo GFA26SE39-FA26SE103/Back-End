@@ -123,6 +123,13 @@ public sealed class Zone : TrackedEntity
     /// <summary>Minimum Staff per shift for this Zone (ERD V6 Zone.min_staff, default 0).</summary>
     public int MinStaff { get; set; }
 }
+public sealed class ZoneAdjacency : Entity
+{
+    public Guid ZoneAdjacencyId { get; set; }
+    public Guid ZoneId { get; set; }
+    public Guid AdjacentZoneId { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
 public sealed class Camera : TrackedEntity
 {
     public Guid CameraId

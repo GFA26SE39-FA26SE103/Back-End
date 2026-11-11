@@ -8,7 +8,7 @@ public interface IOperatorTaskQueries
 
 public sealed record ManualTaskRequest(Guid TaskId, Guid ZoneId, string TaskTypeCode, string Title, string? Instructions);
 
-/// <summary>Operator task board and manual assignment after escalation (BR-20, BR-22). Manual assignment enters at Accepted.</summary>
+/// <summary>Operator task board and manual assignment after escalation (BR-20, BR-22). Staff must accept a manual offer.</summary>
 public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, IClock clock, StaffRoster roster, TaskDispatch dispatch, TaskNotifier notifier, TaskViews views,
     ITaskSchema schema, IOperatorTaskQueries queries, StandaloneTaskSlaPolicyService taskSla)
 {
@@ -112,7 +112,7 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
         UseCase.Operator(current);
         await schema.Require(ct);
         var task = UseCase.Found(await store.Find<WorkTask>(taskId, ct));
-        var excluded = await RejectedTwice(taskId, ct);
+        var excluded = await RejectedPerformers(taskId, ct);
         var onShift = await roster.OnShift(clock.UtcNow, ct);
         var specialty = task.TaskTypeId is { } taskTypeId ? (await store.Find<TaskType>(taskTypeId, ct))?.RequiredSpecialtyId : null;
         // Historical/manual tasks may predate V7 TaskType data. Enforce specialty whenever
@@ -139,31 +139,34 @@ public sealed class OperatorTasks(ISetupStore store, ICurrentUser current, ICloc
             var staff = (await roster.OnShift(now, ct)).SingleOrDefault(s => s.User.UserId == request.StaffUserId)
                 ?? throw new ApplicationException("STAFF_NOT_ON_SHIFT", "The Staff member is not checked in to a current shift.");
             if (task.CurrentAssigneeUserId == staff.User.UserId) return 0;
-            if ((await RejectedTwice(taskId, ct)).Contains(staff.User.UserId))
-                throw new ApplicationException("STAFF_REJECTED_TWICE", "This Staff member's work on the task was rejected twice; assign a different Staff member.");
+            if ((await RejectedPerformers(taskId, ct)).Contains(staff.User.UserId))
+                throw new ApplicationException("STAFF_REJECTED_TWICE", "This Staff member's rejected work requires assigning a different Staff member.");
             if (staff.ActiveTasks >= TaskRules.MaxActiveTasks) throw new ApplicationException("WORKLOAD_LIMIT", "The Staff member has reached the active-task limit.");
             if (task.TaskTypeId is not null && !await roster.HasRequiredSpecialty(task, staff.User, ct))
                 throw new ApplicationException("SPECIALTY_MISMATCH", "The Staff member's specialty does not match this TaskType.", 422);
             if (task.CurrentAssigneeUserId is not null || !staff.ZoneIds.Contains(task.ZoneId))
                 Rules.Require(!string.IsNullOrWhiteSpace(request.Reason), "REASON_REQUIRED", "A reason is required for reassignment or assignment outside the Task Zone.");
-            foreach (var previous in await store.List<TaskAssignmentHistory>(a => a.TaskId == taskId && a.Status == OfferStatus.Accepted && a.EndedAt == null, ct))
-            {
-                previous.EndedAt = now; previous.Reason = "REASSIGNED";
-                await store.Update(previous, ct);
-            }
             await dispatch.CloseOpenOffers(taskId, TaskOfferStatus.Cancelled, "MANUALLY_ASSIGNED", now, ct);
+            var offer = new TaskOffer
+            {
+                OfferId = Guid.NewGuid(), TaskId = taskId, StaffUserId = staff.User.UserId, DispatchCycleId = Guid.NewGuid(),
+                WaveNumber = 1, DispatchScope = TaskDispatchScope.Manual, Status = TaskOfferStatus.Pending,
+                OfferedAt = now, ExpiresAt = now.AddSeconds(await dispatch.OfferTimeout(task, ct))
+            };
+            await store.Add(offer, ct);
             await store.Add(new TaskAssignmentHistory { TaskAssignmentId = Guid.NewGuid(), TaskId = taskId, StaffUserId = staff.User.UserId, AssignedByUserId = current.UserId,
-                AssignmentType = TaskAssignmentType.Manual, Status = OfferStatus.Accepted, AssignedAt = now, RespondedAt = now, Reason = request.Reason?.Trim() }, ct);
-            task.CurrentAssigneeUserId = staff.User.UserId; task.AssignedByUserId = current.UserId; task.AssignedAt = now; task.AcceptedAt = now;
-            task.Status = WorkTaskStatus.Accepted; task.PlannedStartAt = null; task.StartedAt = null;
+                AssignmentType = TaskAssignmentType.Manual, Status = OfferStatus.Pending, AssignedAt = now, Reason = request.Reason?.Trim() }, ct);
+            // The proposal is part of the Task's assignment state; bump its concurrency version so
+            // another Operator cannot replace it using the stale board snapshot.
             await store.Update(task, ct);
-            await notifier.Send(TaskNotifier.Assigned, $"{task.Priority} · Task assigned to you", task.Title, task, [staff.User.UserId], "MANUAL_ASSIGNEE", ct);
+            await notifier.Send(TaskNotifier.Offer, $"{task.Priority} · Task assignment request", task.Title, task, [staff.User.UserId], "MANUAL_ASSIGNEE", ct);
             return 0;
         }, ct);
         return (await views.Tasks([UseCase.Found(await store.Find<WorkTask>(taskId, ct))], ct)).Single();
     }
 
-    /// <summary>Staff whose work on this Task was rejected twice; BR-28 requires someone else.</summary>
-    private async Task<HashSet<Guid>> RejectedTwice(Guid taskId, CancellationToken ct)
-        => (await store.List<TaskAssignmentHistory>(a => a.TaskId == taskId && a.Reason == TaskEvidenceRules.RejectedTwiceReason, ct)).Select(a => a.StaffUserId).ToHashSet();
+    /// <summary>Staff excluded after either two initial rejections or a rejected replacement submission.</summary>
+    private async Task<HashSet<Guid>> RejectedPerformers(Guid taskId, CancellationToken ct)
+        => (await store.List<TaskAssignmentHistory>(a => a.TaskId == taskId
+            && TaskEvidenceRules.ReassignmentExclusionReasons.Contains(a.Reason!), ct)).Select(a => a.StaffUserId).ToHashSet();
 }

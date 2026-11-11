@@ -48,7 +48,8 @@ public sealed class StaffTaskTests
         var ev = await w.Raise("CRITICAL");
 
         var task = Assert.Single(w.Tasks, t => t.EventId == ev.EventId);
-        Assert.Equal((WorkTaskStatus.Offered, TaskOrigin.OperationalEvent, "CRITICAL", w.Zone.ZoneId), (task.Status, task.OriginType, task.Priority, task.ZoneId));
+        Assert.Equal((WorkTaskStatus.Offered, TaskOrigin.OperationalEvent, "MEDIUM", w.Zone.ZoneId), (task.Status, task.OriginType, task.Priority, task.ZoneId));
+        Assert.Equal((TaskVerificationMode.Auto, TaskVerificationMethod.OperationalMetric), (task.VerificationMode, task.VerificationMethod));
         Assert.Equal("Clear the queue", task.Title); Assert.Equal("Open one more counter", task.Description);
         Assert.Equal(new[] { a, b }.Order(), w.Offers(task).Select(o => o.StaffUserId).Order());
         Assert.DoesNotContain(w.Offers(task), o => o.StaffUserId == otherZone || o.StaffUserId == notCheckedIn || o.StaffUserId == busy || o.StaffUserId == wrongSpecialty);
@@ -139,17 +140,34 @@ public sealed class StaffTaskTests
         await w.Dispatch.Raised(ev, "WARNING", default);
         await w.Dispatch.Raised(ev, "CRITICAL", default);
         var task = Assert.Single(w.Tasks);
-        Assert.Equal("CRITICAL", task.Priority);
+        Assert.Equal("MEDIUM", task.Priority);
         Assert.Equal(ev.EventId, task.EventId);
         Assert.Empty(w.Notifications(task, TaskNotifier.PriorityRaised));
         Assert.Single(w.Notifications(task, TaskNotifier.Offer));
         Assert.Single(w.Offers(task));
         Assert.Single(w.Store.Values.OfType<Notification>(), n => n.TaskId is null && n.EventId == ev.EventId);
         var offer = Assert.Single(await w.StaffTasks(a).Offers(true, default));
-        Assert.Equal("CRITICAL", offer.Priority);
+        Assert.Equal("MEDIUM", offer.Priority);
         var view = Assert.Single(await w.Views.Tasks([task], default));
-        Assert.Equal("CRITICAL", view.Priority);
+        Assert.Equal("MEDIUM", view.Priority);
+        Assert.Equal("MEDIUM", view.SlaPriorityCode);
+        Assert.Equal(TaskVerificationMode.Auto, task.VerificationMode);
         Assert.Null(view.RaisedFrom);
+    }
+
+    [Fact]
+    public async Task CriticalSlaPriorityForcesManualVerificationIndependentlyOfEventAlertLevel()
+    {
+        var w = new World(); w.Staff("An", checkedIn: true); w.Policy(priorityCode: "CRITICAL");
+
+        await w.Raise("CRITICAL");
+
+        var task = Assert.Single(w.Tasks);
+        Assert.Equal("CRITICAL", task.Priority);
+        Assert.Equal((TaskVerificationMode.Manual, TaskVerificationMethod.OperatorEvidence),
+            (task.VerificationMode, task.VerificationMethod));
+        var snapshot = IncidentSlaPolicyService.ReadSnapshot(task.SlaSnapshotJson);
+        Assert.Equal("CRITICAL", snapshot?.PriorityCode);
     }
 
     [Fact]
@@ -197,10 +215,14 @@ public sealed class StaffTaskTests
         await w.Raise("CRITICAL");
         Assert.Equal("REASON_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() => w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.CannotHandle, null, " "), default))).Code);
 
-        Assert.Null((await w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.CannotHandle, null, "Helping a customer"), default)).Task);
+        Assert.Equal("INVALID_DECLINE_REASON", (await Assert.ThrowsAsync<DomainException>(() => w.StaffTasks(a).Respond(
+            w.OfferFor(a).OfferId, new(TaskResponse.CannotHandle, null, "Helping a customer"), default))).Code);
+
+        Assert.Null((await w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.CannotHandle, null, $" {TaskDeclineReason.Busy} "), default)).Task);
+        Assert.Equal(TaskDeclineReason.Busy, w.OfferFor(a).DeclineReasonCode);
         var task = Assert.Single(w.Tasks);
         Assert.Empty(w.Notifications(task, TaskNotifier.NeedsAssignment));
-        await w.StaffTasks(b).Respond(w.OfferFor(b).OfferId, new(TaskResponse.CannotHandle, null, "On break"), default);
+        await w.StaffTasks(b).Respond(w.OfferFor(b).OfferId, new(TaskResponse.CannotHandle, null, TaskDeclineReason.Unavailable), default);
         Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment))));
         Assert.Equal(WorkTaskStatus.Offered, task.Status);
         Assert.True(Assert.Single(await w.Operator(op).List(null, true, default)).NeedsAssignment);
@@ -220,35 +242,60 @@ public sealed class StaffTaskTests
     }
 
     [Fact]
-    public async Task RetryReoffersEachIntervalThenExpiresAndAsksTheOperatorOnce()
+    public async Task DispatchExpandsThroughFiveTopologyRingsWithoutRepeatingStaffOrResettingSla()
     {
-        var w = new World(); var a = w.Staff("An", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        var w = new World(); var same = w.Staff("Same", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        var remaining = new Zone { ZoneId = Guid.NewGuid(), FloorId = w.Floor.FloorId, Code = "D", Name = "Zone D" };
+        var adjacentFloor = new Floor { FloorId = Guid.NewGuid(), SupermarketId = w.Market.SupermarketId, FloorNumber = 1, Name = "Floor 1" };
+        var otherFloor = new Floor { FloorId = Guid.NewGuid(), SupermarketId = w.Market.SupermarketId, FloorNumber = 5, Name = "Floor 5" };
+        var adjacentFloorZone = new Zone { ZoneId = Guid.NewGuid(), FloorId = adjacentFloor.FloorId, Code = "A1", Name = "Floor 1 zone" };
+        var otherFloorZone = new Zone { ZoneId = Guid.NewGuid(), FloorId = otherFloor.FloorId, Code = "A5", Name = "Floor 5 zone" };
+        w.Store.Values.AddRange([remaining, adjacentFloor, otherFloor, adjacentFloorZone, otherFloorZone,
+            new ZoneAdjacency { ZoneAdjacencyId = Guid.NewGuid(), ZoneId = w.Zone.ZoneId, AdjacentZoneId = w.OtherZone.ZoneId, CreatedAt = Now }]);
+        var adjacent = w.Staff("Adjacent", checkedIn: true, w.OtherZone);
+        var sameFloor = w.Staff("Same floor", checkedIn: true, remaining);
+        var nearFloor = w.Staff("Near floor", checkedIn: true, adjacentFloorZone);
+        var farFloor = w.Staff("Far floor", checkedIn: true, otherFloorZone);
         await w.Raise("CRITICAL");
         var task = Assert.Single(w.Tasks);
+        var deadlines = (task.ResponseDeadlineAt, task.ResolutionDeadlineAt, task.SlaSnapshotJson);
+        Assert.Equal((same, 1, TaskDispatchScope.SameZone), (Assert.Single(w.Offers(task)).StaffUserId, Assert.Single(w.Offers(task)).WaveNumber, Assert.Single(w.Offers(task)).DispatchScope));
         Assert.Equal(0, await w.Dispatch.Tick(default));
 
-        var late = w.Staff("Binh", checkedIn: true);
         w.Clock.UtcNow = Now.AddSeconds(60);
         Assert.Equal(1, await w.Dispatch.Tick(default));
-        Assert.Equal(2, w.Notifications(task, TaskNotifier.Offer).Count);
-        Assert.Equal(new[] { a, late }.Order(), w.Offers(task).Select(o => o.StaffUserId).Distinct().Order());
-        Assert.All(w.Offers(task).Where(o => o.Status == TaskOfferStatus.Pending).GroupBy(o => o.StaffUserId), g => Assert.Single(g));
-        var offer = Assert.Single(await w.StaffTasks(a).Offers(true, default));
-        Assert.Equal((2, 3, Now.AddSeconds(120), 2), (offer.Attempt, offer.MaxAttempts, offer.NextAlertAt, offer.Recipients));
+        w.Clock.UtcNow = Now.AddSeconds(120); Assert.Equal(1, await w.Dispatch.Tick(default));
+        w.Clock.UtcNow = Now.AddSeconds(180); Assert.Equal(1, await w.Dispatch.Tick(default));
+        w.Clock.UtcNow = Now.AddSeconds(240); Assert.Equal(1, await w.Dispatch.Tick(default));
+        Assert.Equal(
+            new[]
+            {
+                (same, 1, TaskDispatchScope.SameZone),
+                (adjacent, 2, TaskDispatchScope.AdjacentSameFloor),
+                (sameFloor, 3, TaskDispatchScope.RemainingSameFloor),
+                (nearFloor, 4, TaskDispatchScope.AdjacentFloor),
+                (farFloor, 5, TaskDispatchScope.OtherFloor)
+            },
+            w.Offers(task).OrderBy(o => o.WaveNumber).Select(o => (o.StaffUserId, o.WaveNumber, o.DispatchScope)).ToArray());
+        Assert.Equal(5, w.Notifications(task, TaskNotifier.Offer).Count);
+        Assert.Equal(5, w.Notifications(task, TaskNotifier.DispatchRing).Count);
+        Assert.Equal(5, w.Offers(task).Select(o => o.StaffUserId).Distinct().Count());
+        Assert.Equal(deadlines, (task.ResponseDeadlineAt, task.ResolutionDeadlineAt, task.SlaSnapshotJson));
+        Assert.Single(w.Tasks);
+        Assert.Equal((5, 5, (DateTime?)null), ((await w.StaffTasks(farFloor).Offers(true, default)).Single().Attempt,
+            (await w.StaffTasks(farFloor).Offers(true, default)).Single().MaxAttempts,
+            (await w.StaffTasks(farFloor).Offers(true, default)).Single().NextAlertAt));
 
-        w.Clock.UtcNow = Now.AddSeconds(120); await w.Dispatch.Tick(default);
-        Assert.Equal(3, w.Notifications(task, TaskNotifier.Offer).Count);
-        Assert.Null(Assert.Single(await w.StaffTasks(a).Offers(true, default)).NextAlertAt);
-        w.Clock.UtcNow = Now.AddSeconds(180); await w.Dispatch.Tick(default);
+        w.Clock.UtcNow = Now.AddSeconds(300); Assert.Equal(1, await w.Dispatch.Tick(default));
         Assert.All(w.Offers(task), o => Assert.Equal((TaskOfferStatus.Expired, "NO_RESPONSE"), (o.Status, o.DeclineReasonCode)));
         Assert.Equal([op], w.Recipients(Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment))));
-        w.Clock.UtcNow = Now.AddSeconds(240); await w.Dispatch.Tick(default);
+        w.Clock.UtcNow = Now.AddSeconds(360); Assert.Equal(0, await w.Dispatch.Tick(default));
         Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment));
-        Assert.Equal(3, w.Notifications(task, TaskNotifier.Offer).Count);
+        Assert.Equal(5, w.Notifications(task, TaskNotifier.Offer).Count);
     }
 
     [Fact]
-    public async Task RetryUsesPolicyTimeoutAndSystemMaxRetryCountWhenPresent()
+    public async Task DispatchUsesPolicyTimeoutAndIgnoresLegacyMaxRetryCount()
     {
         var w = new World(); var a = w.Staff("An", checkedIn: true); w.Policy(offerTimeoutSec: 30);
         w.Store.Values.Add(new SystemSetting { SettingId = Guid.NewGuid(), SettingKey = TaskRules.RetryIntervalSetting, SettingValue = "10", ValueType = "INTEGER", UpdatedAt = Now });
@@ -256,11 +303,12 @@ public sealed class StaffTaskTests
         await w.Raise("CRITICAL");
         var task = Assert.Single(w.Tasks);
         var first = Assert.Single(await w.StaffTasks(a).Offers(true, default));
-        Assert.Equal((2, Now.AddSeconds(30)), (first.MaxAttempts, first.NextAlertAt));
+        Assert.Equal((5, Now.AddSeconds(30)), (first.MaxAttempts, first.NextAlertAt));
         w.Clock.UtcNow = Now.AddSeconds(10); Assert.Equal(0, await w.Dispatch.Tick(default));
-        w.Clock.UtcNow = Now.AddSeconds(30); await w.Dispatch.Tick(default);
-        w.Clock.UtcNow = Now.AddSeconds(60); await w.Dispatch.Tick(default);
-        Assert.Equal(2, w.Notifications(task, TaskNotifier.Offer).Count);
+        w.Clock.UtcNow = Now.AddSeconds(30); Assert.Equal(1, await w.Dispatch.Tick(default));
+        w.Clock.UtcNow = Now.AddSeconds(60); Assert.Equal(0, await w.Dispatch.Tick(default));
+        Assert.Single(w.Notifications(task, TaskNotifier.Offer));
+        Assert.Equal(5, w.Notifications(task, TaskNotifier.DispatchRing).Count);
         Assert.All(w.Offers(task), o => Assert.Equal(TaskOfferStatus.Expired, o.Status));
     }
 
@@ -279,7 +327,7 @@ public sealed class StaffTaskTests
         task.SlaPolicyId = null;
 
         Assert.Equal(30, await w.Dispatch.OfferTimeout(task, default));
-        Assert.Equal((30, 2), await w.Dispatch.Retry(default));
+        Assert.Equal((30, 5), await w.Dispatch.Retry(default));
     }
 
     [Fact]
@@ -338,7 +386,7 @@ public sealed class StaffTaskTests
     }
 
     [Fact]
-    public async Task OperatorAssignsManuallyAtAcceptedAndStaffOnlySeeOwnData()
+    public async Task OperatorManualAssignmentWaitsForStaffAcceptanceAndStaffOnlySeeOwnData()
     {
         var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true, zone: w.OtherZone); var op = w.User("OPERATOR", "Olivia"); w.Policy();
         await w.Raise("CRITICAL");
@@ -348,11 +396,23 @@ public sealed class StaffTaskTests
         Assert.Equal([a, b], candidates.Select(c => c.UserId).ToArray()); Assert.True(candidates[0].AssignedToZone); Assert.False(candidates[1].AssignedToZone);
         Assert.Equal("FORBIDDEN", (await Assert.ThrowsAsync<AppError>(() => w.Operator(a).Assign(task.TaskId, new(b, null), default))).Code);
 
-        var assigned = await w.Operator(op).Assign(task.TaskId, new(b, "Nearest free staff"), default);
-        Assert.Equal((WorkTaskStatus.Accepted, b, TaskAssignmentType.Manual, (DateTime?)null), (assigned.Status, assigned.AssigneeUserId, assigned.AssignmentType, assigned.PlannedStartAt));
+        var boardVersion = task.UpdatedAt;
+        var proposed = await w.Operator(op).Assign(task.TaskId, new(b, "Nearest free staff", boardVersion), default);
+        Assert.Equal((WorkTaskStatus.Offered, (Guid?)null, (DateTime?)null), (proposed.Status, proposed.AssigneeUserId, proposed.AcceptedAt));
+        Assert.NotEqual(boardVersion, proposed.UpdatedAt);
+        Assert.Equal("TASK_CHANGED", (await Assert.ThrowsAsync<AppError>(() => w.Operator(op).Assign(task.TaskId, new(a, null, boardVersion), default))).Code);
         Assert.Equal((TaskOfferStatus.Cancelled, "MANUALLY_ASSIGNED"), (w.OfferFor(a).Status, w.OfferFor(a).DeclineReasonCode));
-        Assert.Equal([b], w.Recipients(Assert.Single(w.Notifications(task, TaskNotifier.Assigned))));
-        Assert.Single(await w.Inbox(b).List(default), n => n.Type == TaskNotifier.Assigned);
+        var manualOffer = w.OfferFor(b);
+        Assert.Equal((TaskOfferStatus.Pending, TaskDispatchScope.Manual), (manualOffer.Status, manualOffer.DispatchScope));
+        var manualView = await w.StaffTasks(b).Offer(manualOffer.OfferId, default);
+        Assert.Equal((1, 1, (DateTime?)null, 1), (manualView.Attempt, manualView.MaxAttempts, manualView.NextAlertAt, manualView.Recipients));
+        Assert.Contains(w.Notifications(task, TaskNotifier.Offer), n => w.Recipients(n).SequenceEqual([b]));
+        Assert.Single(await w.Inbox(b).List(default), n => n.Type == TaskNotifier.Offer);
+
+        var assigned = (await w.StaffTasks(b).Respond(manualOffer.OfferId,
+            new(TaskResponse.HandleLater, Now.AddMinutes(15), null), default)).Task!;
+        Assert.Equal((WorkTaskStatus.Accepted, b, TaskAssignmentType.Manual, Now.AddMinutes(15)),
+            (assigned.Status, assigned.AssigneeUserId, assigned.AssignmentType, assigned.PlannedStartAt));
         Assert.Equal(1, await w.Inbox(b).ReadAll(default));
         Assert.All(await w.Inbox(b).List(default), n => Assert.NotNull(n.ReadAt));
 
@@ -361,6 +421,61 @@ public sealed class StaffTaskTests
         var stranger = w.Staff("Chi", checkedIn: true);
         Assert.Equal("NOT_FOUND", (await Assert.ThrowsAsync<AppError>(() => w.Operator(stranger).Get(task.TaskId, default))).Code);
         Assert.Equal("FORBIDDEN", (await Assert.ThrowsAsync<AppError>(() => w.StaffTasks(op).Tasks(null, default))).Code);
+    }
+
+    [Fact]
+    public async Task DecliningAManualAssignmentReturnsTheUnassignedTaskToTheOperator()
+    {
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        await w.Raise("CRITICAL");
+        var task = Assert.Single(w.Tasks);
+
+        await w.Operator(op).Assign(task.TaskId, new(a, null, task.UpdatedAt), default);
+        var offer = w.Offers(task).Single(o => o.DispatchScope == TaskDispatchScope.Manual);
+        Assert.Null((await w.StaffTasks(a).Respond(offer.OfferId,
+            new(TaskResponse.CannotHandle, null, TaskDeclineReason.Other), default)).Task);
+
+        Assert.Equal((WorkTaskStatus.Offered, (Guid?)null), (task.Status, task.CurrentAssigneeUserId));
+        Assert.Equal((TaskOfferStatus.Declined, TaskDeclineReason.Other), (offer.Status, offer.DeclineReasonCode));
+        var proposal = Assert.Single(w.Store.Values.OfType<TaskAssignmentHistory>(), h => h.AssignmentType == TaskAssignmentType.Manual);
+        Assert.Equal((OfferStatus.Declined, op, TaskAssignmentType.Manual), (proposal.Status, proposal.AssignedByUserId, proposal.AssignmentType));
+        Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment));
+    }
+
+    [Fact]
+    public async Task ExpiredManualAssignmentDoesNotRestartAutomaticDispatch()
+    {
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var op = w.User("OPERATOR", "Olivia"); w.Policy();
+        await w.Raise("CRITICAL");
+        var task = Assert.Single(w.Tasks);
+        await w.Operator(op).Assign(task.TaskId, new(a, null, task.UpdatedAt), default);
+        var manual = w.Offers(task).Single(o => o.DispatchScope == TaskDispatchScope.Manual);
+
+        w.Clock.UtcNow = manual.ExpiresAt;
+        Assert.Equal(1, await w.Dispatch.Tick(default));
+
+        Assert.Equal((TaskOfferStatus.Expired, "NO_RESPONSE"), (manual.Status, manual.DeclineReasonCode));
+        Assert.DoesNotContain(w.Offers(task), o => o.Status == TaskOfferStatus.Pending);
+        Assert.Equal(OfferStatus.Expired, w.Store.Values.OfType<TaskAssignmentHistory>().Single(h => h.AssignmentType == TaskAssignmentType.Manual).Status);
+        Assert.Single(w.Notifications(task, TaskNotifier.NeedsAssignment));
+    }
+
+    [Fact]
+    public async Task StartingTheCurrentAssignmentCancelsAPendingManualReassignment()
+    {
+        var w = new World(); var a = w.Staff("An", checkedIn: true); var b = w.Staff("Binh", checkedIn: true);
+        var op = w.User("OPERATOR", "Olivia"); w.Policy(); await w.Raise("CRITICAL");
+        var task = Assert.Single(w.Tasks);
+        await w.StaffTasks(a).Respond(w.OfferFor(a).OfferId, new(TaskResponse.HandleLater, Now.AddMinutes(10), null), default);
+
+        await w.Operator(op).Assign(task.TaskId, new(b, "Rebalance workload", task.UpdatedAt), default);
+        var proposal = w.Offers(task).Single(o => o.StaffUserId == b && o.DispatchScope == TaskDispatchScope.Manual);
+        await w.StaffTasks(a).Start(task.TaskId, default);
+
+        Assert.Equal((TaskOfferStatus.Cancelled, "TASK_STARTED"), (proposal.Status, proposal.DeclineReasonCode));
+        Assert.Equal("TASK_ALREADY_TAKEN", (await Assert.ThrowsAsync<AppError>(() => w.StaffTasks(b).Respond(
+            proposal.OfferId, new(TaskResponse.HandleNow, null, null), default))).Code);
+        Assert.Equal(a, task.CurrentAssigneeUserId);
     }
 
     [Fact]
@@ -387,9 +502,15 @@ public sealed class StaffTaskTests
         Assert.Equal("REASON_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() => w.Operator(op).Assign(task.TaskId, new(b, " ", task.UpdatedAt), default))).Code);
         Assert.Null(task.CurrentAssigneeUserId);
         await w.Operator(op).Assign(task.TaskId, new(a, null, task.UpdatedAt), default);
+        var offerA = w.Offers(task).Single(o => o.StaffUserId == a && o.DispatchScope == TaskDispatchScope.Manual);
+        await w.StaffTasks(a).Respond(offerA.OfferId, new(TaskResponse.HandleLater, Now.AddMinutes(10), null), default);
+        Assert.Equal(a, task.CurrentAssigneeUserId);
         Assert.Equal("REASON_REQUIRED", (await Assert.ThrowsAsync<DomainException>(() => w.Operator(op).Assign(task.TaskId, new(b, null, task.UpdatedAt), default))).Code);
         Assert.Equal(a, task.CurrentAssigneeUserId);
-        var assigned = await w.Operator(op).Assign(task.TaskId, new(b, "Cross-zone support", task.UpdatedAt), default);
+        var proposed = await w.Operator(op).Assign(task.TaskId, new(b, "Cross-zone support", task.UpdatedAt), default);
+        Assert.Equal(a, proposed.AssigneeUserId);
+        var offerB = w.Offers(task).Single(o => o.StaffUserId == b && o.DispatchScope == TaskDispatchScope.Manual);
+        var assigned = (await w.StaffTasks(b).Respond(offerB.OfferId, new(TaskResponse.HandleNow, null, null), default)).Task!;
         Assert.Equal(b, assigned.AssigneeUserId);
         Assert.Equal("Cross-zone support", w.Store.Values.OfType<TaskAssignmentHistory>().Single(h => h.AssignmentType == TaskAssignmentType.Manual && h.StaffUserId == b).Reason);
     }
@@ -465,7 +586,7 @@ public sealed class StaffTaskTests
         await writer.Apply(Command(3, 3, "CRITICAL"), default);
         await writer.Apply(Command(4, 3, "CRITICAL"), default);
         var task = Assert.Single(w.Tasks);
-        Assert.Equal("CRITICAL", task.Priority);
+        Assert.Equal("MEDIUM", task.Priority);
         Assert.Equal(warning.EventId, task.EventId);
         Assert.Empty(w.Notifications(task, TaskNotifier.PriorityRaised));
         Assert.Single(w.Notifications(task, TaskNotifier.Offer));
@@ -481,6 +602,8 @@ public sealed class StaffTaskTests
         public MonitoringSetupTests.MemoryStore Store { get; } = new();
         public Clock Clock { get; } = new() { UtcNow = Now };
         public StoreCalendar Calendar { get; } = new(StoreCalendar.Zone(null));
+        public Supermarket.Domain.Supermarket Market { get; }
+        public Floor Floor { get; }
         public Zone Zone { get; }
         public Zone OtherZone { get; }
         public Camera Camera { get; }
@@ -496,24 +619,25 @@ public sealed class StaffTaskTests
         public World(bool schemaReady = true)
         {
             schema = new Schema { IsReady = schemaReady };
-            var floor = Guid.NewGuid();
-            Zone = new Zone { ZoneId = Guid.NewGuid(), FloorId = floor, Code = "B", Name = "Zone B · Checkout" };
-            OtherZone = new Zone { ZoneId = Guid.NewGuid(), FloorId = floor, Code = "C", Name = "Zone C · Produce" };
-            Camera = new Camera { CameraId = Guid.NewGuid(), FloorId = floor, Code = "CAM-03", Name = "Checkout 3" };
-            OtherCamera = new Camera { CameraId = Guid.NewGuid(), FloorId = floor, Code = "CAM-04", Name = "Checkout 4" };
+            Market = new Supermarket.Domain.Supermarket { SupermarketId = Guid.NewGuid(), Code = "SM-01", Name = "Test market" };
+            Floor = new Floor { FloorId = Guid.NewGuid(), SupermarketId = Market.SupermarketId, FloorNumber = 2, Name = "Floor 2" };
+            Zone = new Zone { ZoneId = Guid.NewGuid(), FloorId = Floor.FloorId, Code = "B", Name = "Zone B · Checkout" };
+            OtherZone = new Zone { ZoneId = Guid.NewGuid(), FloorId = Floor.FloorId, Code = "C", Name = "Zone C · Produce" };
+            Camera = new Camera { CameraId = Guid.NewGuid(), FloorId = Floor.FloorId, Code = "CAM-03", Name = "Checkout 3" };
+            OtherCamera = new Camera { CameraId = Guid.NewGuid(), FloorId = Floor.FloorId, Code = "CAM-04", Name = "Checkout 4" };
             foreach (var role in new[] { "ADMIN", "OPERATOR", "MANAGER", "STAFF" }) Store.Values.Add(new Role { RoleId = Guid.NewGuid(), Name = role });
             var configuration = new MonitoringConfiguration { ConfigId = Guid.NewGuid(), ZoneId = Zone.ZoneId, Name = "Queue monitoring", Status = "ACTIVE" };
             var rule = new MonitoringRule { RuleId = ruleId, ConfigId = configuration.ConfigId, EventTypeId = eventTypeId, OutcomeType = "OPERATIONAL_EVENT", Enabled = true };
             var specialty = new StaffSpecialty { SpecialtyId = Guid.NewGuid(), Code = "SPC-01", Name = "Checkout Operations" };
             var taskType = new TaskType { TaskTypeId = Guid.NewGuid(), Code = "TT-01", Name = "Open Additional Checkout",
                 SourceCategory = "Long queue", RequiredSpecialtyId = specialty.SpecialtyId };
-            Store.Values.AddRange([Zone, OtherZone, Camera, OtherCamera, configuration, rule, specialty, taskType,
+            Store.Values.AddRange([Market, Floor, Zone, OtherZone, Camera, OtherCamera, configuration, rule, specialty, taskType,
                 new OperationalEventType { EventTypeId = eventTypeId, Code = "LONG_QUEUE", Name = "Long queue", MeasurementType = "QUEUE_LENGTH" },
-                new Shift { ShiftId = shiftId, WeekStart = new(2026, 10, 5), Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
+                new Shift { ShiftId = shiftId, SupermarketId = Market.SupermarketId, WeekStart = new(2026, 10, 5), Name = "Morning", StartTime = new(8, 0), EndTime = new(16, 0) }]);
             roster = new StaffRoster(Store, Calendar);
             notifier = new TaskNotifier(Store, Clock);
-            Dispatch = new TaskDispatch(Store, roster, notifier, Clock, schema);
-            Views = new TaskViews(Store, Dispatch);
+            Dispatch = new TaskDispatch(Store, roster, notifier, new TaskVerification(Store, Clock, notifier), Clock, schema);
+            Views = new TaskViews(Store);
             TaskQueries = new OperatorQueries(Store);
         }
         public IEnumerable<WorkTask> Tasks => Store.Values.OfType<WorkTask>().Where(t => t.EventId != null);
@@ -537,10 +661,10 @@ public sealed class StaffTaskTests
             for (var i = 0; i < count; i++)
                 Store.Values.Add(new WorkTask { TaskId = Guid.NewGuid(), ZoneId = Zone.ZoneId, Title = "Busy", Status = WorkTaskStatus.InProgress, CurrentAssigneeUserId = user });
         }
-        public void Policy(Guid? rule = null, string mode = "AUTOMATIC", int offerTimeoutSec = 60)
+        public void Policy(Guid? rule = null, string mode = "AUTOMATIC", int offerTimeoutSec = 60, string priorityCode = "MEDIUM")
         {
             var policy = new SlaPolicy { PolicyId = Guid.NewGuid(), EventTypeId = Store.Values.OfType<MonitoringRule>().Single(r => r.RuleId == (rule ?? ruleId)).EventTypeId,
-                ProblemDomain = "OPERATIONAL_EVENT", IsEnabled = true, Version = 1, PriorityCode = "MEDIUM",
+                ProblemDomain = "OPERATIONAL_EVENT", IsEnabled = true, Version = 1, PriorityCode = priorityCode,
                 ResponseTargetSec = 300, ResolutionTargetSec = 3600, OfferTimeoutSec = offerTimeoutSec, WarningPercent = 80 };
             Store.Values.Add(policy);
             Store.Values.Add(new SlaPolicyAction { ActionId = Guid.NewGuid(), PolicyId = policy.PolicyId, ActionType = "NOTIFY_OPERATOR", ExecutionMode = "AUTOMATIC",
