@@ -144,6 +144,9 @@ public sealed class CheckoutConfiguration
             var existing = mappings.SingleOrDefault(m => m.CameraId == cameraId);
             CheckVersion(existing?.UpdatedAt, request.ExpectedUpdatedAt);
             Rules.Polygon(request.LaneRoi); Rules.Polygon(request.StaffRoi);
+            if (request.ServiceRoi is not null) Rules.Polygon(request.ServiceRoi);
+            if (request.IsEnabled && request.IsQueueSource)
+                Rules.Require(request.ServiceRoi is not null, "CHECKOUT_SERVICE_ROI_REQUIRED", "Draw Service ROI before enabling the queue source.");
             if (existing is null)
             {
                 RequireSpace(mappings.Count, maxCounterMappings);
@@ -152,6 +155,7 @@ public sealed class CheckoutConfiguration
             var proposed = new CameraCheckoutMapping { MappingId = existing?.MappingId ?? Guid.NewGuid(),
                 CameraId = cameraId, CheckoutCounterId = counterId,
                 LaneRoi = JsonSerializer.Serialize(request.LaneRoi, Json), StaffRoi = JsonSerializer.Serialize(request.StaffRoi, Json),
+                ServiceRoi = request.ServiceRoi is null ? null : JsonSerializer.Serialize(request.ServiceRoi, Json),
                 IsEnabled = request.IsEnabled, IsQueueSource = request.IsQueueSource,
                 CreatedAt = existing?.CreatedAt ?? default, UpdatedAt = existing?.UpdatedAt ?? default };
             var after = mappings.Where(m => m.CameraId != cameraId).Append(proposed).ToList();
@@ -204,6 +208,7 @@ public sealed class CheckoutConfiguration
     private async Task ReadyMapping(CameraCheckoutMapping mapping, Zone zone, CancellationToken ct)
     {
         Rules.Polygon(Points(mapping.LaneRoi)); Rules.Polygon(Points(mapping.StaffRoi));
+        if (mapping.IsQueueSource) Rules.Polygon(Points(mapping.ServiceRoi ?? "[]"));
         var camera = UseCase.Found(await store.Find<Camera>(mapping.CameraId, ct));
         Rules.SameFloor(camera, zone);
         await ReadyCamera(camera, ct);
@@ -223,6 +228,8 @@ public sealed class CheckoutConfiguration
         UniquePairs(mappings);
         if (mappings.Any(m => m.IsQueueSource && !m.IsEnabled))
             throw new ApplicationException("CHECKOUT_QUEUE_SOURCE_DISABLED", "A queue source must be an enabled mapping.");
+        if (mappings.Any(m => m.IsEnabled && m.IsQueueSource && m.ServiceRoi is null))
+            throw new ApplicationException("CHECKOUT_SERVICE_ROI_REQUIRED", "Draw Service ROI before enabling a queue source.");
         var sources = mappings.Count(m => m.IsEnabled && m.IsQueueSource);
         if (sources > 1)
             throw new ApplicationException("CHECKOUT_QUEUE_SOURCE_DUPLICATE", "Only one enabled queue source is allowed per checkout counter.");
@@ -270,5 +277,6 @@ public sealed class CheckoutConfiguration
         => new(c.CheckoutCounterId, c.ZoneId, c.Code, c.Name, c.IsEnabled, c.CreatedAt, c.UpdatedAt);
     private static CheckoutMappingView View(CameraCheckoutMapping m)
         => new(m.MappingId, m.CameraId, m.CheckoutCounterId, Points(m.LaneRoi), Points(m.StaffRoi),
-            m.IsEnabled, m.IsQueueSource, m.CreatedAt, m.UpdatedAt);
+            m.IsEnabled, m.IsQueueSource, m.CreatedAt, m.UpdatedAt,
+            m.ServiceRoi is null ? null : Points(m.ServiceRoi));
 }

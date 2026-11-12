@@ -7,6 +7,15 @@ namespace Supermarket.Tests;
 
 public sealed class CheckoutMonitoringPolicyTests
 {
+    [Fact]
+    public void WaitingTimeUsesConfiguredMinutesInsteadOfPeople()
+    {
+        var type = new OperationalEventType { Code = "EXCESSIVE_WAIT", MeasurementType = "WAITING_TIME", Status = "ACTIVE" };
+        var rule = new MonitoringRule { EventTypeId = Guid.NewGuid(), ThresholdUnit = "MINUTES",
+            WarningThreshold = 4, CriticalThreshold = 8, Enabled = true };
+        MonitoringPolicy.ValidateForActivation(rule, type);
+        Assert.Equal("WAITING_TIME", MonitoringPolicy.RuntimeDefinition(rule, type).Mode);
+    }
     private const string RatioUnit = "PEOPLE_PER_STAFFED_COUNTER";
     private const string ValidParameters = "{\"minQueue\":3,\"noStaffedAlertLevel\":\"WARNING\"}";
     private readonly Guid session = Guid.NewGuid(), continuity = Guid.NewGuid();

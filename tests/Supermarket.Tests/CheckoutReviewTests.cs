@@ -124,7 +124,7 @@ public sealed class CheckoutReviewTests
         f.Store.Values.AddRange([otherZone, otherConfig, otherCounter,
             new CameraCheckoutMapping { MappingId = Guid.NewGuid(), CameraId = f.H.Camera.CameraId,
                 CheckoutCounterId = otherCounter.CheckoutCounterId, IsEnabled = true, IsQueueSource = true,
-                LaneRoi = CheckoutFixture.Polygon, StaffRoi = CheckoutFixture.Polygon }]);
+                LaneRoi = CheckoutFixture.Polygon, StaffRoi = CheckoutFixture.Polygon, ServiceRoi = CheckoutFixture.Polygon }]);
         Assert.Equal("MONITORING_STOP_PENDING", (await Assert.ThrowsAsync<AppError>(() =>
             f.Setup(new Owner()).Activate(f.H.Zone.ZoneId, true, default))).Code);
     }

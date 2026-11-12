@@ -239,6 +239,7 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.IsEnabled).HasColumnName("is_enabled");
             entity.Property(e => e.IsQueueSource).HasColumnName("is_queue_source");
             entity.Property(e => e.LaneRoi).HasColumnName("lane_roi");
+            entity.Property(e => e.ServiceRoi).HasColumnName("service_roi");
             entity.Property(e => e.StaffRoi).HasColumnName("staff_roi");
             entity.Property(e => e.UpdatedAt)
                 .HasPrecision(3)

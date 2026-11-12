@@ -33,7 +33,7 @@ public sealed class EfCheckoutConfigurationQueries(Db.AppDbContext db) : IChecko
 
     private static IQueryable<CameraCheckoutMapping> Project(IQueryable<Db.CameraCheckoutMapping> rows)
         => rows.Select(m => new CameraCheckoutMapping { MappingId = m.MappingId, CameraId = m.CameraId,
-            CheckoutCounterId = m.CheckoutCounterId, LaneRoi = m.LaneRoi, StaffRoi = m.StaffRoi,
+            CheckoutCounterId = m.CheckoutCounterId, LaneRoi = m.LaneRoi, StaffRoi = m.StaffRoi, ServiceRoi = m.ServiceRoi,
             IsEnabled = m.IsEnabled, IsQueueSource = m.IsQueueSource, CreatedAt = m.CreatedAt, UpdatedAt = m.UpdatedAt });
 
     private static int SentinelLimit(int limit)

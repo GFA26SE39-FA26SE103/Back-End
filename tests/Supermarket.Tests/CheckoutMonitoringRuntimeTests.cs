@@ -10,6 +10,20 @@ namespace Supermarket.Tests;
 public sealed class CheckoutMonitoringRuntimeTests
 {
     [Fact]
+    public async Task WaitingRuleUsesLongestObservedLaneToServiceTimeInMinutes()
+    {
+        using var world = new World(waiting: true);
+        for (var t = 0; t <= 16; t++) await world.Frame(t, 8);
+        Assert.True(world.Runtime.Get(world.ZoneId)!.State == "READY", world.Runtime.Get(world.ZoneId)!.IssueCode);
+        Assert.Equal(10m, Assert.Single(world.Runtime.Get(world.ZoneId)!.Rules).MetricValue);
+        Assert.True(Assert.Single(world.Runtime.Get(world.ZoneId)!.Rules).OperationalEventId is not null,
+            Assert.Single(world.Runtime.Get(world.ZoneId)!.Rules).Reason);
+        var ev = Assert.Single(world.Store.Values.OfType<OperationalEvent>());
+        Assert.Equal(10m, ev.MetricValue);
+        Assert.Equal("CRITICAL", ev.Priority);
+        Assert.Equal(600, world.Runtime.Get(world.ZoneId)!.MaxWaitSeconds);
+    }
+    [Fact]
     public async Task AggregateCreatesOneEventLocksItsOriginAndStalenessDoesNotClearIt()
     {
         using var world = new World();
@@ -92,13 +106,15 @@ public sealed class CheckoutMonitoringRuntimeTests
         public History History { get; }
         public Snapshots Snapshots { get; }
         private readonly Guid firstSession = Guid.NewGuid(), secondSession = Guid.NewGuid(), continuity = Guid.NewGuid();
-        public World()
+        public World(bool waiting = false)
         {
             var config = Guid.NewGuid(); var counter = Guid.NewGuid(); var type = Guid.NewGuid();
             Point[] roi = [new(0, 0), new(1, 0), new(0, 1)];
-            var rule = new MonitoringRuleSnapshot(Guid.NewGuid(), null, "CHECKOUT_CAPACITY", "Capacity", "CHECKOUT_CAPACITY",
-                "PEOPLE_PER_STAFFED_COUNTER", 4, 7, 1, 10, type, "CHECKOUT_CAPACITY", 1,
-                ParametersJson: "{\"minQueue\":1,\"noStaffedAlertLevel\":\"CRITICAL\"}");
+            var rule = new MonitoringRuleSnapshot(Guid.NewGuid(), null,
+                waiting ? "EXCESSIVE_WAIT" : "CHECKOUT_CAPACITY", waiting ? "Waiting" : "Capacity",
+                waiting ? "WAITING_TIME" : "CHECKOUT_CAPACITY", waiting ? "MINUTES" : "PEOPLE_PER_STAFFED_COUNTER",
+                4, 7, 1, 10, type, waiting ? "EXCESSIVE_WAIT" : "CHECKOUT_CAPACITY", 1,
+                ParametersJson: waiting ? null : "{\"minQueue\":1,\"noStaffedAlertLevel\":\"CRITICAL\"}");
             MonitoringCameraSnapshot Camera(bool primary)
             {
                 var id = Guid.NewGuid();
@@ -123,7 +139,8 @@ public sealed class CheckoutMonitoringRuntimeTests
         {
             var m = camera.CheckoutMappings![0];
             return new(2, camera == First ? firstSession : secondSession, continuity, second + 1, Clock.UtcNow, second * 1000L,
-                camera.Fingerprint, [], [new(m.MappingId, m.CounterId, m.ConfigId, m.ConfigVersion, m.MappingVersion, true, m.IsQueueSource ? queue : null, true)]);
+                camera.Fingerprint, [], [new(m.MappingId, m.CounterId, m.ConfigId, m.ConfigVersion, m.MappingVersion, true,
+                    m.IsQueueSource ? queue : null, true, m.IsQueueSource ? 600 : null)]);
         }
         public async Task Frame(int second, int queue, bool includeSecond = true)
         {

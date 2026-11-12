@@ -14,13 +14,15 @@ public sealed record CheckoutMappingRequest(
     [Required, MinLength(3), MaxLength(1000)] Point[] StaffRoi,
     bool IsEnabled = false,
     bool IsQueueSource = false,
-    DateTime? ExpectedUpdatedAt = null);
+    DateTime? ExpectedUpdatedAt = null,
+    Point[]? ServiceRoi = null);
 
 public sealed record CheckoutCounterView(Guid CheckoutCounterId, Guid ZoneId, string Code, string Name,
     bool IsEnabled, DateTime CreatedAt, DateTime UpdatedAt);
 
 public sealed record CheckoutMappingView(Guid MappingId, Guid CameraId, Guid CheckoutCounterId,
-    Point[] LaneRoi, Point[] StaffRoi, bool IsEnabled, bool IsQueueSource, DateTime CreatedAt, DateTime UpdatedAt);
+    Point[] LaneRoi, Point[] StaffRoi, bool IsEnabled, bool IsQueueSource, DateTime CreatedAt, DateTime UpdatedAt,
+    Point[]? ServiceRoi = null);
 
 public sealed class CheckoutConfigurationOptions
 {

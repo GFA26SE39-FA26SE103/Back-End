@@ -15,8 +15,9 @@ public static class MonitoringRuleEvaluator
     {
         if(!settings.Enabled) return new(new(),null,0,0,"RULE_DISABLED",false);
         var checkout=settings.Mode=="CHECKOUT_CAPACITY" && settings.Unit=="PEOPLE_PER_STAFFED_COUNTER";
-        if(!checkout && (settings.Mode is not ("PEOPLE_COUNT" or "QUEUE_LENGTH") || settings.Unit!="PEOPLE")) return new(new(),null,0,0,"RULE_RUNTIME_UNSUPPORTED",false);
-        if(observation.MetricValue<0 || (!checkout && decimal.Truncate(observation.MetricValue)!=observation.MetricValue) || observation.Sequence<1
+        var waiting=settings.Mode=="WAITING_TIME" && settings.Unit=="MINUTES";
+        if(!checkout && !waiting && (settings.Mode is not ("PEOPLE_COUNT" or "QUEUE_LENGTH") || settings.Unit!="PEOPLE")) return new(new(),null,0,0,"RULE_RUNTIME_UNSUPPORTED",false);
+        if(observation.MetricValue<0 || (!checkout && !waiting && decimal.Truncate(observation.MetricValue)!=observation.MetricValue) || observation.Sequence<1
            || observation.SourceElapsedMs<0 || observation.SessionId==Guid.Empty || observation.ContinuityId==Guid.Empty)
             return new(new(),null,0,0,"MEASUREMENT_INVALID",false);
         var recoverySec=settings.ClearDurationSec??settings.SustainSec;

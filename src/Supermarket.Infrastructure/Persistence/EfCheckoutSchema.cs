@@ -26,7 +26,7 @@ public sealed class EfCheckoutSchema(AppDbContext db) : ICheckoutSchema
                     AND NOT EXISTS (
                         SELECT 1 FROM (VALUES
                             (N'mapping_id'), (N'camera_id'), (N'checkout_counter_id'),
-                            (N'lane_roi'), (N'staff_roi'), (N'is_enabled'), (N'is_queue_source'),
+                            (N'lane_roi'), (N'staff_roi'), (N'service_roi'), (N'is_enabled'), (N'is_queue_source'),
                             (N'created_at'), (N'updated_at')
                         ) AS required_columns(column_name)
                         WHERE COL_LENGTH({mapping}, required_columns.column_name) IS NULL)

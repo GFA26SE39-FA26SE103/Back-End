@@ -28,7 +28,7 @@ public sealed class CheckoutHttpTests
         Assert.Equal($"/api/checkout-counters/{counter.CheckoutCounterId}",create.Headers.Location!.OriginalString);
         Point[] roi=[new(0,0),new(1,0),new(0,1)];
         var mappingResponse=await w.Client.PutAsJsonAsync($"/api/checkout-counters/{counter.CheckoutCounterId}/camera-mappings/{w.Camera.CameraId}",
-            new CheckoutMappingRequest(roi,roi,true,true));
+            new CheckoutMappingRequest(roi,roi,true,true,ServiceRoi:roi));
         Assert.Equal(HttpStatusCode.OK,mappingResponse.StatusCode);
         var mapping=(await mappingResponse.Content.ReadFromJsonAsync<CheckoutMappingView>())!;
         var enabledResponse=await w.Client.PatchAsJsonAsync($"/api/checkout-counters/{counter.CheckoutCounterId}",

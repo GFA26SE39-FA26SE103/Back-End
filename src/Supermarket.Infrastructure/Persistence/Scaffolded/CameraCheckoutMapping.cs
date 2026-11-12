@@ -23,6 +23,8 @@ public partial class CameraCheckoutMapping
 
     public DateTime UpdatedAt { get; set; }
 
+    public string? ServiceRoi { get; set; }
+
     public virtual Camera Camera { get; set; } = null!;
 
     public virtual CheckoutCounter CheckoutCounter { get; set; } = null!;

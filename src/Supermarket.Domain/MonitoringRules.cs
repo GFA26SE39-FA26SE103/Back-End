@@ -47,6 +47,8 @@ public static class MonitoringPolicy
             return rule.ThresholdUnit=="PEOPLE_PER_STAFFED_COUNTER"
                 ? new("CHECKOUT_CAPACITY","PEOPLE_PER_STAFFED_COUNTER",true,null)
                 : new("CHECKOUT_CAPACITY",rule.ThresholdUnit,false,"Checkout capacity requires configured PEOPLE_PER_STAFFED_COUNTER thresholds.");
+        if (type.Code=="EXCESSIVE_WAIT" && type.MeasurementType=="WAITING_TIME" && rule.ThresholdUnit=="MINUTES")
+            return new("WAITING_TIME","MINUTES",true,null);
         if (type.Code=="LONG_QUEUE" && type.MeasurementType=="QUEUE_LENGTH" && rule.ThresholdUnit=="PEOPLE")
             return new("QUEUE_LENGTH","PEOPLE",true,null);
         if (type.Code=="CONGESTION" && type.MeasurementType=="CROWD_DENSITY")
@@ -106,7 +108,8 @@ public static class MonitoringPolicy
             Rules.Require(!rule.Enabled || definition is not null, "RULE_UNSUPPORTED", "This measurement is not ready; keep its rule disabled in Draft.");
             if (definition is not null && rule.Enabled)
             {
-                var unit=RuntimeDefinition(rule,type).Supported ? "PEOPLE" : definition.Unit;
+                var runtime=RuntimeDefinition(rule,type);
+                var unit=runtime.Supported ? runtime.Unit : definition.Unit;
                 Rules.Require(rule.ThresholdUnit == unit, "INVALID_RULE_UNIT", $"The measurement requires {unit} and an explicit matching measurement mode.");
                 if (unit == "PEOPLE") Rules.Require(decimal.Truncate(rule.WarningThreshold) == rule.WarningThreshold && decimal.Truncate(rule.CriticalThreshold) == rule.CriticalThreshold,
                     "INVALID_THRESHOLDS", "Thresholds must be whole people counts.");

@@ -212,7 +212,7 @@ public sealed class CheckoutSnapshotTests
         var counter = new CheckoutCounter { CheckoutCounterId = Guid.NewGuid(), ZoneId = f.H.Zone.ZoneId, IsEnabled = true };
         var mapping = new CameraCheckoutMapping { MappingId = Guid.NewGuid(), CameraId = f.H.Camera.CameraId,
             CheckoutCounterId = counter.CheckoutCounterId, IsEnabled = true, IsQueueSource = true,
-            LaneRoi = CheckoutFixture.Polygon, StaffRoi = CheckoutFixture.Polygon };
+            LaneRoi = CheckoutFixture.Polygon, StaffRoi = CheckoutFixture.Polygon, ServiceRoi = CheckoutFixture.Polygon };
         f.Store.Values.AddRange([counter, mapping]);
         var reader = f.Reader();
         var snapshot = Assert.Single(await reader.ReadAll(default));
@@ -389,7 +389,7 @@ internal sealed class CheckoutFixture
     private CameraCheckoutMapping NewMapping(Guid cameraId, bool queueSource) => new()
     {
         MappingId = Guid.NewGuid(), CameraId = cameraId, CheckoutCounterId = Counter.CheckoutCounterId,
-        LaneRoi = Polygon, StaffRoi = Polygon, IsEnabled = true, IsQueueSource = queueSource
+        LaneRoi = Polygon, StaffRoi = Polygon, ServiceRoi = queueSource ? Polygon : null, IsEnabled = true, IsQueueSource = queueSource
     };
     internal Camera AddSource(bool queueSource)
     {

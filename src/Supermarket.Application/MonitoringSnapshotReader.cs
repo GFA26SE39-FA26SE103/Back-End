@@ -30,13 +30,15 @@ public sealed class MonitoringSnapshotReader(ISetupStore store,CheckoutMonitorin
                 {
                     var eventType=rule.EventTypeId is { } eventTypeId ? await store.Find<OperationalEventType>(eventTypeId,ct) : null;
                     if(eventType is null || eventType.Status!="ACTIVE") issue??="OPERATIONAL_EVENT_TYPE_UNAVAILABLE";
+                    if(eventType?.Code=="EXCESSIVE_WAIT" && zone.ZoneType!="CHECKOUT") issue??="CHECKOUT_ZONE_REQUIRED";
                     if(eventType is not null) try { MonitoringPolicy.ValidateForActivation(rule,eventType); } catch(DomainException e) { issue??=e.Code; }
                     var definition=eventType is null ? new RuntimeMeasurementDefinition("UNSUPPORTED",rule.ThresholdUnit,false,"Operational event type unavailable.")
                         : MonitoringPolicy.RuntimeDefinition(rule,eventType);
                     var snapshot=new MonitoringRuleSnapshot(rule.RuleId,null,eventType?.Code??"UNKNOWN",eventType?.Name??"Unknown event type",definition.Mode,definition.Unit,
                         rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec,rule.EventTypeId,eventType?.Code??"",
                         rule.ClearDurationSec,rule.OutcomeType,rule.ParametersJson);
-                    if(eventType?.Code=="CHECKOUT_CAPACITY") { checkoutRules.Add(rule); checkoutSnapshots.Add(snapshot); }
+                    if(eventType?.Code=="CHECKOUT_CAPACITY" || eventType?.Code=="EXCESSIVE_WAIT" && zone.ZoneType=="CHECKOUT")
+                    { checkoutRules.Add(rule); checkoutSnapshots.Add(snapshot); }
                     else rules.Add(snapshot);
                     continue;
                 }
