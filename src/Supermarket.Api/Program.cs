@@ -201,6 +201,14 @@ builder.Services.AddScoped<IAnalyticsQueries, EfAnalyticsQueries>();
 builder.Services.AddScoped<ManagerAnalytics>();
 builder.Services.AddSingleton<IAnalyticsReportRenderer, AnalyticsReportRenderer>();
 builder.Services.AddScoped<ManagerAnalyticsExport>();
+builder.Services.AddScoped<IRecommendationQueries, EfRecommendationQueries>();
+builder.Services.AddScoped<RecommendationWork>();
+builder.Services.AddScoped<RecommendationEvidenceReader>();
+builder.Services.AddOptions<RecommendationAiOptions>().Bind(builder.Configuration.GetSection("OperationalRecommendationAi"))
+    .Validate(o => o.TimeoutSeconds is > 0 and <= 120, "OperationalRecommendationAi timeout must be 1 to 120 seconds.")
+    .ValidateOnStart();
+builder.Services.AddHttpClient<IRecommendationModel, OpenAiRecommendationModel>(client =>
+    client.BaseAddress = new Uri("https://api.openai.com/v1/"));
 builder.Services.AddScoped<IOperationalEventQueries, EfOperationalEventQueries>();
 builder.Services.AddScoped<OperationalEventHistory>();
 builder.Services.AddScoped<CameraHealth>();

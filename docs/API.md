@@ -319,6 +319,27 @@ Luật: Work Shift dài 4, 6 hoặc 8 giờ (BR-33; giờ kết thúc ≤ giờ 
 | MANAGER | `DELETE /staff-unavailability/{id}` | 204. |
 
 Notification types: `SHIFT_PUBLISHED`, `SHIFT_CHANGED`, `SHIFT_CANCELLED` (in-app). Copy tuần chỉ copy cấu hình Work Shift; Manager vẫn chủ động xếp Staff và publish từng tuần. Chưa làm: lặp assignment tự động, giới hạn giờ/tuần qua `SystemSetting`, Staff tự gửi đơn nghỉ.
+## Manager recommendations (WF-05 / FE-11)
+
+All three routes require `MANAGER` and use the single configured supermarket.
+
+- `GET /api/manager/recommendations` accepts `status`, `zoneId`, `page` (default 1) and `pageSize` (default 50, maximum 100). Results are ordered newest first and return `items`, `page`, `pageSize` and `hasMore`. `EXPIRED` includes pending recommendations whose deadline has passed.
+- `GET /api/manager/recommendations/{id}` returns a recommendation with its effective status, source Event/Zone IDs, timestamps and latest reviewer. Unrecognized IDs and rows outside the configured supermarket return 404.
+- `POST /api/manager/recommendations/{id}/decision` accepts `{"decision":"DEFERRED","reason":"Review after the next observation"}`. The allowed decisions are `DEFERRED`, `DISMISSED` and `ACCEPTED`. Defer and dismiss require a reason. Reasons are trimmed and limited to 2000 characters. The decision and audit entry commit together.
+- `POST /api/manager/recommendations/generate` accepts `{"eventId":"<uuid>"}`. It returns `{ recommendation, reason }`. With no valid current evidence or no supported advice it returns HTTP 200 with `recommendation: null` and one of `INSUFFICIENT_VALID_EVIDENCE`, `EVIDENCE_CHANGED` or `NO_SUPPORTED_RECOMMENDATION`. A missing or out-of-store Event returns 404. Provider configuration, transport and invalid output failures return 503.
+
+Generation uses an active Event with an active supported rule, matching observation metadata and an observation less than 30 seconds old. It sends only event type, alert level, numeric measurement, thresholds, sustain duration and optional SLA priority to the model. The model chooses from a server-owned action catalog and returns qualitative confidence. The Backend checks the source again before saving an `AVAILABLE` row with a five-minute deadline. Details include a typed evidence summary with observation time and qualitative confidence. Set `OperationalRecommendationAi__ApiKey`, `OperationalRecommendationAi__Model` and optionally `OperationalRecommendationAi__TimeoutSeconds` on the Backend. Keep credentials outside Git.
+
+Acceptance rechecks the source Event in the recommendation's Zone and supermarket. Generated recommendations allow newer observations when the condition still meets the threshold and the rule, configuration, alert level and SLA policy versions still match. Earlier exact-snapshot rows use the stored observation timestamps. Missing, stale or changed evidence returns 409 `RECOMMENDATION_EVIDENCE_UNAVAILABLE`. Expired and terminal rows also return 409 for disallowed decisions. The response excludes the internal supporting JSON.
+
+### Operator handoff
+
+- `GET /api/operator/recommendations` lists `ACCEPTED` recommendations for the configured supermarket. It accepts `zoneId`, `page` and `pageSize`.
+- `GET /api/operator/recommendations/{id}` returns an accepted recommendation. Unknown IDs, other stores and recommendations in any other state return 404. Both routes require `OPERATOR`.
+- Acceptance also writes a `RECOMMENDATION_ACCEPTED` in-app inbox notification for all active Operators in the same transaction as the decision and audit. The notification includes the recommendation ID in the message and the source `eventId`. With no active Operator, the accepted item remains available through the queue API.
+
+Operators review the recommendation and use the existing manual Task workflow if action is needed. Acceptance itself only records the decision and handoff. The Operator screen, notification deep link and historical evidence validation remain separate work.
+
 ## Manager analytics (WF-05 / FE-09–10)
 
 Operational Event drill-down is available through read-only `GET /api/operational-events`, `/api/operational-events/zones` and `/api/operational-events/{eventId}` for ADMIN/OPERATOR/MANAGER. Includes All/status/priority/Zone/date filters, SQL paging and linked Tasks. [Event history contract and verification](OPERATIONAL_EVENTS_API.md).
