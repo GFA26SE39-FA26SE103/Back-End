@@ -6,13 +6,15 @@ namespace Supermarket.Application;
 /// <summary>BR-21: TT-12 is the only designated mitigation Task; submission alone never mitigates an Incident.</summary>
 public sealed class IncidentMitigation(ISetupStore store)
 {
+    public const string MitigationTaskTypeCode = "TT-12";
+
     public async Task AfterManualTaskVerified(WorkTask task, Guid actorUserId, CancellationToken ct)
     {
         if (task.OriginType != TaskOrigin.Incident || task.IncidentId is not { } incidentId
             || task.Status != WorkTaskStatus.Verified || task.VerificationMode != TaskVerificationMode.Manual
             || task.VerifiedByUserId != actorUserId || task.VerifiedAt is not { } verifiedAt
             || task.TaskTypeId is not { } taskTypeId) return;
-        if ((await store.Find<TaskType>(taskTypeId, ct))?.Code != "TT-12") return;
+        if ((await store.Find<TaskType>(taskTypeId, ct))?.Code != MitigationTaskTypeCode) return;
         var incident = await store.Find<Incident>(incidentId, ct);
         if (incident is null || incident.ZoneId != task.ZoneId || incident.MitigatedAt is not null
             || incident.ClosedAt is not null || incident.Status is "CLOSED" or "DISMISSED" or "CANCELLED") return;

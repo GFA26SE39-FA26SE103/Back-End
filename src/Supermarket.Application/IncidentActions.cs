@@ -10,7 +10,8 @@ public sealed record IncidentActionView(Guid IncidentId, string Status, string? 
     DateTime? ClosedAt, DateTime? MitigatedAt, DateTime UpdatedAt);
 
 /// <summary>L3: one Task of an Incident; closure waits for every mandatory one to be VERIFIED (BR-22).</summary>
-public sealed record IncidentTaskView(Guid TaskId, string Title, string Status, bool IsMandatory, string? VerificationMode, string? AssigneeName, DateTime? VerifiedAt);
+public sealed record IncidentTaskView(Guid TaskId, string Title, string Status, bool IsMandatory, string? VerificationMode, string? AssigneeName, DateTime? VerifiedAt,
+    string? TaskTypeCode = null, bool IsMitigation = false);
 /// <summary>L3: Operator Incident board row. Mitigation (BR-21) and closure (BR-22) are separate milestones.</summary>
 public sealed record IncidentListView(Guid IncidentId, string Title, string? Description, string SourceType, string? IncidentTypeCode, string? IncidentTypeName,
     Guid ZoneId, string ZoneName, string Status, string? StatusReason, DateTime CreatedAt, DateTime UpdatedAt, DateTime? ClosedAt, DateTime? MitigatedAt,
@@ -55,11 +56,16 @@ public sealed class IncidentActions(ISetupStore store, ICurrentUser current, ICl
         var tasks = await store.List<WorkTask>(t => t.IncidentId != null && ids.Contains(t.IncidentId.Value), ct);
         var assigneeIds = tasks.Where(t => t.CurrentAssigneeUserId != null).Select(t => t.CurrentAssigneeUserId!.Value).Distinct().ToList();
         var names = (await store.List<UserAccount>(u => assigneeIds.Contains(u.UserId), ct)).ToDictionary(u => u.UserId, u => u.FullName);
+        var taskTypeIds = tasks.Where(t => t.TaskTypeId != null).Select(t => t.TaskTypeId!.Value).Distinct().ToList();
+        var taskTypeCodes = (await store.List<TaskType>(t => taskTypeIds.Contains(t.TaskTypeId), ct)).ToDictionary(t => t.TaskTypeId, t => t.Code);
         return incidents.Select(i =>
         {
             var own = tasks.Where(t => t.IncidentId == i.IncidentId).OrderByDescending(t => t.IsMandatory).ThenBy(t => t.CreatedAt)
                 .Select(t => new IncidentTaskView(t.TaskId, t.Title, t.Status, t.IsMandatory, t.VerificationMode,
-                    t.CurrentAssigneeUserId is { } id ? names.GetValueOrDefault(id) : null, t.VerifiedAt)).ToArray();
+                    t.CurrentAssigneeUserId is { } id ? names.GetValueOrDefault(id) : null, t.VerifiedAt,
+                    t.TaskTypeId is { } typeId ? taskTypeCodes.GetValueOrDefault(typeId) : null,
+                    // BR-21 / K5: TT-12 is the designated mitigation Task (IncidentMitigation).
+                    t.TaskTypeId is { } mitigationTypeId && taskTypeCodes.GetValueOrDefault(mitigationTypeId) == IncidentMitigation.MitigationTaskTypeCode)).ToArray();
             var type = types.GetValueOrDefault(i.IncidentTypeId);
             return new IncidentListView(i.IncidentId, i.Title, i.Description, i.SourceType, type?.Code, type?.Name, i.ZoneId, zones.GetValueOrDefault(i.ZoneId) ?? "",
                 i.Status, i.StatusReason, i.CreatedAt, i.UpdatedAt, i.ClosedAt, i.MitigatedAt, i.ResolutionDeadlineAt,
