@@ -23,6 +23,17 @@ public sealed class CheckoutObservationTests
         if (both) p.Observe(Frame(SourceB, second, present, 100), Start.AddSeconds(second));
     }
 
+    [Fact]
+    public void WaitingTimeComesOnlyFromQueueSourceAndClearsOnFailure()
+    {
+        var p = World(true);
+        p.Observe(Frame(SourceA, 0, true) with { MaxWaitSeconds = 12 }, Start);
+        p.Observe(Frame(SourceB, 0, true) with { MaxWaitSeconds = 999 }, Start);
+        Assert.Equal(12, p.Read(Start).MaxWaitSeconds);
+        p.Unavailable(SourceA);
+        Assert.Null(p.Read(Start).MaxWaitSeconds);
+    }
+
     [Theory, InlineData(true, CheckoutPresence.Present), InlineData(false, CheckoutPresence.Absent)]
     public void RequiresFifteenSecondsOfContinuousValidObservations(bool present, CheckoutPresence expected)
     {

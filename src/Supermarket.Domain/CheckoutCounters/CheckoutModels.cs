@@ -17,6 +17,7 @@ public sealed class CameraCheckoutMapping : TrackedEntity
     public Guid CheckoutCounterId { get; set; }
     public string LaneRoi { get; set; } = "[]";
     public string StaffRoi { get; set; } = "[]";
+    public string? ServiceRoi { get; set; }
     public bool IsEnabled { get; set; }
     public bool IsQueueSource { get; set; }
 }

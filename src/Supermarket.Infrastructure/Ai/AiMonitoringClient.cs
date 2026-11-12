@@ -27,7 +27,8 @@ public sealed class AiMonitoringClient(HttpClient http,IOptions<AiPreviewOptions
         // Do not add new fields to legacy v1 requests: the existing AI contract is strict.
         if(checkouts.Length>0) body["checkout_mappings"]=checkouts.Select(m=>new { mapping_id=m.MappingId,counter_id=m.CounterId,
             zone_id=m.ZoneId,config_id=m.ConfigId,config_version=m.ConfigVersion,mapping_version=m.MappingVersion,
-            lane_roi=m.LaneRoi,staff_roi=m.StaffRoi,is_queue_source=m.IsQueueSource,confidence=m.Confidence }).ToArray();
+            lane_roi=m.LaneRoi,staff_roi=m.StaffRoi,service_roi=m.ServiceRoi,
+            is_queue_source=m.IsQueueSource,confidence=m.Confidence }).ToArray();
         return Send<AiPreviewStatusView>(HttpMethod.Post,$"/monitoring/sessions/{snapshot.CameraId}/start",body,null,ct);
     }
     public async Task<AiMeasurementPage> Read(Guid cameraId,Guid ownerId,Guid? afterSessionId,long afterSequence,int limit,CancellationToken ct)
@@ -50,7 +51,8 @@ public sealed class AiMonitoringClient(HttpClient http,IOptions<AiPreviewOptions
                 || batch.ProtocolVersion==2 && batch.Checkouts is null
                 || checkouts.Select(m=>m?.MappingId).Distinct().Count()!=checkouts.Length
                 || checkouts.Any(m=>m is null || m.MappingId==Guid.Empty || m.CounterId==Guid.Empty || m.ConfigId==Guid.Empty
-                    || m.ConfigVersion.Kind!=DateTimeKind.Utc || m.MappingVersion.Kind!=DateTimeKind.Utc || m.QueueCount is <0)) throw Invalid();
+                    || m.ConfigVersion.Kind!=DateTimeKind.Utc || m.MappingVersion.Kind!=DateTimeKind.Utc || m.QueueCount is <0
+                    || m.MaxWaitSeconds is < 0 || m.MaxWaitSeconds is { } seconds && !double.IsFinite(seconds))) throw Invalid();
             previous=batch.Sequence;
         }
         return page with { ErrorCode=page.ErrorCode is null?null:Codes.Contains(page.ErrorCode)?page.ErrorCode:"AI_MEASUREMENT_INVALID" };

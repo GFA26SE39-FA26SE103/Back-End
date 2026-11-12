@@ -6,9 +6,10 @@ public sealed record CheckoutPresenceOptions(TimeSpan PresentDuration, TimeSpan 
     TimeSpan MaxObservationGap, TimeSpan MaxAge, TimeSpan MaxClockSkew, int MaxSources);
 public sealed record CheckoutObservationSource(Guid MappingId, Guid CameraId, bool IsEnabled, bool IsQueueSource);
 public sealed record CheckoutSourceObservation(Guid MappingId, Guid SessionId, Guid ContinuityId,
-    long Sequence, long SourceElapsedMs, DateTime CapturedAt, bool? PersonPresent, int? QueueCount, bool Usable);
+    long Sequence, long SourceElapsedMs, DateTime CapturedAt, bool? PersonPresent, int? QueueCount, bool Usable,
+    double? MaxWaitSeconds = null);
 public sealed record CheckoutCounterObservation(Guid CounterId, CheckoutPresence Presence, int? QueueCount, bool Disagreement,
-    DateTime? ValidUntil = null);
+    DateTime? ValidUntil = null, double? MaxWaitSeconds = null);
 
 /// <summary>
 /// One configuration-version's bounded, in-memory current state for one counter.
@@ -51,7 +52,8 @@ public sealed class CheckoutCounterProjection
             "CHECKOUT_TIMESTAMP_INVALID", "An observation cannot be ahead of the clock beyond the configured tolerance.");
         Rules.Require(sources.ContainsKey(observation.MappingId), "CHECKOUT_SOURCE_UNKNOWN", "Observation is not from an enabled configured mapping.");
         Rules.Require(observation.SessionId != Guid.Empty && observation.ContinuityId != Guid.Empty
-            && observation.Sequence > 0 && observation.SourceElapsedMs >= 0 && observation.QueueCount is not < 0,
+            && observation.Sequence > 0 && observation.SourceElapsedMs >= 0 && observation.QueueCount is not < 0
+            && (observation.MaxWaitSeconds is null || double.IsFinite(observation.MaxWaitSeconds.Value) && observation.MaxWaitSeconds >= 0),
             "CHECKOUT_OBSERVATION_INVALID", "Source identity, sequence, elapsed time and counts must be valid.");
         var source = sources[observation.MappingId];
         var before = source.Last;
@@ -75,6 +77,7 @@ public sealed class CheckoutCounterProjection
         }
 
         source.QueueCount = observation.QueueCount;
+        source.MaxWaitSeconds = observation.MaxWaitSeconds;
         if (observation.PersonPresent is null)
         {
             // Lane evidence can remain valid when this view cannot resolve person presence
@@ -109,7 +112,7 @@ public sealed class CheckoutCounterProjection
         var validUntil = presenceAt is { } witnessed && queueSource.QueueCount is not null
             ? (witnessed < queueSource.Last!.CapturedAt ? witnessed : queueSource.Last.CapturedAt) + options.MaxAge
             : (DateTime?)null;
-        return new(counterId, state, queueSource.QueueCount, present && absent, validUntil);
+        return new(counterId, state, queueSource.QueueCount, present && absent, validUntil, queueSource.MaxWaitSeconds);
     }
 
     /// <summary>Runtime health/transport invalidation is not a negative person detection.</summary>
@@ -133,7 +136,8 @@ public sealed class CheckoutCounterProjection
         public long PendingSinceMs;
         public CheckoutPresence Confirmed;
         public int? QueueCount;
+        public double? MaxWaitSeconds;
         public void InvalidatePresence() { Pending = null; PendingSinceMs = 0; Confirmed = CheckoutPresence.Unknown; }
-        public void Invalidate() { InvalidatePresence(); QueueCount = null; }
+        public void Invalidate() { InvalidatePresence(); QueueCount = null; MaxWaitSeconds = null; }
     }
 }

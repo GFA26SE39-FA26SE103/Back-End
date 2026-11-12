@@ -21,16 +21,18 @@ public sealed class CheckoutMonitoringOptions
 public sealed record CheckoutMappingSnapshot(Guid MappingId, Guid CameraId, Guid CounterId, Guid ZoneId,
     string ZoneName, Guid ConfigId, DateTime ConfigVersion, DateTime MappingVersion,
     Point[] LaneRoi, Point[] StaffRoi, bool IsQueueSource, decimal Confidence,
-    MonitoringRuleSnapshot[] Rules, string? IssueCode = null);
+    MonitoringRuleSnapshot[] Rules, string? IssueCode = null, Point[]? ServiceRoi = null);
 
 // Protocol v2 adds these camera-source observations; protocol v1 remains unchanged.
 public sealed record AiCheckoutObservation(Guid MappingId, Guid CounterId, Guid ConfigId,
-    DateTime ConfigVersion, DateTime MappingVersion, bool? PersonPresent, int? QueueCount, bool Usable);
+    DateTime ConfigVersion, DateTime MappingVersion, bool? PersonPresent, int? QueueCount, bool Usable,
+    double? MaxWaitSeconds = null);
 
 public sealed record CheckoutCounterRuntimeView(Guid CounterId, string Presence, int? QueueCount, bool Disagreement);
 public sealed record CheckoutZoneRuntimeView(Guid ZoneId, Guid ConfigId, DateTime ConfigVersion, DateTime GeneratedAt,
     string State, string? IssueCode, long? QueueCount, int? StaffedCounterCount, decimal? QueuePerStaffedCounter,
-    bool NoStaffedCapacity, CheckoutCounterRuntimeView[] Counters, MonitoringRuleRuntimeView[] Rules);
+    bool NoStaffedCapacity, CheckoutCounterRuntimeView[] Counters, MonitoringRuleRuntimeView[] Rules,
+    double? MaxWaitSeconds = null);
 
 public interface ICheckoutRuntimeState { CheckoutZoneRuntimeView? Get(Guid zoneId); }
 public interface ICheckoutCameraUsability { Task<bool> Ready(Guid cameraId, CancellationToken ct); }

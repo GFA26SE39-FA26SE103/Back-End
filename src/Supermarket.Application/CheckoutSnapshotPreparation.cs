@@ -79,6 +79,7 @@ internal static class CheckoutSnapshotPreparation
             var connection = connections.GetValueOrDefault(mapping.CameraId);
             var lane = Polygon(mapping.LaneRoi, "Lane", problems);
             var staff = Polygon(mapping.StaffRoi, "Staff", problems);
+            var service = mapping.IsQueueSource ? Polygon(mapping.ServiceRoi ?? "", "Service", problems) : null;
             if (camera is null) problems.Add(new("CAMERA_MISSING", "A checkout camera no longer exists."));
             else
             {
@@ -104,7 +105,7 @@ internal static class CheckoutSnapshotPreparation
                 connection?.LastTestResult, connection?.LastTestedAt, problems.Count == 0, problems.ToArray()));
             prepared.Add(new(mapping.MappingId, mapping.CameraId, mapping.CheckoutCounterId, zone.ZoneId, zone.Name,
                 configuration.ConfigId, configuration.UpdatedAt, mapping.UpdatedAt, lane, staff, mapping.IsQueueSource,
-                configuration.ConfidenceThreshold, snapshots, problems.FirstOrDefault()?.Code));
+                configuration.ConfidenceThreshold, snapshots, problems.FirstOrDefault()?.Code, service));
         }
         var blockers = issues.Distinct().ToArray();
         var issueCode = blockers.FirstOrDefault()?.Code;

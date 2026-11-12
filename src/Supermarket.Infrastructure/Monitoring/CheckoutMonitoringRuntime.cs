@@ -91,7 +91,7 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
             if (source is null) throw Invalid();
             var accepted = counter.Observe(new(m.MappingId, batch.SessionId, batch.ContinuityId, batch.Sequence,
                 batch.SourceElapsedMs, batch.CapturedAt, observed.PersonPresent, m.IsQueueSource ? observed.QueueCount : null,
-                cameraUsable && observed.Usable), clock.UtcNow);
+                cameraUsable && observed.Usable, m.IsQueueSource ? observed.MaxWaitSeconds : null), clock.UtcNow);
             if (accepted && cameraUsable && observed.Usable)
             {
                 job.Dirty = true;
@@ -139,10 +139,20 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
                             throw new AppError("CHECKOUT_OBSERVATION_STALE", "Checkout evidence expired during evaluation.", 503);
                     }
                     EnsureFresh();
-                    var parameters = CheckoutRuleParameters.Parse(rule.ParametersJson);
-                    var value = metric.QueueCount < parameters.MinQueue ? 0m
-                        : metric.NoStaffedCapacity ? parameters.NoStaffedAlertLevel == "CRITICAL" ? rule.CriticalThreshold : rule.WarningThreshold
-                        : decimal.Round(metric.QueuePerStaffedCounter!.Value, 4);
+                    decimal value;
+                    if (rule.Mode == "WAITING_TIME")
+                    {
+                        if (counters.Any(c => c.MaxWaitSeconds is null))
+                            throw new AppError("CHECKOUT_WAITING_SOURCE_INVALID", "Waiting-time source is not available.", 503);
+                        value = decimal.Round((decimal)counters.Max(c => c.MaxWaitSeconds!.Value) / 60m, 4);
+                    }
+                    else
+                    {
+                        var parameters = CheckoutRuleParameters.Parse(rule.ParametersJson);
+                        value = metric.QueueCount < parameters.MinQueue ? 0m
+                            : metric.NoStaffedCapacity ? parameters.NoStaffedAlertLevel == "CRITICAL" ? rule.CriticalThreshold : rule.WarningThreshold
+                            : decimal.Round(metric.QueuePerStaffedCounter!.Value, 4);
+                    }
                     var elapsed = Math.Max(0, (long)(clock.UtcNow - job.StartedAt).TotalMilliseconds);
                     var before = job.RuleStates.GetValueOrDefault(rule.RuleId) ?? new RuleEvaluationState();
                     var evaluation = MonitoringRuleEvaluator.Evaluate(rule.Settings(), before,
@@ -169,9 +179,12 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
                         var batch = new AiMeasurementBatch(2, job.Session, job.Continuity, job.Sequence, capturedAt, elapsed, job.Fingerprint, []);
                         var zone = new MonitoringZoneSnapshot(job.Zone.ZoneId, job.Zone.ZoneName, job.Zone.ConfigId, job.Zone.ConfigVersion,
                             [], job.Zone.Confidence, job.Rules);
-                        written = await writer.Apply(new(origin.Snapshot, zone, rule, batch,
+                        var ruleOrigin = rule.Mode == "WAITING_TIME"
+                            ? job.Sources.Single(s => s.Mapping.IsQueueSource) : origin;
+                        written = await writer.Apply(new(ruleOrigin.Snapshot, zone, rule, batch,
                             new(zone.ZoneId, zone.ConfigId, zone.ConfigVersion, 0, 0), evaluation, true, value,
                             new { metric.QueueCount, metric.StaffedCounterCount, metric.QueuePerStaffedCounter, metric.NoStaffedCapacity,
+                                maxWaitSeconds = counters.Max(c => c.MaxWaitSeconds),
                                 sourceCameraIds = job.Sources.Select(s => s.Snapshot.CameraId).Distinct().Order().ToArray(),
                                 sourceMappingIds = job.Sources.Select(s => s.Mapping.MappingId).Order().ToArray(), counters },
                             job.Sources.Select(s=>s.Snapshot).DistinctBy(s=>s.CameraId).ToArray(), validUntil), ct);
@@ -210,7 +223,8 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
             counters.Select(c => new CheckoutCounterRuntimeView(c.CounterId, c.Presence.ToString().ToUpperInvariant(), c.QueueCount, c.Disagreement)).ToArray(),
             job.Rules.Select(r => job.RuleViews.GetValueOrDefault(r.RuleId) ?? new MonitoringRuleRuntimeView(r.RuleId, r.Code, r.Name, r.Mode, r.Unit,
                 r.WarningThreshold, r.CriticalThreshold, r.SustainSec, r.CooldownSec, r.ClearDurationSec ?? r.SustainSec, null, 0, 0, 0, metric.IssueCode ?? "STARTING"))
-                .Select(view=>metric.Available?view:view with {MetricValue=null,Reason=metric.IssueCode??"CHECKOUT_UNAVAILABLE",WarningProgressMs=0,CriticalProgressMs=0}).ToArray());
+                .Select(view=>metric.Available?view:view with {MetricValue=null,Reason=metric.IssueCode??"CHECKOUT_UNAVAILABLE",WarningProgressMs=0,CriticalProgressMs=0}).ToArray(),
+            metric.Available && counters.All(c => c.MaxWaitSeconds is not null) ? counters.Max(c => c.MaxWaitSeconds) : null);
 
     private static AppError Invalid() => new("CHECKOUT_MEASUREMENT_INVALID", "Checkout observation does not match the active source configuration.", 503);
     private sealed record Source(MonitoringCameraSnapshot Snapshot, CheckoutMappingSnapshot Mapping);

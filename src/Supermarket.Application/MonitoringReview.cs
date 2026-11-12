@@ -13,7 +13,8 @@ public sealed partial class MonitoringSetup
         var types = (await store.List<IncidentType>(ct: ct)).ToDictionary(t => t.IncidentTypeId);
         var eventTypes = (await store.List<OperationalEventType>(ct: ct)).ToDictionary(t => t.EventTypeId);
         var checkoutRules = rules.Where(r => r.Enabled && r.OutcomeType == "OPERATIONAL_EVENT"
-            && r.EventTypeId is { } id && eventTypes.GetValueOrDefault(id)?.Code == "CHECKOUT_CAPACITY").ToArray();
+            && r.EventTypeId is { } id && (eventTypes.GetValueOrDefault(id)?.Code == "CHECKOUT_CAPACITY"
+                || zone.ZoneType == "CHECKOUT" && eventTypes.GetValueOrDefault(id)?.Code == "EXCESSIVE_WAIT")).ToArray();
         var genericRules = rules.Except(checkoutRules).ToArray();
         var hasGenericRules = genericRules.Any(r => r.Enabled);
         var mappings = checkoutRules.Length == 0 || hasGenericRules
@@ -61,7 +62,7 @@ public sealed partial class MonitoringSetup
         }).OrderBy(c => c.CameraId).ToArray();
         var blockers = issues.Distinct().ToArray();
         var warnings = (generic?.Warnings ?? ["Activation requests backend-owned monitoring; verify runtime separately."])
-            .Concat(new[] { "Checkout camera lane ROIs are display previews only; checkout evaluation uses the independent lane/staff mapping pair." }).ToList();
+            .Concat(new[] { "Checkout camera lane ROIs are display previews only; checkout evaluation uses the independent lane/staff/service mapping." }).ToList();
         if (checkoutReview.Cameras.Any(c => c.SourceType == "RECORDED"))
             warnings.Add("Recorded video is a controlled test source, not live operational CCTV.");
         return new(view, StoreSetup.View(zone), cameraViews, blockers, warnings.Distinct().ToArray(), blockers.Length == 0);
@@ -83,6 +84,8 @@ public sealed partial class MonitoringSetup
             if(rule.OutcomeType!="OPERATIONAL_EVENT") { issues.Add(new("INCIDENT_RULE_RUNTIME_UNSUPPORTED", "Direct Incident monitoring is not enabled until a validated measurement contract exists.")); continue; }
             var type = rule.EventTypeId is { } eventTypeId ? eventTypes.GetValueOrDefault(eventTypeId) : null;
             if (type is null) { issues.Add(new("OPERATIONAL_EVENT_TYPE_MISSING", "A rule's operational event type no longer exists.")); continue; }
+            if (type.Code == "EXCESSIVE_WAIT" && zone.ZoneType != "CHECKOUT")
+                issues.Add(new("CHECKOUT_ZONE_REQUIRED", "Waiting-time monitoring requires a checkout zone and Service ROI."));
             try { MonitoringPolicy.ValidateForActivation(rule, type); }
             catch (DomainException e) { issues.Add(new(e.Code, $"{type.Name}: {e.Message}")); }
             if (MonitoringPolicy.RuntimeDefinition(rule,type).Mode == "CROWD_DENSITY" && zone.AreaM2 is not > 0)
