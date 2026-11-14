@@ -146,6 +146,8 @@ builder.Services.AddScoped<IMonitoringSnapshotReader,MonitoringSnapshotReader>()
 builder.Services.AddScoped<IMonitoringIncidentQueries,EfMonitoringIncidentQueries>();
 builder.Services.AddScoped<ITaskSchema, EfTaskSchema>();
 builder.Services.AddScoped<IOperatorTaskQueries, EfOperatorTaskQueries>();
+builder.Services.AddScoped<IAuditLogQueries, EfAuditLogQueries>();
+builder.Services.AddScoped<AuditLogs>();
 builder.Services.AddScoped<StaffRoster>();
 builder.Services.AddScoped<TaskNotifier>();
 builder.Services.AddScoped<TaskVerification>();

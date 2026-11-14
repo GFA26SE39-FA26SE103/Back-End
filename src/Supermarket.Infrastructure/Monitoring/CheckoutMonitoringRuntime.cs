@@ -25,7 +25,7 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
         return view with { State = "UNAVAILABLE", IssueCode = "CHECKOUT_OBSERVATION_STALE", QueueCount = null,
             StaffedCounterCount = null, QueuePerStaffedCounter = null, NoStaffedCapacity = false,
             Counters = view.Counters.Select(c => c with { Presence = "UNKNOWN", QueueCount = null }).ToArray(),
-            Rules = view.Rules.Select(r => r with { MetricValue = null, Reason = "CHECKOUT_OBSERVATION_STALE" }).ToArray() };
+            Rules = view.Rules.Select(r => r with { MetricValue = null, Reason = "CHECKOUT_OBSERVATION_STALE", CurrentLevel = null }).ToArray() };
     }
 
     public void Reconcile(MonitoringCameraSnapshot[] snapshots)
@@ -194,11 +194,11 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
                     }
                     job.RuleStates[rule.RuleId] = evaluation.NextState;
                     var eventId = evaluation.ShouldClear && written is not null ? null : written?.OperationalEventId ?? prior?.OperationalEventId;
-                    job.RuleViews[rule.RuleId] = new(rule.RuleId, rule.Code, rule.Name, rule.Mode, rule.Unit, rule.WarningThreshold, rule.CriticalThreshold,
+                    job.RuleViews[rule.RuleId] = new MonitoringRuleRuntimeView(rule.RuleId, rule.Code, rule.Name, rule.Mode, rule.Unit, rule.WarningThreshold, rule.CriticalThreshold,
                         rule.SustainSec, rule.CooldownSec, rule.ClearDurationSec ?? rule.SustainSec, value,
                         evaluation.WarningProgressMs, evaluation.CriticalProgressMs, cooldown,
                         cooldown > 0 ? "COOLDOWN" : written?.Reason ?? evaluation.Reason, OperationalEventPriority: evaluation.ShouldClear ? null : written?.OperationalEventPriority ?? prior?.OperationalEventPriority,
-                        OperationalEventId: eventId);
+                        OperationalEventId: eventId).WithExits(rule) with { CurrentLevel = evaluation.ShouldClear ? null : evaluation.EligibleSeverity };
                 }
                 job.Dirty = false;
                 job.RuntimeIssue = null;
@@ -222,8 +222,8 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
             metric.QueuePerStaffedCounter, metric.NoStaffedCapacity,
             counters.Select(c => new CheckoutCounterRuntimeView(c.CounterId, c.Presence.ToString().ToUpperInvariant(), c.QueueCount, c.Disagreement)).ToArray(),
             job.Rules.Select(r => job.RuleViews.GetValueOrDefault(r.RuleId) ?? new MonitoringRuleRuntimeView(r.RuleId, r.Code, r.Name, r.Mode, r.Unit,
-                r.WarningThreshold, r.CriticalThreshold, r.SustainSec, r.CooldownSec, r.ClearDurationSec ?? r.SustainSec, null, 0, 0, 0, metric.IssueCode ?? "STARTING"))
-                .Select(view=>metric.Available?view:view with {MetricValue=null,Reason=metric.IssueCode??"CHECKOUT_UNAVAILABLE",WarningProgressMs=0,CriticalProgressMs=0}).ToArray(),
+                r.WarningThreshold, r.CriticalThreshold, r.SustainSec, r.CooldownSec, r.ClearDurationSec ?? r.SustainSec, null, 0, 0, 0, metric.IssueCode ?? "STARTING").WithExits(r))
+                .Select(view=>metric.Available?view:view with {MetricValue=null,Reason=metric.IssueCode??"CHECKOUT_UNAVAILABLE",WarningProgressMs=0,CriticalProgressMs=0,CurrentLevel=null}).ToArray(),
             metric.Available && counters.All(c => c.MaxWaitSeconds is not null) ? counters.Max(c => c.MaxWaitSeconds) : null);
 
     private static AppError Invalid() => new("CHECKOUT_MEASUREMENT_INVALID", "Checkout observation does not match the active source configuration.", 503);

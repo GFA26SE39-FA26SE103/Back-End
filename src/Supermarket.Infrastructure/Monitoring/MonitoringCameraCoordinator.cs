@@ -115,8 +115,8 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
                                 if(sample && written.Applied) job.Samples[rule.RuleId]=second;
                                 var reason=written.CooldownRemainingSec>0?"COOLDOWN":written.Reason;
                                 if(rule.Mode=="QUEUE_LENGTH" && measurement.PeopleCount>0 && measurement.QueueCount==0 && reason is "NORMAL" or "SUSTAIN_PENDING") reason="QUEUE_DWELL_PENDING";
-                                job.RuleViews[rule.RuleId]=new(rule.RuleId,rule.Code,rule.Name,rule.Mode,rule.Unit,rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec,rule.ClearDurationSec??rule.SustainSec,metric,
-                                    evaluation.WarningProgressMs,evaluation.CriticalProgressMs,written.CooldownRemainingSec,reason,written.IncidentId,written.OperationalEventPriority);
+                                job.RuleViews[rule.RuleId]=new MonitoringRuleRuntimeView(rule.RuleId,rule.Code,rule.Name,rule.Mode,rule.Unit,rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec,rule.ClearDurationSec??rule.SustainSec,metric,
+                                    evaluation.WarningProgressMs,evaluation.CriticalProgressMs,written.CooldownRemainingSec,reason,written.IncidentId,written.OperationalEventPriority).WithExits(rule) with { CurrentLevel=evaluation.EligibleSeverity };
                             }
                             job.Measurements[zone.ZoneId]=measurement;
                         }
@@ -170,7 +170,7 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
     {
         var zones=job.Snapshot.Zones.Select(z=> {
             var measured=job.Measurements.GetValueOrDefault(z.ZoneId);
-            var rules=z.Rules.Select(r=>job.RuleViews.GetValueOrDefault(r.RuleId)??new MonitoringRuleRuntimeView(r.RuleId,r.Code,r.Name,r.Mode,r.Unit,r.WarningThreshold,r.CriticalThreshold,r.SustainSec,r.CooldownSec,r.ClearDurationSec??r.SustainSec,null,0,0,0,code??state)).ToArray();
+            var rules=z.Rules.Select(r=>job.RuleViews.GetValueOrDefault(r.RuleId)??new MonitoringRuleRuntimeView(r.RuleId,r.Code,r.Name,r.Mode,r.Unit,r.WarningThreshold,r.CriticalThreshold,r.SustainSec,r.CooldownSec,r.ClearDurationSec??r.SustainSec,null,0,0,0,code??state).WithExits(r)).ToArray();
             return new MonitoringZoneRuntimeView(z.ZoneId,z.ZoneName,z.ConfigId,z.ConfigVersion,"ACTIVE",z.Confidence,measured?.PeopleCount,measured?.QueueCount,rules,z.IssueCode);
         }).ToArray();
         views[job.Snapshot.CameraId]=new(job.Snapshot.CameraId,state,reason,code,job.Snapshot.Connection.SourceType,job.SessionId,job.SourceMs,job.ObservedAt,stale,job.AnnotationContext,zones,

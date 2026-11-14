@@ -35,11 +35,25 @@ public sealed record IncidentFeedItem(Guid IncidentId,Guid ZoneId,string ZoneNam
 public sealed record IncidentFeedView(IncidentFeedItem[] Items,bool HasMore,DateTime? NextCreatedAt,Guid? NextIncidentId);
 public static class MonitoringSettings
 {
-    public static MonitoringEvaluationSettings Settings(this MonitoringRuleSnapshot r)=>new(r.Mode,r.Unit,r.WarningThreshold,r.CriticalThreshold,r.SustainSec,r.CooldownSec,true,r.ClearDurationSec);
+    public static MonitoringEvaluationSettings Settings(this MonitoringRuleSnapshot r)
+    {
+        var (warningExit, criticalExit) = RuleHysteresis.Read(r.ParametersJson);
+        return new(r.Mode,r.Unit,r.WarningThreshold,r.CriticalThreshold,r.SustainSec,r.CooldownSec,true,r.ClearDurationSec,warningExit,criticalExit);
+    }
+
+    /// <summary>Adds the effective exit thresholds (dual threshold) of the rule to its runtime view.</summary>
+    public static MonitoringRuleRuntimeView WithExits(this MonitoringRuleRuntimeView view, MonitoringRuleSnapshot rule)
+    {
+        var settings = rule.Settings();
+        return view with { WarningExitThreshold = settings.WarningExit, CriticalExitThreshold = settings.CriticalExit };
+    }
 }
 public sealed record MonitoringRuleRuntimeView(Guid RuleId,string IncidentCode,string IncidentName,string Mode,string Unit,decimal WarningThreshold,
     decimal CriticalThreshold,int SustainSec,int CooldownSec,int ClearDurationSec,decimal? MetricValue,long WarningProgressMs,long CriticalProgressMs,
-    decimal CooldownRemainingSec,string Reason,Guid? IncidentId=null,string? OperationalEventPriority=null,Guid? OperationalEventId=null);
+    decimal CooldownRemainingSec,string Reason,Guid? IncidentId=null,string? OperationalEventPriority=null,Guid? OperationalEventId=null,
+    decimal? WarningExitThreshold=null,decimal? CriticalExitThreshold=null,
+    // Level the evaluator currently holds after sustain and dead band (null = none); the event priority itself never decreases.
+    string? CurrentLevel=null);
 public sealed record MonitoringZoneRuntimeView(Guid ZoneId,string ZoneName,Guid? ConfigId,DateTime? ConfigVersion,string ConfigurationStatus,
     decimal Confidence,int? PeopleCount,int? QueueCount,MonitoringRuleRuntimeView[] Rules,string? IssueCode=null);
 public sealed record MonitoringCameraRuntimeView(Guid CameraId,string State,string Reason,string? ErrorCode,string? VideoSourceType,

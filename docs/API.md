@@ -396,3 +396,23 @@ Team decision 11/11/2026: SLA priority stays `LOW` / `MEDIUM` / `HIGH` / `CRITIC
 | OPERATOR | `GET /api/incidents/{incidentId}` | Một dòng như trên. |
 
 `StaffTaskView` (`GET /api/tasks`, `GET /api/tasks/{id}`, `/api/me/tasks`) trả thêm `rejectionCount`, `pendingManualStaffUserId` / `pendingManualStaffName` (Operator giao tay và đang chờ Staff chấp nhận) và `lastAssignmentEndReason` (`REJECTED_TWICE`, `REJECTED_AFTER_REASSIGNMENT`, ...).
+
+# Audit log inspection (FE-12 §3.13.3, 2026-11-12)
+
+| Quyền | Route | Ghi chú |
+|---|---|---|
+| ADMIN | `GET /api/admin/audit-logs` | Query `from`, `to` (ngày local của store, inclusive), `userId`, `action`, `entityType`, `entityId`, `result`, `search` (chứa trong action/entity type/reason/tên hoặc email user), `page` 1–10000, `pageSize` 1–100 (mặc định 50). Mới nhất trước; filter và phân trang làm ở SQL. Trả `{items, totalCount, page, pageSize, generatedAt, timeZone}`; mỗi item gồm actor (tên, email, role), action, entity, reason, result, IP, `oldValuesJson`, `newValuesJson`. Không trả password hash. Sai tham số trả 400 `INVALID_AUDIT_QUERY`; DB lỗi trả 503 `AUDIT_DATA_UNAVAILABLE`. `Cache-Control: no-store`. |
+| ADMIN | `GET /api/admin/audit-logs/facets` | Các giá trị đang có trong log để làm dropdown filter: `actions`, `entityTypes`, `results`, `actors`. |
+| ADMIN | `GET /api/admin/audit-logs/{auditLogId}` | Một entry; không có thì trả 404. |
+
+API chỉ đọc. Audit log là append-only: không có route sửa hoặc xoá.
+
+# Monitoring rule dual threshold (hysteresis, 2026-11-14)
+
+`MonitoringRuleRequest` (lưu cấu hình monitoring của Zone) nhận thêm hai trường tuỳ chọn: `warningExitThreshold` và `criticalExitThreshold`. `MonitoringRuleView` và runtime view của rule (`GET /api/cameras/{id}/monitoring-runtime`) trả lại hai trường này. Runtime view luôn trả giá trị đang có hiệu lực.
+
+- Một mức được **vào** khi giá trị ≥ ngưỡng của mức đó (`warningThreshold` / `criticalThreshold`), và được **giữ** cho tới khi giá trị < ngưỡng ra. Vùng giữa ngưỡng ra và ngưỡng vào là vùng đệm: ở trong đó thì giữ nguyên mức hiện tại.
+- Thời gian clear event chỉ bắt đầu tính khi giá trị < `warningExitThreshold`.
+- Ràng buộc: `0 ≤ warningExit ≤ warning`, `warning < criticalExit ≤ critical`, tối đa 4 chữ số thập phân, đơn vị `PEOPLE` phải là số nguyên. Sai ràng buộc trả `INVALID_EXIT_THRESHOLDS`.
+- Không gửi (null) = ngưỡng ra bằng ngưỡng vào, tức là chạy đúng như trước. Giá trị được lưu trong `parameters_json` (khoá `warningExitThreshold`, `criticalExitThreshold`), không đổi schema DB. Các khoá khác trong `parameters_json` (ví dụ của checkout) được giữ nguyên.
+- Priority của OperationalEvent vẫn chỉ tăng trong một episode, không bao giờ hạ (phương án A).

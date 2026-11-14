@@ -76,7 +76,7 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
                     WarningThreshold = r.WarningThreshold, CriticalThreshold = r.CriticalThreshold,
                     ThresholdUnit = r.ThresholdUnit, SustainSec = r.SustainSec, CooldownSec = r.CooldownSec,
                     ClearDurationSec = r.ClearDurationSec,
-                    Enabled = r.Enabled, ParametersJson = r.ParametersJson, CreatedAt = old?.CreatedAt ?? default, UpdatedAt = old?.UpdatedAt ?? default };
+                    Enabled = r.Enabled, ParametersJson = RuleHysteresis.Merge(r.ParametersJson, r.WarningExitThreshold, r.CriticalExitThreshold), CreatedAt = old?.CreatedAt ?? default, UpdatedAt = old?.UpdatedAt ?? default };
                 MonitoringPolicy.Validate(rule, eventType);
                 prepared.Add((rule, old is null, r.IncidentTypeId));
             }
@@ -199,9 +199,11 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             var eventType=r.EventTypeId is { } eventTypeId ? eventTypes.GetValueOrDefault(eventTypeId) : null;
             var incidentType=r.IncidentTypeId is { } incidentTypeId ? types.GetValueOrDefault(incidentTypeId)
                 : eventType is null ? null : types.Values.SingleOrDefault(t=>MonitoringPolicy.OperationalEventCode(t.Code)==eventType.Code);
+            var (warningExit,criticalExit)=RuleHysteresis.Read(r.ParametersJson);
             return new MonitoringRuleView(r.RuleId,incidentType?.IncidentTypeId??Guid.Empty,
                 eventType?.Code??incidentType?.Code??"UNKNOWN",eventType?.Name??incidentType?.Name??"Unknown type",
-                r.WarningThreshold,r.CriticalThreshold,r.ThresholdUnit,r.SustainSec,r.CooldownSec,r.ClearDurationSec,r.Enabled,r.ParametersJson);
+                r.WarningThreshold,r.CriticalThreshold,r.ThresholdUnit,r.SustainSec,r.CooldownSec,r.ClearDurationSec,r.Enabled,r.ParametersJson,
+                warningExit,criticalExit);
         }).OrderBy(r => r.IncidentCode).ToArray();
         return new(configuration.ConfigId,configuration.ZoneId,configuration.Name,configuration.ConfidenceThreshold,configuration.Status,
             configuration.CreatedByUserId,configuration.CreatedAt,configuration.UpdatedAt,views);

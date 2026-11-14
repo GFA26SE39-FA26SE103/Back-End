@@ -125,6 +125,7 @@ public static class MonitoringPolicy
             }
             catch (JsonException) { throw new DomainException("INVALID_RULE_PARAMETERS", "Rule parameters must be valid JSON."); }
         }
+        RuleHysteresis.Validate(rule);
         _=RecoverySeconds(rule);
     }
 }

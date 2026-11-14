@@ -1,7 +1,12 @@
 namespace Supermarket.Domain;
 
 public sealed record MonitoringEvaluationSettings(string Mode,string Unit,decimal WarningThreshold,decimal CriticalThreshold,
-    int SustainSec,int CooldownSec,bool Enabled,int? ClearDurationSec=null);
+    int SustainSec,int CooldownSec,bool Enabled,int? ClearDurationSec=null,decimal? WarningExitThreshold=null,decimal? CriticalExitThreshold=null)
+{
+    /// <summary>Hysteresis: a level is held until the value drops below its exit threshold; missing exit = enter threshold.</summary>
+    public decimal WarningExit => WarningExitThreshold ?? WarningThreshold;
+    public decimal CriticalExit => CriticalExitThreshold ?? CriticalThreshold;
+}
 public sealed record RuleObservation(Guid SessionId,Guid ContinuityId,long Sequence,long SourceElapsedMs,decimal MetricValue,
     string ConfigFingerprint,bool ContinuityBroken);
 public sealed record RuleEvaluationState(Guid? SessionId=null,Guid? ContinuityId=null,long Sequence=0,long SourceElapsedMs=0,
@@ -22,15 +27,23 @@ public static class MonitoringRuleEvaluator
             return new(new(),null,0,0,"MEASUREMENT_INVALID",false);
         var recoverySec=settings.ClearDurationSec??settings.SustainSec;
         if(settings.SustainSec<0 || settings.CooldownSec<0 || recoverySec<0 || settings.WarningThreshold<0 || settings.CriticalThreshold<=settings.WarningThreshold
-           || (checkout && settings.WarningThreshold==0))
+           || (checkout && settings.WarningThreshold==0)
+           || settings.WarningExit<0 || settings.WarningExit>settings.WarningThreshold
+           || settings.CriticalExit>settings.CriticalThreshold || settings.CriticalExit<=settings.WarningThreshold)
             return new(new(),null,0,0,"RULE_INVALID",false);
         var matching=state.SessionId==observation.SessionId && state.ContinuityId==observation.ContinuityId && state.ConfigFingerprint==observation.ConfigFingerprint;
         if(matching && state.Sequence==observation.Sequence)
             return new(state,null,0,0,"DUPLICATE",false);
         var broken=observation.ContinuityBroken || !matching || observation.Sequence!=state.Sequence+1 || observation.SourceElapsedMs<state.SourceElapsedMs;
-        var warning=observation.MetricValue>=settings.WarningThreshold ? (!broken?state.WarningStartMs:null)??observation.SourceElapsedMs : (long?)null;
-        var critical=observation.MetricValue>=settings.CriticalThreshold ? (!broken?state.CriticalStartMs:null)??observation.SourceElapsedMs : (long?)null;
-        var recovery=observation.MetricValue<settings.WarningThreshold ? (!broken?state.RecoveryStartMs:null)??observation.SourceElapsedMs : (long?)null;
+        // Dual threshold: enter at value >= threshold, stay while value >= exit (dead band between them), leave below exit.
+        var warningHeld=!broken && state.WarningStartMs is not null;
+        var criticalHeld=!broken && state.CriticalStartMs is not null;
+        var warningOn=observation.MetricValue>=settings.WarningThreshold || warningHeld && observation.MetricValue>=settings.WarningExit;
+        var criticalOn=observation.MetricValue>=settings.CriticalThreshold || criticalHeld && observation.MetricValue>=settings.CriticalExit;
+        var warning=warningOn ? (!broken?state.WarningStartMs:null)??observation.SourceElapsedMs : (long?)null;
+        var critical=criticalOn ? (!broken?state.CriticalStartMs:null)??observation.SourceElapsedMs : (long?)null;
+        // Recovery (event clear) only counts once the value is below the warning exit threshold.
+        var recovery=!warningOn ? (!broken?state.RecoveryStartMs:null)??observation.SourceElapsedMs : (long?)null;
         var warningProgress=warning is null?0:observation.SourceElapsedMs-warning.Value;
         var criticalProgress=critical is null?0:observation.SourceElapsedMs-critical.Value;
         var recoveryProgress=recovery is null?0:observation.SourceElapsedMs-recovery.Value;
