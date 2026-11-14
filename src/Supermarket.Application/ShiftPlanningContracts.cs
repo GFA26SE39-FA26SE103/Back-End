@@ -14,7 +14,8 @@ public sealed record ZoneCoverageView(DateOnly WorkDate, Guid ShiftId, string Sh
 public sealed record ZoneMinimumStaffRequest(int MinStaff, DateTime? ExpectedUpdatedAt = null);
 public sealed record ScheduleView(DateOnly From, DateOnly To, ScheduledShiftView[] Assignments, ZoneCoverageView[] Coverage, int DraftCount, int GapCount);
 
-public sealed record StaffOptionView(Guid UserId, string FullName, bool Eligible, double WeeklyHoursAfter, string[] Problems);
+public sealed record StaffOptionView(Guid UserId, string FullName, bool Eligible, double WeeklyHoursAfter, string[] Problems,
+    string? SpecialtyName, string? SpecialtyCode);
 public sealed record AssignShiftRequest(Guid UserId, Guid ShiftId, DateOnly WorkDate, Guid[]? ZoneIds);
 /// <summary>Change the person and/or replace the single Zone of one assignment; omitted fields stay unchanged.</summary>
 public sealed record UpdateAssignmentRequest(Guid? UserId, Guid[]? ZoneIds);
