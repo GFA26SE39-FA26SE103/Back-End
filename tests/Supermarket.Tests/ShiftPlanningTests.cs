@@ -121,8 +121,11 @@ public sealed class ShiftPlanningTests
         var hours = await Assert.ThrowsAsync<AppError>(() => plan.Assign(new(chi, w.Evening.ShiftId, new DateOnly(2026, 10, 25), zone), default));
         Assert.Contains("56/48", hours.Message);
 
+        var noSpecialty = w.User("STAFF", "No specialty");
         var options = await plan.StaffOptions(w.Morning.ShiftId, Thu, null, default);
-        Assert.Equal(new[] { an }, options.Where(o => o.Eligible).Select(o => o.UserId));
+        Assert.Equal(new[] { an, noSpecialty }.Order(), options.Where(o => o.Eligible).Select(o => o.UserId).Order());
+        Assert.Contains(options, o => o.UserId == an && o.SpecialtyName == "Checkout" && o.SpecialtyCode == "SPC-01");
+        Assert.Contains(options, o => o.UserId == noSpecialty && o.SpecialtyName is null && o.SpecialtyCode is null);
         Assert.Contains(options, o => o.UserId == binh && o.Problems.Any(p => p.Contains("unavailable")));
         Assert.Contains(options, o => o.UserId == chi && o.Problems.Any(p => p.Contains("already on this shift")));
     }

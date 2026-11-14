@@ -11430,6 +11430,14 @@
               "type": "string"
             },
             "nullable": true
+          },
+          "specialtyName": {
+            "type": "string",
+            "nullable": true
+          },
+          "specialtyCode": {
+            "type": "string",
+            "nullable": true
           }
         },
         "additionalProperties": false

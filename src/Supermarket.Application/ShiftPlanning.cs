@@ -135,12 +135,15 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
         var shift = context.Shifts.GetValueOrDefault(shiftId) ?? throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
         RequireWorkShiftWeek(shift, workDate);
         var slot = planner.Slot(context, new ShiftAssignment { ShiftAssignmentId = replacingAssignmentId ?? Guid.NewGuid(), ShiftId = shift.ShiftId, WorkDate = workDate })!;
+        var specialties = (await store.List<StaffSpecialty>(ct: ct)).ToDictionary(specialty => specialty.SpecialtyId);
         return context.Staff.Values.Select(user =>
         {
+            var specialty = user.SpecialtyId is { } id ? specialties.GetValueOrDefault(id) : null;
             var problems = planner.PersonChecks(context, user.FullName, user.UserId, slot, null).Where(c => !c.Passed).Select(c => c.Message).ToList();
             if (context.Assignments.Any(a => a.UserId == user.UserId && a.ShiftId == shiftId && a.WorkDate == workDate))
                 problems.Insert(0, $"{user.FullName} is already on this shift.");
-            return new StaffOptionView(user.UserId, user.FullName, problems.Count == 0, planner.WeeklyHours(context, user.UserId, slot, null), problems.ToArray());
+            return new StaffOptionView(user.UserId, user.FullName, problems.Count == 0,
+                planner.WeeklyHours(context, user.UserId, slot, null), problems.ToArray(), specialty?.Name, specialty?.Code);
         }).OrderByDescending(o => o.Eligible).ThenBy(o => o.WeeklyHoursAfter).ThenBy(o => o.FullName).ToArray();
     }
 
