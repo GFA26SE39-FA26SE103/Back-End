@@ -25,6 +25,9 @@ public sealed class DomainTests
         Rules.Polygon(Triangle.Reverse().ToArray());
     }
     [Fact] public void RejectsPolygonOutsideFrame() => Assert.Throws<DomainException>(() => Rules.Polygon([new(0, 0), new(2, 0), new(0, 1)]));
+    [Fact] public void AcceptsAxisAlignedRectangle() => Rules.Rectangle([new(.1m, .1m), new(.8m, .1m), new(.8m, .7m), new(.1m, .7m)]);
+    [Fact] public void RejectsTriangleAsZoneRectangle() => Assert.Equal("INVALID_ZONE_SHAPE", Assert.Throws<DomainException>(() => Rules.Rectangle(Triangle)).Code);
+    [Fact] public void RejectsRotatedRectangleAsZoneRectangle() => Assert.Equal("INVALID_ZONE_SHAPE", Assert.Throws<DomainException>(() => Rules.Rectangle([new(.5m, .1m), new(.9m, .5m), new(.5m, .9m), new(.1m, .5m)])).Code);
     [Theory]
     [InlineData("#22C55E")]
     [InlineData("#abcdef")]
@@ -34,15 +37,8 @@ public sealed class DomainTests
     [InlineData("#12345")]
     [InlineData("#GGGGGG")]
     public void RejectsInvalidZoneColors(string color) => Assert.Throws<DomainException>(() => Rules.ZoneColor(color));
-    [Fact] public void AcceptsOptionalPositiveZoneArea() { Rules.ZoneArea(null); Rules.ZoneArea(125.50m); }
     [Fact] public void AcceptsOptionalNonNegativeMinimumStaff() { Rules.MinimumStaff(null); Rules.MinimumStaff(0); Rules.MinimumStaff(3); }
     [Fact] public void RejectsNegativeMinimumStaff() => Assert.Throws<DomainException>(() => Rules.MinimumStaff(-1));
-    [Theory]
-    [InlineData("0")]
-    [InlineData("-1")]
-    [InlineData("1.234")]
-    [InlineData("10000000000")]
-    public void RejectsInvalidZoneArea(string value) => Assert.Throws<DomainException>(() => Rules.ZoneArea(decimal.Parse(value, System.Globalization.CultureInfo.InvariantCulture)));
     [Theory, InlineData(null, null), InlineData(100, 200)] public void ValidMapSize(int? w, int? h) => Rules.MapSize(w, h);
     [Theory, InlineData(0, 100), InlineData(100, null), InlineData(null, 100), InlineData(-1, 1)] public void InvalidMapSize(int? w, int? h) => Assert.Throws<DomainException>(() => Rules.MapSize(w, h));
     [Fact]

@@ -54,6 +54,12 @@ public sealed class StoreController(StoreSetup setup, FloorPlanUpload floorPlans
     }
     [Authorize(Roles = AccessRoles.Viewer), HttpGet("/api/zones/{id:guid}")] public Task<ZoneView> Zone(Guid id, CancellationToken ct) => setup.Zone(id, ct);
     [Authorize(Roles = AccessRoles.Admin), HttpPatch("/api/zones/{id:guid}")] public Task<ZoneView> UpdateZone(Guid id, ZoneRequest r, CancellationToken ct) => setup.SaveZone(id, null, r, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpDelete("/api/zones/{id:guid}")]
+    public async Task<IActionResult> DeleteZone(Guid id, CancellationToken ct)
+    {
+        await setup.DeleteZone(id, ct);
+        return NoContent();
+    }
 }
 
 public sealed class FloorPlanUploadForm

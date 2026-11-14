@@ -90,20 +90,15 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
             var x = id is null ? new Zone { ZoneId = Guid.NewGuid(), FloorId = floorId!.Value } : UseCase.Found(await store.Find<Zone>(id.Value, ct));
             UseCase.Found(await store.Find<Floor>(x.FloorId, ct));
             if(id is not null && checkoutGuard is not null) await checkoutGuard.EnsureZoneTypeChange(x,r.ZoneType,ct);
-            if (id is not null && x.AreaM2 != r.AreaM2
-                && (await store.List<MonitoringConfiguration>(m => m.ZoneId == x.ZoneId && m.Status == "ACTIVE", ct)).Count > 0)
-                throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before changing the physical zone area used by its measurements.");
             x.Code = Rules.Text(r.Code, 50, "Code");
             UseCase.Unique((await store.List<Zone>(z => z.FloorId == x.FloorId && z.Code == x.Code && z.ZoneId != x.ZoneId, ct)).Count > 0);
-            Rules.Polygon(r.MapPolygon);
+            Rules.Rectangle(r.MapPolygon);
             Rules.Status(r.Status, "ACTIVE", "INACTIVE");
             Rules.Optional(r.ZoneType, 50, "ZoneType");
             Rules.ZoneColor(r.ColorHex);
-            Rules.ZoneArea(r.AreaM2);
             x.Name = Rules.Text(r.Name, 100, "Name");
             x.ZoneType = r.ZoneType;
             x.ColorHex = r.ColorHex?.ToUpperInvariant();
-            x.AreaM2 = r.AreaM2;
             x.MapPolygon = JsonSerializer.Serialize(r.MapPolygon);
             x.Status = r.Status;
             if (x.Status != "ACTIVE")
@@ -116,6 +111,29 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
             return View(x);
         }, ct);
     }
-    public static ZoneView View(Zone x) => new(x.ZoneId, x.FloorId, x.Code, x.Name, x.ZoneType, JsonSerializer.Deserialize<Point[]>(x.MapPolygon)!, x.ColorHex, x.AreaM2, x.MinStaff, x.Status, x.UpdatedAt);
+    public Task DeleteZone(Guid id, CancellationToken ct)
+    {
+        UseCase.Admin(current);
+        return store.Transaction(async () =>
+        {
+            var zone = UseCase.Found(await store.Find<Zone>(id, ct));
+            var inUse = (await store.List<CameraZoneMapping>(x => x.ZoneId == id, ct)).Count > 0
+                || (await store.List<MonitoringConfiguration>(x => x.ZoneId == id, ct)).Count > 0
+                || (await store.List<CheckoutCounter>(x => x.ZoneId == id, ct)).Count > 0
+                || (await store.List<OperationalEvent>(x => x.ZoneId == id, ct)).Count > 0
+                || (await store.List<Incident>(x => x.ZoneId == id, ct)).Count > 0
+                || (await store.List<StaffReport>(x => x.ZoneId == id, ct)).Count > 0
+                || (await store.List<WorkTask>(x => x.ZoneId == id, ct)).Count > 0
+                || (await store.List<StaffZoneAssignment>(x => x.ZoneId == id, ct)).Count > 0
+                || (await store.List<Recommendation>(x => x.ZoneId == id, ct)).Count > 0;
+            if (inUse)
+                throw new ApplicationException("ZONE_IN_USE", "Remove this zone's monitoring, camera coverage, checkout configuration and operational references before deleting it.");
+            foreach (var adjacency in await store.List<ZoneAdjacency>(x => x.ZoneId == id || x.AdjacentZoneId == id, ct))
+                await store.Remove(adjacency, ct);
+            await store.Remove(zone, ct);
+            return true;
+        }, ct);
+    }
+    public static ZoneView View(Zone x) => new(x.ZoneId, x.FloorId, x.Code, x.Name, x.ZoneType, JsonSerializer.Deserialize<Point[]>(x.MapPolygon)!, x.ColorHex, x.MinStaff, x.Status, x.UpdatedAt);
     private Task Save<T>(T x, Guid? id, CancellationToken ct) where T : Entity, new() => id is null ? store.Add(x, ct) : store.Update(x, ct);
 }

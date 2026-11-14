@@ -18,7 +18,7 @@ Controller và use case cùng kiểm tra quyền; STAFF không đọc được d
 | Accounts | GET/POST /users; PATCH /users/{id}; POST /users/{id}/enable hoặc disable; GET /roles; GET /staff-specialties |
 | Supermarket | GET/POST /supermarkets; GET/PATCH /supermarkets/{id} |
 | Floors | GET/POST /supermarkets/{id}/floors; GET/PATCH /floors/{id}; PATCH /floors/{id}/details; POST/GET /floors/{id}/map |
-| Zones | GET/POST /floors/{id}/zones; GET/PATCH /zones/{id}; GET/PUT /zones/{id}/adjacent-zones; normalized polygon, optional `colorHex`/`areaM2`, and Zone-level `minStaff >= 0` configured by Admin for Manager coverage planning |
+| Zones | GET/POST /floors/{id}/zones; GET/PATCH/DELETE /zones/{id}; GET/PUT /zones/{id}/adjacent-zones; normalized axis-aligned rectangle, optional `colorHex`, and Zone-level `minStaff >= 0` configured by Admin for Manager coverage planning. Delete removes adjacency edges but returns `ZONE_IN_USE` while operational/configuration records still reference the Zone. |
 | Cameras | GET/POST /floors/{id}/cameras; GET/PATCH /cameras/{id} |
 | Connection | GET/PUT /cameras/{id}/connection; POST .../test, .../enable, .../disable |
 | Preview | GET /cameras/{id}/preview: image/svg+xml cho demo, image/jpeg cho FFmpeg |
@@ -81,7 +81,7 @@ Worker chạy một lượt ngay khi backend khởi động, sau đó theo `Came
 Ví dụ zone:
 
 ```json
-{"code":"CHECKOUT","name":"Checkout area","zoneType":"CHECKOUT","status":"ACTIVE","colorHex":"#F97316","areaM2":42.5,"mapPolygon":[{"x":0.1,"y":0.1},{"x":0.8,"y":0.1},{"x":0.1,"y":0.8}]}
+{"code":"CHECKOUT","name":"Checkout area","zoneType":"CHECKOUT","status":"ACTIVE","colorHex":"#F97316","mapPolygon":[{"x":0.1,"y":0.1},{"x":0.8,"y":0.1},{"x":0.8,"y":0.8},{"x":0.1,"y":0.8}]}
 ```
 
 Ví dụ camera connection:
@@ -116,7 +116,7 @@ Mỗi quan hệ được lưu hai chiều. API xóa cả hai chiều của liên
 
 `PUT /zones/{zoneId}/monitoring` tạo hoặc thay toàn bộ Draft + rules trong transaction. `rules` bắt buộc và phải có ít nhất một incident rule; `[]` trả 422 `RULES_REQUIRED`, không tạo hoặc thay cấu hình đã lưu. Omit rule khỏi array để xóa nhưng phải giữ ít nhất một rule. Mỗi type tối đa một rule/config. Khi cấu hình đã tồn tại, gửi `expectedUpdatedAt` từ GET/Save gần nhất; thiếu/stale trả 409 `CONFIGURATION_CHANGED`. ACTIVE trả 409 `MONITORING_ACTIVE`, không tự deactivate khi Save. Disabled Draft rules vẫn được lưu; Activate cần ít nhất một enabled supported rule và readiness hợp lệ.
 
-Confidence 0–1 và threshold tối đa 4 decimal places; `0 <= warning < critical` (decimal(18,4)). PEOPLE phải nguyên, MINUTES/PEOPLE_PER_M2 có thể thập phân. Sustain/cooldown là int không âm theo giây; 0 được lưu đúng. Rule phải tham chiếu AI type; enabled type phải ACTIVE/supported. Disabled Checkout Draft vẫn cần explicit non-empty unit/valid thresholds. `parametersJson` null hoặc JSON object/array, tối đa 16000 ký tự; bảo toàn tham số mở rộng, không đánh giá trong MF-01.
+Confidence 0–1 và threshold tối đa 4 decimal places; `0 <= warning < critical` (decimal(18,4)). PEOPLE phải nguyên, MINUTES có thể thập phân. Sustain/cooldown là int không âm theo giây; 0 được lưu đúng. Rule phải tham chiếu AI type; enabled type phải ACTIVE/supported. Disabled Checkout Draft vẫn cần explicit non-empty unit/valid thresholds. `parametersJson` null hoặc JSON object/array, tối đa 16000 ký tự; bảo toàn tham số mở rộng, không đánh giá trong MF-01.
 
 Response gồm `configId, zoneId, name, confidenceThreshold, status, createdByUserId, createdAt, updatedAt, rules[]`; từng rule có `ruleId, incidentTypeId, incidentCode, incidentName` và toàn bộ fields cấu hình.
 
@@ -156,11 +156,11 @@ Admin kiểm thử saved confidence bằng `POST /api/cameras/{id}/ai-preview/st
 
 Capacity tính theo camera worker, không theo số viewer: nhiều viewer cùng camera dùng chung một reader/YOLO/ByteTrack; tối đa hai camera có thể xử lý đồng thời và camera thứ ba nhận 409 `AI_SESSION_CAPACITY`. Hai camera có tracker độc lập; track ID chỉ có nghĩa trong camera/session hiện tại, không được re-identify, deduplicate hay persist giữa camera. Lease registry nằm trong một process nên AI service phải chạy đúng một Uvicorn worker.
 
-Rule validation codes: `INVALID_CONFIDENCE`, `INVALID_THRESHOLDS`, `INVALID_RULE_UNIT`, `INVALID_RULE_TIMING`, `INVALID_RULE_PARAMETERS`, `INCIDENT_TYPE_NOT_AI`, `INCIDENT_TYPE_INACTIVE`, `RULE_UNSUPPORTED`, `DUPLICATE_RULE`. Review issues thêm `NO_ENABLED_RULES`, `ZONE_AREA_REQUIRED`, `CAMERA_NOT_READY`, `AI_SOURCE_UNSUPPORTED`.
+Rule validation codes: `INVALID_CONFIDENCE`, `INVALID_THRESHOLDS`, `INVALID_RULE_UNIT`, `INVALID_RULE_TIMING`, `INVALID_RULE_PARAMETERS`, `INCIDENT_TYPE_NOT_AI`, `INCIDENT_TYPE_INACTIVE`, `RULE_UNSUPPORTED`, `DUPLICATE_RULE`. Review issues thêm `NO_ENABLED_RULES`, `CAMERA_NOT_READY`, `AI_SOURCE_UNSUPPORTED`.
 
 ### ROI monitoring / incident feed increment
 
-Catalog có additive `measurementOptions[]` (`mode, unit, supported, reason, defaultWarningThreshold, defaultCriticalThreshold`). Overcrowding count là PEOPLE_COUNT/PEOPLE, cần threshold nguyên do Admin nhập và `parametersJson` object có `measurementMode:"PEOPLE_COUNT"`; giữ các key khác. Density cũ PEOPLE_PER_M2 không tự convert, chưa runtime. Queue QUEUE_LENGTH/PEOPLE supported. Waiting/Checkout disabled Draft; legacy enabled unsupported phải tắt hoặc chuyển mode rõ trước activation. Enabled unsupported trả `RULE_RUNTIME_UNSUPPORTED`; nhiều ACTIVE mappings trả `MEASUREMENT_SOURCE_AMBIGUOUS` trong review. Event history được giữ khi bỏ rule, reference rule_id trở null. Save phải giữ ít nhất một rule; array rỗng trả422 RULES_REQUIRED.
+Catalog có additive `measurementOptions[]` (`mode, unit, supported, reason, defaultWarningThreshold, defaultCriticalThreshold`). Overcrowding là PEOPLE_COUNT/PEOPLE: đếm mọi người hiện có trong ROI rồi áp dụng sustain của rule. Long Queue là QUEUE_LENGTH/PEOPLE: chỉ đếm track đã ở liên tục trong ROI ít nhất 5 giây, sau đó mới áp dụng sustain. Không dùng diện tích Zone hay PEOPLE_PER_M2. Waiting/Checkout disabled Draft; legacy enabled unsupported phải tắt trước activation. Enabled unsupported trả `RULE_RUNTIME_UNSUPPORTED`; nhiều ACTIVE mappings trả `MEASUREMENT_SOURCE_AMBIGUOUS` trong review. Event history được giữ khi bỏ rule, reference rule_id trở null. Save phải giữ ít nhất một rule; array rỗng trả422 RULES_REQUIRED.
 
 `GET /api/cameras/{id}/monitoring-runtime` — JWT **ADMIN/OPERATOR**, read-only. Response `cameraId,state,reason,errorCode,videoSourceType,sessionId,sourceElapsedMs,observedAt,isStale,annotationContext,zones[]`. State STARTING/RUNNING/ERROR/COMPLETED, hoặc STOPPED với NO_ACTIVE_CONFIGURATION. Per-zone: `zoneId,zoneName,configId?,configVersion?,configurationStatus,confidence,peopleCount?,queueCount?,issueCode?,rules[]`. Counts chưa đo là **null**, không giả0. Per-rule: `ruleId,incidentCode,incidentName,mode,unit,warningThreshold,criticalThreshold,sustainSec,cooldownSec,clearDurationSec,metricValue?,warningProgressMs,criticalProgressMs,cooldownRemainingSec,reason,incidentId?`. Progress theo source-video ms. QUEUE_DWELL_PENDING nghĩa đang chờ5s membership; SUSTAIN_PENDING là chờ thời gian trên threshold. Errors/stale giữ last-known, không khẳng định còn live. Poll không tạo measurement hay activate.
 

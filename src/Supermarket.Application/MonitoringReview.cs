@@ -88,8 +88,6 @@ public sealed partial class MonitoringSetup
                 issues.Add(new("CHECKOUT_ZONE_REQUIRED", "Waiting-time monitoring requires a checkout zone and Service ROI."));
             try { MonitoringPolicy.ValidateForActivation(rule, type); }
             catch (DomainException e) { issues.Add(new(e.Code, $"{type.Name}: {e.Message}")); }
-            if (MonitoringPolicy.RuntimeDefinition(rule,type).Mode == "CROWD_DENSITY" && zone.AreaM2 is not > 0)
-                issues.Add(new("ZONE_AREA_REQUIRED", "Enter the zone's physical area in m² before enabling density monitoring."));
         }
         var cameras = MappedCameras(zone, mappings, cameraRecords, connections);
         if (cameras.Length > 1) issues.Add(new("MEASUREMENT_SOURCE_AMBIGUOUS", "Keep exactly one active camera mapping for this zone; overlapping cameras are not combined."));

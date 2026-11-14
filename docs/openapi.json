@@ -6459,6 +6459,27 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Store"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
       }
     },
     "/health/live": {
@@ -12997,11 +13018,6 @@
           "colorHex": {
             "type": "string",
             "nullable": true
-          },
-          "areaM2": {
-            "type": "number",
-            "format": "double",
-            "nullable": true
           }
         },
         "additionalProperties": false
@@ -13038,11 +13054,6 @@
           },
           "colorHex": {
             "type": "string",
-            "nullable": true
-          },
-          "areaM2": {
-            "type": "number",
-            "format": "double",
             "nullable": true
           },
           "minStaff": {

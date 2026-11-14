@@ -114,10 +114,6 @@ public sealed class Zone : TrackedEntity
     {
         get; set;
     }
-    public decimal? AreaM2
-    {
-        get; set;
-    }
     public string MapPolygon { get; set; } = "[]";
     public string Status { get; set; } = "ACTIVE";
     /// <summary>Minimum Staff per shift for this Zone (ERD V6 Zone.min_staff, default 0).</summary>

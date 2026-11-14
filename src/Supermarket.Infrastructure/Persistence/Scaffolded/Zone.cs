@@ -25,8 +25,6 @@ public partial class Zone
 
     public string? ColorHex { get; set; }
 
-    public decimal? AreaM2 { get; set; }
-
     public int MinStaff { get; set; }
 
     public virtual ICollection<CameraZoneMapping> CameraZoneMappings { get; set; } = new List<CameraZoneMapping>();

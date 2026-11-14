@@ -87,7 +87,6 @@ public sealed partial class ApiFlowTests
         Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(route, new MonitoringRequest("Must not overwrite", Rules: input, ExpectedUpdatedAt: active.UpdatedAt))).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await client.DeleteAsync(mapping)).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(mapping, new MappingRequest([new(0,0),new(.5m,0),new(0,.5m)]))).StatusCode);
-        Assert.Equal(HttpStatusCode.Conflict, (await client.PatchAsJsonAsync($"/api/zones/{zone.ZoneId}", new ZoneRequest(zone.Code, zone.Name, zone.ZoneType, Triangle, AreaM2: 20))).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(connection, new ConnectionRequest("LIVE", "HTTP", "http://changed.example.test/video"))).StatusCode);
         var inactive = await Read<MonitoringConfigurationView>(await client.PostAsJsonAsync(route + "/deactivate", new MonitoringActivationRequest(active.UpdatedAt)));
         var replaced = await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(route, new MonitoringRequest("Only queue", 0, [input[0] with { WarningThreshold = 4, CriticalThreshold = 7 }], inactive.UpdatedAt)));

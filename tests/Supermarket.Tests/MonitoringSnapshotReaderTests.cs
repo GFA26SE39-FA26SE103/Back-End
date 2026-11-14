@@ -25,6 +25,6 @@ public sealed class MonitoringSnapshotReaderTests
     {
         var h=new MonitoringSetupTests.Harness(); h.AddRule("OVERCROWDING_CONGESTION","CROWD_DENSITY","PEOPLE_PER_M2"); h.Configuration.Status="ACTIVE";
         var snapshot=Assert.Single(await new MonitoringSnapshotReader(h.Store).ReadAll(default));
-        Assert.Equal("RULE_RUNTIME_UNSUPPORTED",snapshot.IssueCode);
+        Assert.Equal("INVALID_RULE_UNIT",snapshot.IssueCode);
     }
 }

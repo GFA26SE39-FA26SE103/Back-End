@@ -107,6 +107,35 @@ public sealed class ConfigurationManagementTests
         Assert.Equal(before, JsonSerializer.Serialize(floor));
     }
 
+    [Fact]
+    public async Task DeleteZoneRemovesItsAdjacencyButPreservesOtherZones()
+    {
+        var (h, floor, _) = World();
+        var removable = new Zone { ZoneId = Guid.NewGuid(), FloorId = floor.FloorId, Code = "TEMP", Name = "Temporary" };
+        var neighbor = new Zone { ZoneId = Guid.NewGuid(), FloorId = floor.FloorId, Code = "NEXT", Name = "Neighbor" };
+        var adjacency = new ZoneAdjacency { ZoneId = removable.ZoneId, AdjacentZoneId = neighbor.ZoneId };
+        h.Store.Values.AddRange([removable, neighbor, adjacency]);
+
+        await new StoreSetup(h.Store, new MonitoringSetupTests.User("ADMIN")).DeleteZone(removable.ZoneId, default);
+
+        Assert.DoesNotContain(removable, h.Store.Values);
+        Assert.DoesNotContain(adjacency, h.Store.Values);
+        Assert.Contains(neighbor, h.Store.Values);
+    }
+
+    [Fact]
+    public async Task DeleteZoneRejectsOperationallyReferencedZone()
+    {
+        var (h, _, _) = World();
+        var before = JsonSerializer.Serialize(h.Store.Values);
+
+        var error = await Assert.ThrowsAsync<AppError>(() =>
+            new StoreSetup(h.Store, new MonitoringSetupTests.User("ADMIN")).DeleteZone(h.Zone.ZoneId, default));
+
+        Assert.Equal("ZONE_IN_USE", error.Code);
+        Assert.Equal(before, JsonSerializer.Serialize(h.Store.Values));
+    }
+
     [Theory, InlineData("OPERATOR"), InlineData("MANAGER"), InlineData("STAFF")]
     public async Task ApplicationRejectsOtherRoles(string role)
     {
@@ -139,6 +168,22 @@ public sealed class ConfigurationManagementTests
         Assert.Equal((HttpStatusCode)expected, response.StatusCode);
         Assert.Equal(expected == 200 ? "Lobby" : "Ground floor", floor.Name);
         Assert.Equal("http://api/floors/map?v=current", floor.MapAssetUrl);
+    }
+
+    [Theory, InlineData(null, 401), InlineData("OPERATOR", 403), InlineData("MANAGER", 403), InlineData("STAFF", 403), InlineData("ADMIN", 204)]
+    public async Task DeleteZoneEndpointRequiresAdmin(string? role, int expected)
+    {
+        var (h, floor, _) = World();
+        var removable = new Zone { ZoneId = Guid.NewGuid(), FloorId = floor.FloorId, Code = "TEMP", Name = "Temporary" };
+        h.Store.Values.Add(removable);
+        await using var factory = new SetupOverviewTests.Factory(h.Store);
+        using var client = factory.CreateClient();
+        if (role is not null) client.DefaultRequestHeaders.Add("X-Test-Role", role);
+
+        var response = await client.DeleteAsync($"/api/zones/{removable.ZoneId}");
+
+        Assert.Equal((HttpStatusCode)expected, response.StatusCode);
+        Assert.Equal(expected != 204, h.Store.Values.Contains(removable));
     }
 
     private sealed class Clock : IClock { public DateTime UtcNow => DateTime.UtcNow; }
