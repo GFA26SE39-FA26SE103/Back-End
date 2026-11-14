@@ -13,10 +13,12 @@ public sealed class StaffReportsController(StaffReportWork reports, IStaffReport
     [RequestFormLimits(MultipartBodyLengthLimit = 48L * 1024 * 1024)]
     public async Task<StaffReportDraftView> Draft([FromForm] StaffReportDraftForm form, CancellationToken ct)
     {
+        // Note is optional: a photo-only or voice-only report sends an empty note.
+        var note = form.Note ?? "";
         var files = form.Photos ?? [];
         if (files.Count > 3) throw new Supermarket.Application.ApplicationException("REPORT_PHOTO_LIMIT", "At most three photos are allowed.", 422);
-        if (form.Note.Length > 4000) throw new Supermarket.Application.ApplicationException("REPORT_NOTE_LIMIT", "Note is too long.", 422);
-        if (string.IsNullOrWhiteSpace(form.Note) && files.Count == 0 && form.Voice is null)
+        if (note.Length > 4000) throw new Supermarket.Application.ApplicationException("REPORT_NOTE_LIMIT", "Note is too long.", 422);
+        if (string.IsNullOrWhiteSpace(note) && files.Count == 0 && form.Voice is null)
             throw new Supermarket.Application.ApplicationException("REPORT_INPUT_REQUIRED", "Provide text, a photo, or voice.", 422);
         var images = new List<StaffReportDraftImage>(files.Count);
         foreach (var file in files)
@@ -46,12 +48,12 @@ public sealed class StaffReportsController(StaffReportWork reports, IStaffReport
         }
         var types = await reports.IncidentTypes(ct);
         var tasks = await reports.TaskTypes(ct);
-        var locationText = string.Join("\n", new[] { form.Note, transcript }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        var locationText = string.Join("\n", new[] { note, transcript }.Where(x => !string.IsNullOrWhiteSpace(x)));
         var mentionedZones = (await reports.Zones(null, ct)).Where(x =>
             x.Name.Length >= 3 && locationText.Contains(x.Name, StringComparison.OrdinalIgnoreCase)
             || x.Code.Length >= 3 && locationText.Contains(x.Code, StringComparison.OrdinalIgnoreCase)).Take(21).ToArray();
         var candidates = mentionedZones.Length <= 20 ? mentionedZones : [];
-        var draft = await draftClient.Analyze(new StaffReportDraftRequest(form.Note, images.ToArray(), types)
+        var draft = await draftClient.Analyze(new StaffReportDraftRequest(note, images.ToArray(), types)
         { TaskTypes = tasks, ZoneCandidates = candidates, Transcript = transcript }, ct);
         var validType = types.Any(x => x.Code == draft.IncidentTypeCode);
         var category = draft.ReportCategory is "POTENTIAL_INCIDENT" or "ROUTINE_REQUEST" ? draft.ReportCategory : null;
@@ -135,7 +137,8 @@ public sealed class StaffReportsController(StaffReportWork reports, IStaffReport
 
 public sealed class StaffReportDraftForm
 {
-    public string Note { get; set; } = "";
+    // Nullable so an empty note is not rejected by implicit [Required] model validation.
+    public string? Note { get; set; }
     public List<IFormFile>? Photos { get; set; }
     public IFormFile? Voice { get; set; }
 }
