@@ -57,8 +57,16 @@ public sealed class ManagerRecommendationTests
                 Assert.Equal("AVAILABLE", result.Recommendation!.Status);
                 Assert.Equal("REVIEW_CHECKOUT_CAPACITY", result.Recommendation.RecommendationType);
                 Assert.Equal(7, result.Recommendation.Evidence!.Signal.Metric);
+                Assert.Contains("meeting the warning threshold of 5 people", result.Recommendation.Guidance!.Rationale);
+                Assert.Equal(5, result.Recommendation.Guidance.RecheckAfterMinutes);
+                Assert.Contains(result.Recommendation.Guidance.ImmediateSteps, step => step.Contains("staffed-checkout availability"));
+                Assert.Contains("critical threshold of 10 people", result.Recommendation.Guidance.EscalationCondition);
                 var detail = await client.GetFromJsonAsync<RecommendationView>($"{Route}/{result.Recommendation.RecommendationId}");
                 Assert.Equal("HIGH", detail!.Evidence!.Confidence);
+                Assert.Equal(result.Recommendation.Guidance.Rationale, detail.Guidance!.Rationale);
+                Assert.Equal(result.Recommendation.Guidance.ImmediateSteps, detail.Guidance.ImmediateSteps);
+                Assert.Equal(result.Recommendation.Guidance.RecheckAfterMinutes, detail.Guidance.RecheckAfterMinutes);
+                Assert.Equal(result.Recommendation.Guidance.EscalationCondition, detail.Guidance.EscalationCondition);
                 world.Event.LastObservedAt = Now;
                 world.Event.UpdatedAt = Now;
                 Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync($"{Route}/{result.Recommendation.RecommendationId}/decision", new RecommendationDecision("ACCEPTED"))).StatusCode);
@@ -234,6 +242,11 @@ public sealed class ManagerRecommendationTests
         Assert.True(paths.GetProperty(Route + "/generate").TryGetProperty("post", out _));
         Assert.True(paths.GetProperty(OperatorRoute).TryGetProperty("get", out _));
         Assert.True(paths.GetProperty(OperatorRoute + "/{id}").TryGetProperty("get", out _));
+        var guidance = document.RootElement.GetProperty("components").GetProperty("schemas").GetProperty("RecommendationGuidance").GetProperty("properties");
+        Assert.True(guidance.TryGetProperty("rationale", out _));
+        Assert.True(guidance.TryGetProperty("immediateSteps", out _));
+        Assert.True(guidance.TryGetProperty("recheckAfterMinutes", out _));
+        Assert.True(guidance.TryGetProperty("escalationCondition", out _));
     }
 
     private static HttpClient ManagerClient(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> factory)

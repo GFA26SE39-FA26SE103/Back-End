@@ -8,11 +8,14 @@ public sealed record OperatorRecommendationQuery(Guid? ZoneId = null, int Page =
 public sealed record RecommendationDecision(string Decision, string? Reason = null);
 public sealed record RecommendationView(Guid RecommendationId, Guid? ZoneId, Guid? EventId, string RecommendationType,
     string Title, string Description, string Status, DateTime GeneratedAt, DateTime? ExpiresAt,
-    Guid? ReviewedByUserId, DateTime? ReviewedAt, RecommendationDisplayEvidence? Evidence = null);
+    Guid? ReviewedByUserId, DateTime? ReviewedAt, RecommendationDisplayEvidence? Evidence = null,
+    RecommendationGuidance? Guidance = null);
 public sealed record RecommendationPage(RecommendationView[] Items, int Page, int PageSize, bool HasMore);
 public sealed record RecommendationEventEvidence(Guid EventId, DateTime ObservedAt, DateTime UpdatedAt, DateTime ValidUntil,
     RecommendationRuleEvidence? RuleBasis = null);
 public sealed record RecommendationDisplayEvidence(RecommendationSignal Signal, DateTime ObservedAt, string Confidence, int? SlaPolicyVersion);
+public sealed record RecommendationGuidance(string Rationale, string[] ImmediateSteps, int RecheckAfterMinutes,
+    string EscalationCondition);
 
 public interface IRecommendationQueries
 {
@@ -56,10 +59,11 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
 
             var (title, description) = choice.Action switch
             {
-                "REVIEW_CHECKOUT_CAPACITY" => ("Review checkout capacity", "Ask the Operator to check whether checkout support or an additional staffed counter is appropriate."),
-                "INSPECT_ZONE" => ("Inspect the congested zone", "Ask the Operator to inspect customer flow and decide whether to intervene."),
-                _ => ("Monitor the condition", "Ask the Operator to review the current condition before deciding whether to intervene.")
+                "REVIEW_CHECKOUT_CAPACITY" => ("Review checkout capacity", "Ask the Operator to inspect checkout demand now and assess whether additional staffed checkout support is needed."),
+                "INSPECT_ZONE" => ("Inspect the congested zone", "Ask the Operator to inspect customer flow now and address any safe, clearly observable obstruction or crowding issue."),
+                _ => ("Verify and monitor the condition", "Ask the Operator to verify the current condition and report whether it persists before the next review.")
             };
+            var guidance = BuildGuidance(choice.Action, current.Signal);
             var now = clock.UtcNow;
             var expires = now.AddMinutes(5);
             var row = new Recommendation
@@ -69,7 +73,7 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
                 SupportingDataJson = JsonSerializer.Serialize(new
                 {
                     EventEvidence = new RecommendationEventEvidence(latest.EventId, latest.LastObservedAt, latest.UpdatedAt, expires, current.Basis),
-                    CurrentSignal = current.Signal, ModelInputSignal = source.Signal, choice.Confidence, choice.Model
+                    CurrentSignal = current.Signal, ModelInputSignal = source.Signal, choice.Confidence, choice.Model, Guidance = guidance
                 }, Json)
             };
             await store.Add(row, ct);
@@ -243,10 +247,66 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
         catch (JsonException) { return null; }
     }
 
+    private static RecommendationGuidance? DisplayGuidance(string? json)
+    {
+        if (json is null) return null;
+        try
+        {
+            using var data = JsonDocument.Parse(json);
+            var root = data.RootElement;
+            return root.ValueKind == JsonValueKind.Object && root.TryGetProperty("guidance", out var guidance)
+                ? guidance.Deserialize<RecommendationGuidance>(Json) : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private static RecommendationGuidance BuildGuidance(string action, RecommendationSignal signal)
+    {
+        var metric = $"{signal.Metric:0.##} {Unit(signal.Unit)}";
+        var threshold = signal.AlertLevel == "CRITICAL" ? signal.CriticalThreshold : signal.WarningThreshold;
+        var level = signal.AlertLevel == "CRITICAL" ? "critical" : "warning";
+        var rationale = $"The latest observation is {metric}, meeting the {level} threshold of {threshold:0.##} {Unit(signal.Unit)} after the configured {signal.SustainSeconds}-second sustain period.";
+        var recheck = signal.AlertLevel == "CRITICAL" ? 2 : 5;
+        var escalation = signal.AlertLevel == "CRITICAL"
+            ? "Escalate immediately if the condition is confirmed on site, worsens, or cannot be handled safely."
+            : $"Escalate if the metric reaches the critical threshold of {signal.CriticalThreshold:0.##} {Unit(signal.Unit)}, the condition worsens, or it remains unresolved at the next review.";
+
+        var steps = action switch
+        {
+            "REVIEW_CHECKOUT_CAPACITY" => new[]
+            {
+                "Ask the Operator to verify the queue and current staffed-checkout availability on site.",
+                "If demand is confirmed, assess whether to provide checkout support or open an additional staffed counter.",
+                "Record the observed condition and any action taken before the next review."
+            },
+            "INSPECT_ZONE" => new[]
+            {
+                "Ask the Operator to inspect customer flow and check for an obstruction or localized crowding.",
+                "Apply only safe, authorized flow-management measures when the cause is clearly observed.",
+                "Record the observed condition and any action taken before the next review."
+            },
+            _ => new[]
+            {
+                "Ask the Operator to verify that the detected condition is still present on site.",
+                "Continue monitoring the affected area until the next review.",
+                "Record whether the condition cleared, persisted, or worsened."
+            }
+        };
+        return new(rationale, steps, recheck, escalation);
+    }
+
+    private static string Unit(string unit) => unit switch
+    {
+        "PEOPLE" => "people",
+        "MINUTES" => "minutes",
+        "PEOPLE_PER_STAFFED_COUNTER" => "people per staffed counter",
+        _ => unit.ToLowerInvariant().Replace('_', ' ')
+    };
+
     public static RecommendationView View(Recommendation row, DateTime now) => new(row.RecommendationId, row.ZoneId,
         row.EventId, row.RecommendationType, row.Title, row.Description,
         RecommendationLifecycle.EffectiveStatus(row.Status, row.ExpiresAt, now), DateTime.SpecifyKind(row.GeneratedAt, DateTimeKind.Utc),
-        Utc(row.ExpiresAt), row.ReviewedByUserId, Utc(row.ReviewedAt), DisplayEvidence(row.SupportingDataJson));
+        Utc(row.ExpiresAt), row.ReviewedByUserId, Utc(row.ReviewedAt), DisplayEvidence(row.SupportingDataJson), DisplayGuidance(row.SupportingDataJson));
 
     private static DateTime? Utc(DateTime? value) => value is { } date ? DateTime.SpecifyKind(date, DateTimeKind.Utc) : null;
 }
