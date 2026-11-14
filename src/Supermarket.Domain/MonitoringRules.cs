@@ -51,17 +51,10 @@ public static class MonitoringPolicy
             return new("WAITING_TIME","MINUTES",true,null);
         if (type.Code=="LONG_QUEUE" && type.MeasurementType=="QUEUE_LENGTH" && rule.ThresholdUnit=="PEOPLE")
             return new("QUEUE_LENGTH","PEOPLE",true,null);
-        if (type.Code=="CONGESTION" && type.MeasurementType=="CROWD_DENSITY")
-        {
-            var explicitCount=false;
-            try {
-                using var json=JsonDocument.Parse(rule.ParametersJson??"{}");
-                explicitCount=json.RootElement.ValueKind==JsonValueKind.Object && json.RootElement.TryGetProperty("measurementMode",out var mode)
-                    && mode.ValueKind==JsonValueKind.String && mode.GetString()=="PEOPLE_COUNT";
-            } catch(JsonException) { /* Structural validation reports malformed JSON. */ }
-            if(explicitCount && rule.ThresholdUnit=="PEOPLE") return new("PEOPLE_COUNT","PEOPLE",true,null);
-            return new("CROWD_DENSITY",rule.ThresholdUnit,false,"Density runtime is deferred. Explicitly select PEOPLE_COUNT with PEOPLE thresholds, or keep the density rule disabled.");
-        }
+        if (type.Code=="CONGESTION" && type.MeasurementType is "PEOPLE_COUNT" or "CROWD_DENSITY")
+            return rule.ThresholdUnit=="PEOPLE"
+                ? new("PEOPLE_COUNT","PEOPLE",true,null)
+                : new("PEOPLE_COUNT",rule.ThresholdUnit,false,"Overcrowding uses the current number of people inside the ROI and requires PEOPLE thresholds.");
         return new(type.MeasurementType??"UNSUPPORTED",rule.ThresholdUnit,false,"This measurement has no runtime yet; keep its rule disabled in Draft.");
     }
     public static void ValidateForActivation(MonitoringRule rule, OperationalEventType type)
@@ -75,7 +68,8 @@ public static class MonitoringPolicy
     {
         ("LONG_QUEUE", "QUEUE_LENGTH") => new("PEOPLE", 3, 5),
         ("EXCESSIVE_WAIT", "WAITING_TIME") => new("MINUTES", 4, 8),
-        ("CONGESTION", "CROWD_DENSITY") => new("PEOPLE_PER_M2", 2, 3),
+        ("CONGESTION", "PEOPLE_COUNT") => new("PEOPLE", 3, 5),
+        ("CONGESTION", "CROWD_DENSITY") => new("PEOPLE", 3, 5), // Legacy catalog compatibility until V19 is applied.
         _ => null
     };
     public static void Confidence(decimal value)

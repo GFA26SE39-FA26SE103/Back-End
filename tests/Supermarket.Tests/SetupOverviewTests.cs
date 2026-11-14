@@ -75,7 +75,7 @@ public sealed class SetupOverviewTests
             case "no-rules": h.Store.Values.RemoveAll(e => e is MonitoringRule); break;
             case "disabled": h.Connection.IsEnabled = false; break;
             case "roi": h.Store.Values.OfType<CameraZoneMapping>().Single().RoiPolygon = "[]"; break;
-            case "density": h.Store.Values.RemoveAll(e => e is MonitoringRule or IncidentType); h.AddRule("OVERCROWDING_CONGESTION", "CROWD_DENSITY", "PEOPLE_PER_M2"); h.Zone.AreaM2 = null; break;
+            case "density": h.Store.Values.RemoveAll(e => e is MonitoringRule or IncidentType); h.AddRule("OVERCROWDING_CONGESTION", "CROWD_DENSITY", "PEOPLE_PER_M2"); break;
             case "cross-floor":
                 var store = h.Store.Values.OfType<Store>().Single();
                 var floor = new Floor { FloorId = Guid.NewGuid(), SupermarketId = store.SupermarketId, FloorNumber = 2 };

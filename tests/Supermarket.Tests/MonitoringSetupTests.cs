@@ -12,10 +12,8 @@ public sealed class MonitoringSetupTests
     public async Task PeopleCountModeDoesNotRequireArea()
     {
         var h=new Harness(); h.AddRule("OVERCROWDING_CONGESTION","CROWD_DENSITY","PEOPLE");
-        h.Store.Values.OfType<MonitoringRule>().Single().ParametersJson="{\"measurementMode\":\"PEOPLE_COUNT\"}";
-        h.Zone.AreaM2=null;
         var review=await h.Setup.Review(h.Zone.ZoneId,default);
-        Assert.True(review.CanActivate); Assert.DoesNotContain(review.Issues,i=>i.Code=="ZONE_AREA_REQUIRED");
+        Assert.True(review.CanActivate);
     }
     [Fact]
     public async Task ActivationRejectsMoreThanOneActiveMapping()
@@ -49,17 +47,13 @@ public sealed class MonitoringSetupTests
     }
 
     [Fact]
-    public async Task ReviewChecksDensityAreaAndRechecksCurrentSourceAtActivation()
+    public async Task ReviewRejectsLegacyDensityAndRechecksCurrentSourceAtActivation()
     {
         var h = new Harness();
         h.AddRule("OVERCROWDING_CONGESTION", "CROWD_DENSITY", "PEOPLE_PER_M2");
-        h.Zone.AreaM2 = null;
         var review = await h.Setup.Review(h.Zone.ZoneId, default);
         Assert.False(review.CanActivate);
-        Assert.Contains(review.Issues, i => i.Code == "ZONE_AREA_REQUIRED");
-        h.Zone.AreaM2 = 10;
-        var density=await h.Setup.Review(h.Zone.ZoneId, default);
-        Assert.False(density.CanActivate); Assert.Contains(density.Issues,i=>i.Code=="RULE_RUNTIME_UNSUPPORTED");
+        Assert.Contains(review.Issues,i=>i.Code=="INVALID_RULE_UNIT");
         h.Connection.LastTestResult = "FAILED";
         var error = await Assert.ThrowsAsync<AppError>(() => h.Setup.Activate(h.Zone.ZoneId, true, h.Configuration.UpdatedAt, default));
         Assert.Equal("MONITORING_NOT_READY", error.Code);
@@ -165,7 +159,7 @@ public sealed class MonitoringSetupTests
 
     internal sealed class Harness
     {
-        public Zone Zone { get; } = new() { ZoneId = Guid.NewGuid(), FloorId = Guid.NewGuid(), Name = "Queue zone", Status = "ACTIVE", AreaM2 = 10 };
+        public Zone Zone { get; } = new() { ZoneId = Guid.NewGuid(), FloorId = Guid.NewGuid(), Name = "Queue zone", Status = "ACTIVE" };
         public MonitoringConfiguration Configuration { get; }
         public Camera Camera { get; }
         public CameraConnection Connection { get; }

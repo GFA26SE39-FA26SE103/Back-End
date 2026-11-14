@@ -22,7 +22,6 @@ public static class Rules
     public static void Coordinate(decimal? value) => Require(value is null or >= 0 and <= 1, "INVALID_COORDINATE", "Coordinates must be normalized to [0,1].");
     public static void MapSize(int? width, int? height) => Require((width is null && height is null) || (width > 0 && height > 0), "INVALID_MAP_SIZE", "Map width and height must both be absent or positive.");
     public static void ZoneColor(string? value) => Require(value is null || value.Length == 7 && value[0] == '#' && value.Skip(1).All(Uri.IsHexDigit), "INVALID_COLOR", "Zone color must use #RRGGBB format.");
-    public static void ZoneArea(decimal? value) => Require(value is null || value is > 0 and <= 9999999999.99m && decimal.Round(value.Value, 2) == value.Value, "INVALID_AREA", "Zone area must be positive, use at most two decimal places, and fit decimal(12,2).");
     public static void MinimumStaff(int? value) => Require(value is null or >= 0, "INVALID_MIN_STAFF", "Minimum staff must be zero or greater.");
     public static void Polygon(IReadOnlyList<Point>? points)
     {
@@ -47,6 +46,16 @@ public static class Rules
             }
         }
         Require(Math.Abs(area) > .000000000001m, "INVALID_POLYGON", "Polygon must have nonzero area.");
+    }
+    public static void Rectangle(IReadOnlyList<Point>? points)
+    {
+        Polygon(points);
+        Require(points!.Count == 4, "INVALID_ZONE_SHAPE", "A floor-plan zone must be a rectangle.");
+        var xs = points.Select(p => p.X).Distinct().ToArray();
+        var ys = points.Select(p => p.Y).Distinct().ToArray();
+        Require(xs.Length == 2 && ys.Length == 2
+            && xs.All(x => ys.All(y => points.Contains(new Point(x, y)))),
+            "INVALID_ZONE_SHAPE", "A floor-plan zone must be an axis-aligned rectangle.");
     }
     private static decimal Cross(Point a, Point b, Point c) => (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X);
     private static bool On(Point a, Point b, Point c) => Cross(a, b, c) == 0 && c.X >= Math.Min(a.X, b.X) && c.X <= Math.Max(a.X, b.X) && c.Y >= Math.Min(a.Y, b.Y) && c.Y <= Math.Max(a.Y, b.Y);

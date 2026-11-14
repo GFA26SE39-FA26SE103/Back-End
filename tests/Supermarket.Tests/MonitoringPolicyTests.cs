@@ -5,20 +5,18 @@ namespace Supermarket.Tests;
 public sealed class MonitoringPolicyTests
 {
     [Fact]
-    public void PeopleCountIsExplicitAndDoesNotReinterpretDensity()
+    public void OvercrowdingUsesPeopleCountAndRejectsLegacyDensityWhenEnabled()
     {
         var type=new OperationalEventType { EventTypeId=Guid.NewGuid(),Code="CONGESTION", MeasurementType="CROWD_DENSITY" };
-        var count=new MonitoringRule { EventTypeId=type.EventTypeId,WarningThreshold=1,CriticalThreshold=2,ThresholdUnit="PEOPLE",ParametersJson="{\"custom\":7,\"measurementMode\":\"PEOPLE_COUNT\"}" };
+        var count=new MonitoringRule { EventTypeId=type.EventTypeId,WarningThreshold=1,CriticalThreshold=2,ThresholdUnit="PEOPLE" };
         MonitoringPolicy.Validate(count,type);
         var definition=MonitoringPolicy.RuntimeDefinition(count,type);
         Assert.True(definition.Supported); Assert.Equal("PEOPLE_COUNT",definition.Mode);
         Assert.Equal("PEOPLE",definition.Unit);
         var density=new MonitoringRule { EventTypeId=type.EventTypeId,WarningThreshold=2,CriticalThreshold=3,ThresholdUnit="PEOPLE_PER_M2" };
-        MonitoringPolicy.Validate(density,type);
+        Assert.Equal("INVALID_RULE_UNIT", Assert.Throws<DomainException>(() => MonitoringPolicy.Validate(density,type)).Code);
         Assert.False(MonitoringPolicy.RuntimeDefinition(density,type).Supported);
         Assert.Equal("PEOPLE_PER_M2",density.ThresholdUnit); Assert.Null(density.ParametersJson);
-        count.ParametersJson="[]";
-        Assert.Throws<DomainException>(()=>MonitoringPolicy.Validate(count,type));
     }
 
     [Fact]
@@ -77,7 +75,8 @@ public sealed class MonitoringPolicyTests
     [Theory]
     [InlineData("LONG_QUEUE", "QUEUE_LENGTH", "PEOPLE", 3, 5)]
     [InlineData("EXCESSIVE_WAIT", "WAITING_TIME", "MINUTES", 4, 8)]
-    [InlineData("CONGESTION", "CROWD_DENSITY", "PEOPLE_PER_M2", 2, 3)]
+    [InlineData("CONGESTION", "CROWD_DENSITY", "PEOPLE", 3, 5)]
+    [InlineData("CONGESTION", "PEOPLE_COUNT", "PEOPLE", 3, 5)]
     public void UsesDocumentedConfigurableDefaults(string code, string measurement, string unit, int warning, int critical)
     {
         var definition = MonitoringPolicy.Definition(new OperationalEventType { Code = code, MeasurementType = measurement })!;
