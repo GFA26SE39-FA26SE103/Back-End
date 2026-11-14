@@ -92,8 +92,10 @@ public sealed partial class MonitoringSetup
                 issues.Add(new("ZONE_AREA_REQUIRED", "Enter the zone's physical area in m² before enabling density monitoring."));
         }
         var cameras = MappedCameras(zone, mappings, cameraRecords, connections);
-        if (cameras.Length > 1) issues.Add(new("MEASUREMENT_SOURCE_AMBIGUOUS", "Keep exactly one active camera mapping for this zone; overlapping cameras are not combined."));
-        if (!cameras.Any(c => c.Ready)) issues.Add(new("CAMERA_NOT_READY", "Map an active camera with valid ROI and tested, enabled AI-compatible source."));
+        if (cameras.Select(c => c.CameraId).Distinct().Count() > 1)
+            issues.Add(new("MEASUREMENT_SOURCE_AMBIGUOUS", "Keep exactly one active camera source for this zone; multiple ROIs on that camera are allowed."));
+        if (cameras.Length == 0 || cameras.Any(c => !c.Ready))
+            issues.Add(new("CAMERA_NOT_READY", "Every active ROI needs a valid polygon and a tested, enabled AI-compatible camera source."));
         var warnings = new List<string>();
         if (cameras.Any(c => c.SourceType == "RECORDED")) warnings.Add("Recorded video is a controlled test source, not live operational CCTV.");
         warnings.Add("Activation requests backend-owned monitoring. Check runtime separately; an ACTIVE configuration does not guarantee usable measurements.");

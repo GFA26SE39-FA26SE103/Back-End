@@ -49,7 +49,7 @@ public sealed class MonitoringSnapshotReader(ISetupStore store,CheckoutMonitorin
             }
             var mappings=rules.Count>0 || enabled.Count==0
                 ? await store.List<CameraZoneMapping>(m=>m.ZoneId==zone.ZoneId && m.Status=="ACTIVE",ct) : [];
-            if(rules.Count>0 && mappings.Count!=1) issue??="MEASUREMENT_SOURCE_AMBIGUOUS";
+            if(rules.Count>0 && mappings.Select(m=>m.CameraId).Distinct().Count()!=1) issue??="MEASUREMENT_SOURCE_AMBIGUOUS";
             CheckoutSnapshotPreparation.Prepared? prepared=null;
             if(checkoutRules.Count>0)
             {
@@ -58,12 +58,19 @@ public sealed class MonitoringSnapshotReader(ISetupStore store,CheckoutMonitorin
                 prepared=await CheckoutSnapshotPreparation.Read(store,checkout,zone,configuration,checkoutRules.ToArray(),checkoutSnapshots.ToArray(),checkoutSchema,checkoutQueries,ct);
                 issue??=prepared.Issues.FirstOrDefault()?.Code;
             }
-            foreach(var mapping in mappings)
+            foreach(var cameraMappings in mappings.GroupBy(m=>m.CameraId))
             {
-                var camera=UseCase.Found(await store.Find<Camera>(mapping.CameraId,ct));
+                var camera=UseCase.Found(await store.Find<Camera>(cameraMappings.Key,ct));
                 var connection=(await store.List<CameraConnection>(c=>c.CameraId==camera.CameraId,ct)).SingleOrDefault();
-                var problem=issue; Point[] roi=[];
-                try { Rules.SameFloor(camera,zone); roi=JsonSerializer.Deserialize<Point[]>(mapping.RoiPolygon,Json)??[]; Rules.Polygon(roi); }
+                var problem=issue; var rois=new List<Point[]>();
+                try {
+                    Rules.SameFloor(camera,zone);
+                    if(cameraMappings.Count()>16) problem??="ROI_LIMIT_EXCEEDED";
+                    foreach(var mapping in cameraMappings.OrderBy(m=>m.CameraZoneId)) {
+                        var roi=JsonSerializer.Deserialize<Point[]>(mapping.RoiPolygon,Json)??[];
+                        Rules.Polygon(roi); rois.Add(roi);
+                    }
+                }
                 catch(JsonException) { problem??="ROI_INVALID"; } catch(DomainException e) { problem??=e.Code; }
                 if(camera.Status!="ACTIVE") problem??="CAMERA_NOT_ACTIVE";
                 if(connection is null) problem??="CONNECTION_MISSING";
@@ -73,7 +80,7 @@ public sealed class MonitoringSnapshotReader(ISetupStore store,CheckoutMonitorin
                     if(!(connection.SourceType=="LIVE" && connection.Protocol is "HTTP" or "RTSP" or "HLS") && !(connection.SourceType=="RECORDED" && connection.Protocol=="FILE")) problem??="AI_SOURCE_UNSUPPORTED";
                 }
                 if(!grouped.TryGetValue(camera.CameraId,out var entry)) entry=(connection??new CameraConnection { CameraId=camera.CameraId },[],[],[]);
-                entry.Zones.Add(new(zone.ZoneId,zone.Name,configuration.ConfigId,configuration.UpdatedAt,roi,configuration.ConfidenceThreshold,rules.ToArray(),problem));
+                entry.Zones.Add(new(zone.ZoneId,zone.Name,configuration.ConfigId,configuration.UpdatedAt,rois.FirstOrDefault()??[],configuration.ConfidenceThreshold,rules.ToArray(),problem,rois.Skip(1).ToArray()));
                 grouped[camera.CameraId]=entry;
             }
             if(prepared is not null)

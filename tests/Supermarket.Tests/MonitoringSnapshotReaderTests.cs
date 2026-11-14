@@ -5,6 +5,21 @@ namespace Supermarket.Tests;
 public sealed class MonitoringSnapshotReaderTests
 {
     [Fact]
+    public async Task SameCameraCanCoverOneZoneWithMultipleIndependentRois()
+    {
+        var h=new MonitoringSetupTests.Harness(); h.AddRule();
+        h.Store.Values.Add(new CameraZoneMapping { CameraZoneId=Guid.NewGuid(),CameraId=h.Camera.CameraId,ZoneId=h.Zone.ZoneId,
+            RoiPolygon=System.Text.Json.JsonSerializer.Serialize(new Point[] { new(.5m,0),new(1,0),new(1,1) }),Status="ACTIVE" });
+        var review=await h.Setup.Review(h.Zone.ZoneId,default);
+        Assert.True(review.CanActivate,string.Join(",",review.Issues.Select(i=>i.Code)) + ";" +
+            string.Join(",",review.Cameras.SelectMany(c=>c.Issues).Select(i=>i.Code)));
+        h.Configuration.Status="ACTIVE";
+        var snapshot=Assert.Single(await new MonitoringSnapshotReader(h.Store).ReadAll(default));
+        Assert.Null(snapshot.IssueCode);
+        var zone=Assert.Single(snapshot.Zones);
+        Assert.Single(zone.AdditionalRois!);
+    }
+    [Fact]
     public async Task ActiveSnapshotIsVersionedButHealthUpdatesDoNotRestartTracking()
     {
         var h=new MonitoringSetupTests.Harness(); h.AddRule(); h.Configuration.Status="ACTIVE";

@@ -14,15 +14,21 @@ public sealed class AiMonitoringClient(HttpClient http,IOptions<AiPreviewOptions
     {
         var connection=snapshot.Connection;
         var checkouts=snapshot.CheckoutMappings??[];
-        if(snapshot.Zones.Length>128 || checkouts.Length>128 || snapshot.Zones.Length+checkouts.Length==0) throw Invalid();
+        if(snapshot.Zones.Length>128 || snapshot.Zones.Sum(z=>1+(z.AdditionalRois?.Length??0))>128
+            || checkouts.Length>128 || snapshot.Zones.Length+checkouts.Length==0) throw Invalid();
         var body=new Dictionary<string,object?> {
             ["protocol_version"]=checkouts.Length==0?1:2,["owner_id"]=ownerId,["configuration_fingerprint"]=snapshot.Fingerprint,
             ["stream_url"]=connection.StreamUri,["source_type"]=connection.SourceType,["username"]=connection.Username,
             ["password"]=connection.CredentialSecretRef is null?null:secrets.Unprotect(connection.CredentialSecretRef),
             ["model"]=options.Model,["tracker"]=options.Tracker,["classes"]=options.Classes,["device"]=options.Device,["half"]=options.Half,
             ["confidence"]=snapshot.Zones.Select(z=>z.Confidence).Concat(checkouts.Select(m=>m.Confidence)).Min(),
-            ["zones"]=snapshot.Zones.Select(z=>new {zone_id=z.ZoneId,config_id=z.ConfigId,config_version=z.ConfigVersion,
-                roi_polygon=z.Roi,confidence=z.Confidence,queue_enabled=z.Rules.Any(r=>r.Mode=="QUEUE_LENGTH")}).ToArray()
+            ["zones"]=snapshot.Zones.Select(z=> {
+                var item=new Dictionary<string,object> { ["zone_id"]=z.ZoneId,["config_id"]=z.ConfigId,
+                    ["config_version"]=z.ConfigVersion,["roi_polygon"]=z.Roi,["confidence"]=z.Confidence,
+                    ["queue_enabled"]=z.Rules.Any(r=>r.Mode=="QUEUE_LENGTH") };
+                if(z.AdditionalRois is { Length: > 0 }) item["additional_roi_polygons"]=z.AdditionalRois;
+                return item;
+            }).ToArray()
         };
         // Do not add new fields to legacy v1 requests: the existing AI contract is strict.
         if(checkouts.Length>0) body["checkout_mappings"]=checkouts.Select(m=>new { mapping_id=m.MappingId,counter_id=m.CounterId,

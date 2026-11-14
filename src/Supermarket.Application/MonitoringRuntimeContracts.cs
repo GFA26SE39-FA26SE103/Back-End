@@ -6,7 +6,7 @@ public sealed record MonitoringRuleSnapshot(Guid RuleId,Guid? IncidentTypeId,str
     decimal WarningThreshold,decimal CriticalThreshold,int SustainSec,int CooldownSec,Guid? EventTypeId=null,string EventTypeCode="",int? ClearDurationSec=null,
     string OutcomeType="OPERATIONAL_EVENT",string? ParametersJson=null);
 public sealed record MonitoringZoneSnapshot(Guid ZoneId,string ZoneName,Guid ConfigId,DateTime ConfigVersion,Point[] Roi,
-    decimal Confidence,MonitoringRuleSnapshot[] Rules,string? IssueCode=null);
+    decimal Confidence,MonitoringRuleSnapshot[] Rules,string? IssueCode=null,Point[][]? AdditionalRois=null);
 public sealed record MonitoringCameraSnapshot(Guid CameraId,CameraConnection Connection,string Fingerprint,MonitoringZoneSnapshot[] Zones,string? IssueCode=null,
     CheckoutMappingSnapshot[]? CheckoutMappings=null);
 public sealed record AiZoneMeasurement(Guid ZoneId,Guid ConfigId,DateTime ConfigVersion,int PeopleCount,int QueueCount);

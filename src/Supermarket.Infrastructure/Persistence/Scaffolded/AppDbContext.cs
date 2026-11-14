@@ -364,9 +364,9 @@ public partial class AppDbContext : DbContext
 
             entity.ToTable("CameraZoneMapping");
 
-            entity.HasIndex(e => e.ZoneId, "IX_CameraZoneMapping_ZoneId");
+            entity.HasIndex(e => new { e.CameraId, e.ZoneId }, "IX_CameraZoneMapping_Camera_Zone");
 
-            entity.HasIndex(e => new { e.CameraId, e.ZoneId }, "UQ_CameraZoneMapping").IsUnique();
+            entity.HasIndex(e => e.ZoneId, "IX_CameraZoneMapping_ZoneId");
 
             entity.Property(e => e.CameraZoneId)
                 .HasDefaultValueSql("(newsequentialid())")

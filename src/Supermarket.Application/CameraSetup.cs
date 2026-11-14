@@ -153,6 +153,13 @@ public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICamera
         await Get(id, ct);
         return (await store.List<CameraZoneMapping>(m => m.CameraId == id, ct)).Select(Mapping).ToList();
     }
+    public async Task<MappingView> Roi(Guid cameraId, Guid mappingId, CancellationToken ct)
+    {
+        await Get(cameraId, ct);
+        var mapping = UseCase.Found(await store.Find<CameraZoneMapping>(mappingId, ct));
+        if (mapping.CameraId != cameraId) throw new ApplicationException("NOT_FOUND", "ROI not found for this camera.", 404);
+        return Mapping(mapping);
+    }
     public Task<MappingView> Map(Guid id, Guid zoneId, MappingRequest r, CancellationToken ct)
     {
         UseCase.Admin(current);
@@ -163,7 +170,9 @@ public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICamera
             Rules.SameFloor(camera, zone);
             Rules.Polygon(r.RoiPolygon);
             Rules.Status(r.Status, "ACTIVE", "INACTIVE");
-            var x = (await store.List<CameraZoneMapping>(m => m.CameraId == id && m.ZoneId == zoneId, ct)).SingleOrDefault();
+            var existing = await store.List<CameraZoneMapping>(m => m.CameraId == id && m.ZoneId == zoneId, ct);
+            if (existing.Count > 1) throw new ApplicationException("CAMERA_ZONE_ROI_AMBIGUOUS", "Select a specific ROI to edit.");
+            var x = existing.SingleOrDefault();
             var isNew = x is null;
             if ((await store.List<MonitoringConfiguration>(m => m.ZoneId == zoneId && m.Status == "ACTIVE", ct)).Count > 0)
                 throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before changing camera mapping or ROI.");
@@ -177,13 +186,68 @@ public sealed class CameraSetup(ISetupStore store, ICurrentUser current, ICamera
             return Mapping(x);
         }, ct);
     }
+    public Task<MappingView> CreateRoi(Guid cameraId, Guid zoneId, MappingRequest request, CancellationToken ct)
+    {
+        UseCase.Admin(current);
+        return store.Transaction(async () =>
+        {
+            var camera = await Get(cameraId, ct);
+            var zone = UseCase.Found(await store.Find<Zone>(zoneId, ct));
+            Rules.SameFloor(camera, zone);
+            Rules.Polygon(request.RoiPolygon);
+            Rules.Status(request.Status, "ACTIVE", "INACTIVE");
+            if ((await store.List<CameraZoneMapping>(m => m.CameraId == cameraId && m.ZoneId == zoneId, ct)).Count >= 16)
+                throw new ApplicationException("ROI_LIMIT_EXCEEDED", "At most 16 ROIs per camera and Zone.");
+            if ((await store.List<MonitoringConfiguration>(m => m.ZoneId == zoneId && m.Status == "ACTIVE", ct)).Count > 0)
+                throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before adding an ROI.");
+            var mapping = new CameraZoneMapping { CameraZoneId = Guid.NewGuid(), CameraId = cameraId, ZoneId = zoneId,
+                RoiPolygon = JsonSerializer.Serialize(request.RoiPolygon), Status = request.Status };
+            await store.Add(mapping, ct);
+            return Mapping(mapping);
+        }, ct);
+    }
+    public Task<MappingView> UpdateRoi(Guid cameraId, Guid mappingId, MappingRequest request, CancellationToken ct)
+    {
+        UseCase.Admin(current);
+        return store.Transaction(async () =>
+        {
+            var camera = await Get(cameraId, ct);
+            var mapping = UseCase.Found(await store.Find<CameraZoneMapping>(mappingId, ct));
+            if (mapping.CameraId != cameraId) throw new ApplicationException("NOT_FOUND", "ROI not found for this camera.", 404);
+            Rules.SameFloor(camera, UseCase.Found(await store.Find<Zone>(mapping.ZoneId, ct)));
+            Rules.Polygon(request.RoiPolygon);
+            Rules.Status(request.Status, "ACTIVE", "INACTIVE");
+            if ((await store.List<MonitoringConfiguration>(m => m.ZoneId == mapping.ZoneId && m.Status == "ACTIVE", ct)).Count > 0)
+                throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before editing an ROI.");
+            mapping.RoiPolygon = JsonSerializer.Serialize(request.RoiPolygon);
+            mapping.Status = request.Status;
+            await store.Update(mapping, ct);
+            return Mapping(mapping);
+        }, ct);
+    }
+    public Task<bool> RemoveRoi(Guid cameraId, Guid mappingId, CancellationToken ct)
+    {
+        UseCase.Admin(current);
+        return store.Transaction(async () =>
+        {
+            await Get(cameraId, ct);
+            var mapping = UseCase.Found(await store.Find<CameraZoneMapping>(mappingId, ct));
+            if (mapping.CameraId != cameraId) throw new ApplicationException("NOT_FOUND", "ROI not found for this camera.", 404);
+            if ((await store.List<MonitoringConfiguration>(m => m.ZoneId == mapping.ZoneId && m.Status == "ACTIVE", ct)).Count > 0)
+                throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before removing an ROI.");
+            await store.Remove(mapping, ct);
+            return true;
+        }, ct);
+    }
     public Task<bool> Unmap(Guid id, Guid zoneId, CancellationToken ct)
     {
         UseCase.Admin(current);
         return store.Transaction(async () =>
         {
             await Get(id, ct);
-            var x = UseCase.Found((await store.List<CameraZoneMapping>(m => m.CameraId == id && m.ZoneId == zoneId, ct)).SingleOrDefault());
+            var existing = await store.List<CameraZoneMapping>(m => m.CameraId == id && m.ZoneId == zoneId, ct);
+            if (existing.Count > 1) throw new ApplicationException("CAMERA_ZONE_ROI_AMBIGUOUS", "Select a specific ROI to remove.");
+            var x = UseCase.Found(existing.SingleOrDefault());
             if ((await store.List<MonitoringConfiguration>(m => m.ZoneId == zoneId && m.Status == "ACTIVE", ct)).Count > 0)
                 throw new ApplicationException("MONITORING_ACTIVE", "Deactivate monitoring before removing a mapping.");
             await store.Remove(x, ct);

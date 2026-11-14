@@ -131,6 +131,22 @@ public sealed class RecordedVideoTests
         Assert.DoesNotContain("encrypted", JsonSerializer.Serialize(result));
     }
 
+    [Fact]
+    public async Task CameraCanSaveAndRemoveIndividualRoisForOneZone()
+    {
+        var h=new Harness();
+        var zone=new Zone { ZoneId=Guid.NewGuid(),FloorId=h.Camera.FloorId,Status="ACTIVE" };
+        h.Store.Values.Add(zone);
+        var setup=new CameraSetup(h.Store,new User("ADMIN"),new FakeStream(),new Secrets(),new Clock());
+        var request=new MappingRequest([new Point(0,0),new Point(1,0),new Point(0,1)]);
+        var first=await setup.CreateRoi(h.Camera.CameraId,zone.ZoneId,request,default);
+        var second=await setup.CreateRoi(h.Camera.CameraId,zone.ZoneId,request,default);
+        Assert.NotEqual(first.CameraZoneId,second.CameraZoneId);
+        Assert.Equal(2,(await setup.Mappings(h.Camera.CameraId,default)).Count);
+        await setup.RemoveRoi(h.Camera.CameraId,first.CameraZoneId,default);
+        Assert.Equal(second.CameraZoneId,Assert.Single(await setup.Mappings(h.Camera.CameraId,default)).CameraZoneId);
+    }
+
     [Theory]
     [InlineData("test.exe", 12, "VIDEO_FORMAT_INVALID")]
     [InlineData("test.mp4", 0, "VIDEO_SIZE_INVALID")]

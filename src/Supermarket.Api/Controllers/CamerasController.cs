@@ -31,6 +31,22 @@ public sealed class CamerasController(CameraSetup setup, CameraPlayback playback
     [Authorize(Roles = AccessRoles.Admin), HttpPost("{id:guid}/connection/enable")] public async Task<ConnectionView> Enable(Guid id, CancellationToken ct) => Public(await setup.Enable(id, true, ct));
     [Authorize(Roles = AccessRoles.Admin), HttpPost("{id:guid}/connection/disable")] public async Task<ConnectionView> Disable(Guid id, CancellationToken ct) => Public(await setup.Enable(id, false, ct));
     [Authorize(Roles = AccessRoles.Viewer), HttpGet("{id:guid}/zones")] public Task<List<MappingView>> Zones(Guid id, CancellationToken ct) => setup.Mappings(id, ct);
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet("{id:guid}/zone-rois/{mappingId:guid}")]
+    public Task<MappingView> Roi(Guid id, Guid mappingId, CancellationToken ct) => setup.Roi(id, mappingId, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpPost("{id:guid}/zones/{zoneId:guid}/rois")]
+    public async Task<IActionResult> CreateRoi(Guid id, Guid zoneId, MappingRequest r, CancellationToken ct)
+    {
+        var saved = await setup.CreateRoi(id, zoneId, r, ct);
+        return Created($"/api/cameras/{id}/zone-rois/{saved.CameraZoneId}", saved);
+    }
+    [Authorize(Roles = AccessRoles.Admin), HttpPut("{id:guid}/zone-rois/{mappingId:guid}")]
+    public Task<MappingView> UpdateRoi(Guid id, Guid mappingId, MappingRequest r, CancellationToken ct) => setup.UpdateRoi(id, mappingId, r, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpDelete("{id:guid}/zone-rois/{mappingId:guid}")]
+    public async Task<IActionResult> RemoveRoi(Guid id, Guid mappingId, CancellationToken ct)
+    {
+        await setup.RemoveRoi(id, mappingId, ct);
+        return NoContent();
+    }
     [Authorize(Roles = AccessRoles.Admin), HttpPut("{id:guid}/zones/{zoneId:guid}")] public Task<MappingView> Map(Guid id, Guid zoneId, MappingRequest r, CancellationToken ct) => setup.Map(id, zoneId, r, ct);
     [Authorize(Roles = AccessRoles.Admin), HttpDelete("{id:guid}/zones/{zoneId:guid}")]
     public async Task<IActionResult> Unmap(Guid id, Guid zoneId, CancellationToken ct)
