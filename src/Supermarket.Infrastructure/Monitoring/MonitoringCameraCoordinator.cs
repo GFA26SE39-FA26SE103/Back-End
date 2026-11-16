@@ -91,7 +91,7 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
                                 // A partially committed frame is replayed at the global cursor.
                                 // Preserve successful rules and retry only the failed rule.
                                 if(state.SessionId==batch.SessionId && state.ConfigFingerprint==snapshot.Fingerprint && state.Sequence>=batch.Sequence) continue;
-                                var metric=rule.Mode=="QUEUE_LENGTH"?measurement.QueueCount:measurement.PeopleCount;
+                                var metric=rule.CameraMetric(zone,measurement);
                                 var evaluation=MonitoringRuleEvaluator.Evaluate(rule.Settings(),state,new(batch.SessionId,batch.ContinuityId,batch.Sequence,batch.SourceElapsedMs,metric,snapshot.Fingerprint,gap));
                                 var second=batch.SourceElapsedMs/1000;
                                 var sample=!job.Samples.TryGetValue(rule.RuleId,out var sampled) || sampled!=second;
@@ -171,7 +171,7 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
         var zones=job.Snapshot.Zones.Select(z=> {
             var measured=job.Measurements.GetValueOrDefault(z.ZoneId);
             var rules=z.Rules.Select(r=>job.RuleViews.GetValueOrDefault(r.RuleId)??new MonitoringRuleRuntimeView(r.RuleId,r.Code,r.Name,r.Mode,r.Unit,r.WarningThreshold,r.CriticalThreshold,r.SustainSec,r.CooldownSec,r.ClearDurationSec??r.SustainSec,null,0,0,0,code??state).WithExits(r)).ToArray();
-            return new MonitoringZoneRuntimeView(z.ZoneId,z.ZoneName,z.ConfigId,z.ConfigVersion,"ACTIVE",z.Confidence,measured?.PeopleCount,measured?.QueueCount,rules,z.IssueCode);
+            return new MonitoringZoneRuntimeView(z.ZoneId,z.ZoneName,z.ConfigId,z.ConfigVersion,"ACTIVE",z.Confidence,measured?.PeopleCount,measured?.QueueCount,rules,z.IssueCode,z.AreaM2);
         }).ToArray();
         views[job.Snapshot.CameraId]=new(job.Snapshot.CameraId,state,reason,code,job.Snapshot.Connection.SourceType,job.SessionId,job.SourceMs,job.ObservedAt,stale,job.AnnotationContext,zones,
             (job.Snapshot.CheckoutMappings?.Length??0)>0);

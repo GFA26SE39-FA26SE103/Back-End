@@ -1,3 +1,12 @@
+# Crowd Density and measured zone area — 2026-11-16
+
+- Read-only metadata check against `FA26SE103_Dev`: `dbo.Zone.area_m2` was present as `decimal(12,2) NULL`, with zero positive areas across five zones. `CONGESTION` catalog measurement was `CROWD_DENSITY`; its existing rule used `PEOPLE`. The multi-ROI index was present. The area property and mapping were taken from a schema-only EF scaffold against that database.
+- Backend `dev` at `6e3deb3`: non-SQL suite passed 988 tests. It includes omitted-area PATCH preservation, readiness with one measured ROI, and a synthetic 5 m² worker run covering 0.40 → 0.60 WARNING → 1.00 CRITICAL → 0.20 CLEARED on one OperationalEvent. AI input remains the existing people count contract.
+- Frontend `main` at `cedfb22`: 51 focused tests passed and the production build completed. Three Store Layout ROI-save tests failed in the broader focused run and reproduced against the unmodified frontend HEAD.
+- The V20 recovery script is needed only for databases that lack the area column. It was not run. Dev data, deployment, and live camera end-to-end results were not changed or exercised.
+
+---
+
 # Checkout Backend configuration/runtime and cross-event Task audit — 2026-11-11
 
 Branch: `feature/checkout-counter-backend`, based on `dev` at `8c1a1fe`.

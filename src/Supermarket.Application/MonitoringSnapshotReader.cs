@@ -50,6 +50,9 @@ public sealed class MonitoringSnapshotReader(ISetupStore store,CheckoutMonitorin
             var mappings=rules.Count>0 || enabled.Count==0
                 ? await store.List<CameraZoneMapping>(m=>m.ZoneId==zone.ZoneId && m.Status=="ACTIVE",ct) : [];
             if(rules.Count>0 && mappings.Select(m=>m.CameraId).Distinct().Count()!=1) issue??="MEASUREMENT_SOURCE_AMBIGUOUS";
+            var densityEnabled = rules.Any(r => r.Mode == MonitoringPolicy.DensityMode);
+            if (densityEnabled && !MonitoringPolicy.ValidDensityArea(zone.AreaM2)) issue ??= "DENSITY_AREA_REQUIRED";
+            if (densityEnabled && mappings.Count > 1) issue ??= "DENSITY_SINGLE_ROI_REQUIRED";
             CheckoutSnapshotPreparation.Prepared? prepared=null;
             if(checkoutRules.Count>0)
             {
@@ -80,7 +83,8 @@ public sealed class MonitoringSnapshotReader(ISetupStore store,CheckoutMonitorin
                     if(!(connection.SourceType=="LIVE" && connection.Protocol is "HTTP" or "RTSP" or "HLS") && !(connection.SourceType=="RECORDED" && connection.Protocol=="FILE")) problem??="AI_SOURCE_UNSUPPORTED";
                 }
                 if(!grouped.TryGetValue(camera.CameraId,out var entry)) entry=(connection??new CameraConnection { CameraId=camera.CameraId },[],[],[]);
-                entry.Zones.Add(new(zone.ZoneId,zone.Name,configuration.ConfigId,configuration.UpdatedAt,rois.FirstOrDefault()??[],configuration.ConfidenceThreshold,rules.ToArray(),problem,rois.Skip(1).ToArray()));
+                entry.Zones.Add(new(zone.ZoneId,zone.Name,configuration.ConfigId,configuration.UpdatedAt,rois.FirstOrDefault()??[],configuration.ConfidenceThreshold,rules.ToArray(),problem,rois.Skip(1).ToArray(),
+                    densityEnabled ? zone.AreaM2 : null));
                 grouped[camera.CameraId]=entry;
             }
             if(prepared is not null)

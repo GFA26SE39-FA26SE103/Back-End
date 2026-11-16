@@ -96,6 +96,7 @@ public sealed class Floor : TrackedEntity
 }
 public sealed class Zone : TrackedEntity
 {
+    public decimal? AreaM2 { get; set; }
     public Guid ZoneId
     {
         get; set;

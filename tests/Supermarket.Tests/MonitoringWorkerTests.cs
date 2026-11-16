@@ -8,6 +8,62 @@ namespace Supermarket.Tests;
 public sealed class MonitoringWorkerTests
 {
     [Fact]
+    public async Task DensityUsesAreaForThresholdsAndPersistsMeasuredEvidence()
+    {
+        var h = new MonitoringSetupTests.Harness();
+        h.AddRule("OVERCROWDING_CONGESTION", "CROWD_DENSITY", "PEOPLE_PER_M2");
+        h.Zone.AreaM2 = 5;
+        h.Configuration.Status = "ACTIVE";
+        var rule = Assert.Single(h.Store.Values.OfType<MonitoringRule>());
+        rule.WarningThreshold = .60m;
+        rule.CriticalThreshold = 1m;
+        rule.SustainSec = 1;
+        rule.ClearDurationSec = 1;
+        var clock = new Clock();
+        var ai = new AiFake();
+        using var provider = Services(h.Store, clock, ai, new Queries()).BuildServiceProvider();
+        var coordinator = new MonitoringCameraCoordinator(provider.GetRequiredService<IServiceScopeFactory>(),
+            Options.Create(new MonitoringWorkerOptions()), clock);
+        var snapshot = Assert.Single(await provider.GetRequiredService<IMonitoringSnapshotReader>().ReadAll(default));
+        var zone = Assert.Single(snapshot.Zones);
+
+        async Task Observe(long seq, int people)
+        {
+            ai.Batches.Add(new(1, ai.Session, ai.Epoch, seq, clock.UtcNow, (seq - 1) * 1000,
+                snapshot.Fingerprint, [new(zone.ZoneId, zone.ConfigId, zone.ConfigVersion, people, 0)]));
+            await coordinator.Tick(default);
+        }
+
+        await Observe(1, 2);
+        Assert.Empty(h.Store.Values.OfType<OperationalEvent>());
+        Assert.Equal(.40m, Assert.Single(Assert.Single(coordinator.Get(h.Camera.CameraId)!.Zones).Rules).MetricValue);
+        await Observe(2, 3);
+        Assert.Empty(h.Store.Values.OfType<OperationalEvent>());
+        await Observe(3, 3);
+        var opened = Assert.Single(h.Store.Values.OfType<OperationalEvent>());
+        Assert.Equal("WARNING", opened.Priority);
+        Assert.Equal(.60m, opened.MetricValue);
+        await Observe(4, 5);
+        await Observe(5, 5);
+        var escalated = Assert.Single(h.Store.Values.OfType<OperationalEvent>());
+        Assert.Equal(opened.EventId, escalated.EventId);
+        Assert.Equal("CRITICAL", escalated.Priority);
+        Assert.Equal(1m, escalated.MetricValue);
+        using var evidence = System.Text.Json.JsonDocument.Parse(escalated.MetadataJson!);
+        Assert.Equal(5m, evidence.RootElement.GetProperty("areaM2").GetDecimal());
+        Assert.Equal(5, evidence.RootElement.GetProperty("peopleCount").GetInt32());
+        Assert.Equal("PEOPLE_PER_M2", evidence.RootElement.GetProperty("thresholdUnit").GetString());
+        await Observe(6, 1);
+        await Observe(7, 1);
+        var cleared = Assert.Single(h.Store.Values.OfType<OperationalEvent>());
+        Assert.Equal(opened.EventId, cleared.EventId);
+        Assert.Equal("CLEARED", cleared.Status);
+        Assert.Equal(.20m, cleared.MetricValue);
+        Assert.Empty(h.Store.Values.OfType<Incident>());
+        await coordinator.Shutdown(default);
+    }
+
+    [Fact]
     public async Task ActiveWithoutViewerProcessesEveryFrameAndStopLastZoneReleasesOwner()
     {
         var h=new MonitoringSetupTests.Harness(); h.AddRule("OVERCROWDING_CONGESTION","CROWD_DENSITY","PEOPLE");

@@ -1,5 +1,6 @@
 using System.Data.Common;
 using System.Linq.Expressions;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Supermarket.Application;
 using Supermarket.Infrastructure.Persistence.Scaffolded;
@@ -21,7 +22,8 @@ public sealed class EfOperationalEventQueries(AppDbContext db) : IOperationalEve
 
     private static readonly Expression<Func<OperationalEvent, OperationalEventView>> View = row => new(
         row.EventId, row.EventTypeId, row.EventType.Code, row.EventType.Name, row.ZoneId, row.Zone.Name,
-        row.CameraId, row.Camera.Code, row.Camera.Name, row.Priority, row.Status, row.MetricValue, row.EventType.MeasurementType,
+        row.CameraId, row.Camera.Code, row.Camera.Name, row.Priority, row.Status, row.MetricValue,
+        MeasurementType(row.EventType.Code, row.EventType.MeasurementType, row.MetadataJson),
         row.DetectedAt, row.LastObservedAt, row.ClearedAt, row.UpdatedAt, row.Tasks.Count);
 
     internal IQueryable<OperationalEventView> Page(OperationalEventWindow window) => Filter(db.OperationalEvents.AsNoTracking(), window)
@@ -59,6 +61,24 @@ public sealed class EfOperationalEventQueries(AppDbContext db) : IOperationalEve
         DetectedAt = DateTime.SpecifyKind(row.DetectedAt, DateTimeKind.Utc), LastObservedAt = DateTime.SpecifyKind(row.LastObservedAt, DateTimeKind.Utc),
         UpdatedAt = DateTime.SpecifyKind(row.UpdatedAt, DateTimeKind.Utc), ClearedAt = row.ClearedAt is { } cleared ? DateTime.SpecifyKind(cleared, DateTimeKind.Utc) : null
     };
+
+    internal static string MeasurementType(string eventTypeCode, string catalogType, string? metadata)
+    {
+        if (eventTypeCode != "CONGESTION") return catalogType;
+        if (string.IsNullOrEmpty(metadata)) return "UNAVAILABLE";
+        try
+        {
+            using var document = JsonDocument.Parse(metadata);
+            if (document.RootElement.ValueKind == JsonValueKind.Object
+                && document.RootElement.TryGetProperty("measurementMode", out var mode)
+                && mode.ValueKind == JsonValueKind.String
+                && mode.GetString() is ("PEOPLE_COUNT" or "CROWD_DENSITY") and var value)
+                return value;
+        }
+        catch (JsonException) { }
+        return "UNAVAILABLE";
+    }
+
     private static Supermarket.Application.ApplicationException Unavailable()
         => new("EVENT_DATA_UNAVAILABLE", "Operational event data is temporarily unavailable. Retry later.", 503);
 }

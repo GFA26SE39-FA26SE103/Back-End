@@ -10476,6 +10476,11 @@
           "issueCode": {
             "type": "string",
             "nullable": true
+          },
+          "areaM2": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -13018,6 +13023,11 @@
           "colorHex": {
             "type": "string",
             "nullable": true
+          },
+          "areaM2": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
           }
         },
         "additionalProperties": false
@@ -13067,6 +13077,11 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "areaM2": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
           }
         },
         "additionalProperties": false

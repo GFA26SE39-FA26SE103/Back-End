@@ -31,6 +31,16 @@ public sealed record MeasurementDefinition(string Unit, decimal Warning, decimal
 public sealed record RuntimeMeasurementDefinition(string Mode, string Unit, bool Supported, string? Reason);
 public static class MonitoringPolicy
 {
+    public const string DensityMode = "CROWD_DENSITY";
+    public const string DensityUnit = "PEOPLE_PER_M2";
+    public static readonly MeasurementDefinition CrowdDensity = new(DensityUnit, 2, 3);
+
+    public static bool SupportsCongestion(OperationalEventType type) =>
+        type.Code == "CONGESTION" && type.MeasurementType is "PEOPLE_COUNT" or DensityMode;
+
+    public static bool ValidDensityArea(decimal? areaM2) =>
+        areaM2 is >= 0.01m and <= 9999999999.99m && decimal.Round(areaM2.Value, 2) == areaM2;
+
     public static string? OperationalEventCode(string incidentCode) => incidentCode switch
     {
         "LONG_QUEUE" => "LONG_QUEUE",
@@ -51,10 +61,13 @@ public static class MonitoringPolicy
             return new("WAITING_TIME","MINUTES",true,null);
         if (type.Code=="LONG_QUEUE" && type.MeasurementType=="QUEUE_LENGTH" && rule.ThresholdUnit=="PEOPLE")
             return new("QUEUE_LENGTH","PEOPLE",true,null);
-        if (type.Code=="CONGESTION" && type.MeasurementType is "PEOPLE_COUNT" or "CROWD_DENSITY")
-            return rule.ThresholdUnit=="PEOPLE"
-                ? new("PEOPLE_COUNT","PEOPLE",true,null)
-                : new("PEOPLE_COUNT",rule.ThresholdUnit,false,"Overcrowding uses the current number of people inside the ROI and requires PEOPLE thresholds.");
+        if (SupportsCongestion(type))
+            return rule.ThresholdUnit switch
+            {
+                "PEOPLE" => new("PEOPLE_COUNT", "PEOPLE", true, null),
+                DensityUnit => new(DensityMode, DensityUnit, true, null),
+                _ => new(type.MeasurementType, rule.ThresholdUnit, false, "Congestion requires PEOPLE or PEOPLE_PER_M2 thresholds.")
+            };
         return new(type.MeasurementType??"UNSUPPORTED",rule.ThresholdUnit,false,"This measurement has no runtime yet; keep its rule disabled in Draft.");
     }
     public static void ValidateForActivation(MonitoringRule rule, OperationalEventType type)
@@ -69,7 +82,7 @@ public static class MonitoringPolicy
         ("LONG_QUEUE", "QUEUE_LENGTH") => new("PEOPLE", 3, 5),
         ("EXCESSIVE_WAIT", "WAITING_TIME") => new("MINUTES", 4, 8),
         ("CONGESTION", "PEOPLE_COUNT") => new("PEOPLE", 3, 5),
-        ("CONGESTION", "CROWD_DENSITY") => new("PEOPLE", 3, 5), // Legacy catalog compatibility until V19 is applied.
+        ("CONGESTION", DensityMode) => new("PEOPLE", 3, 5), // Keep count as the default for existing clients.
         _ => null
     };
     public static void Confidence(decimal value)
@@ -120,6 +133,12 @@ public static class MonitoringPolicy
             catch (JsonException) { throw new DomainException("INVALID_RULE_PARAMETERS", "Rule parameters must be valid JSON."); }
         }
         RuleHysteresis.Validate(rule);
+        if (rule.Enabled && SupportsCongestion(type) && rule.ThresholdUnit == DensityUnit)
+        {
+            var (warningExit, _) = RuleHysteresis.Read(rule.ParametersJson);
+            Rules.Require((warningExit ?? rule.WarningThreshold) > 0, "INVALID_THRESHOLDS",
+                "Crowd density requires a warning exit threshold greater than zero so the event can clear.");
+        }
         _=RecoverySeconds(rule);
     }
 }

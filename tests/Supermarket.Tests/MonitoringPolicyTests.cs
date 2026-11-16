@@ -4,19 +4,20 @@ namespace Supermarket.Tests;
 
 public sealed class MonitoringPolicyTests
 {
-    [Fact]
-    public void OvercrowdingUsesPeopleCountAndRejectsLegacyDensityWhenEnabled()
+    [Theory]
+    [InlineData("CROWD_DENSITY")]
+    [InlineData("PEOPLE_COUNT")]
+    public void CongestionSelectsTheMeasurementByUnit(string catalogMeasurement)
     {
-        var type=new OperationalEventType { EventTypeId=Guid.NewGuid(),Code="CONGESTION", MeasurementType="CROWD_DENSITY" };
+        var type=new OperationalEventType { EventTypeId=Guid.NewGuid(),Code="CONGESTION", MeasurementType=catalogMeasurement };
         var count=new MonitoringRule { EventTypeId=type.EventTypeId,WarningThreshold=1,CriticalThreshold=2,ThresholdUnit="PEOPLE" };
         MonitoringPolicy.Validate(count,type);
         var definition=MonitoringPolicy.RuntimeDefinition(count,type);
         Assert.True(definition.Supported); Assert.Equal("PEOPLE_COUNT",definition.Mode);
         Assert.Equal("PEOPLE",definition.Unit);
-        var density=new MonitoringRule { EventTypeId=type.EventTypeId,WarningThreshold=2,CriticalThreshold=3,ThresholdUnit="PEOPLE_PER_M2" };
-        Assert.Equal("INVALID_RULE_UNIT", Assert.Throws<DomainException>(() => MonitoringPolicy.Validate(density,type)).Code);
-        Assert.False(MonitoringPolicy.RuntimeDefinition(density,type).Supported);
-        Assert.Equal("PEOPLE_PER_M2",density.ThresholdUnit); Assert.Null(density.ParametersJson);
+        var density=new MonitoringRule { EventTypeId=type.EventTypeId,WarningThreshold=.60m,CriticalThreshold=1,ThresholdUnit="PEOPLE_PER_M2" };
+        MonitoringPolicy.ValidateForActivation(density,type);
+        Assert.Equal(new RuntimeMeasurementDefinition("CROWD_DENSITY","PEOPLE_PER_M2",true,null), MonitoringPolicy.RuntimeDefinition(density,type));
     }
 
     [Fact]

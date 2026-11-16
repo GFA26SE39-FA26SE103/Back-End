@@ -36,10 +36,10 @@ public sealed class MonitoringSnapshotReaderTests
         Assert.Empty(await reader.ReadAll(default));
     }
     [Fact]
-    public async Task LegacyDensityActiveReturnsBlockedRuntimeInsteadOfPretendingToRun()
+    public async Task ActiveDensityWithNoAreaIsUnavailable()
     {
         var h=new MonitoringSetupTests.Harness(); h.AddRule("OVERCROWDING_CONGESTION","CROWD_DENSITY","PEOPLE_PER_M2"); h.Configuration.Status="ACTIVE";
         var snapshot=Assert.Single(await new MonitoringSnapshotReader(h.Store).ReadAll(default));
-        Assert.Equal("INVALID_RULE_UNIT",snapshot.IssueCode);
+        Assert.Equal("DENSITY_AREA_REQUIRED",snapshot.IssueCode);
     }
 }

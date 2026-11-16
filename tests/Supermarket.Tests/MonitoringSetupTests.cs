@@ -47,17 +47,37 @@ public sealed class MonitoringSetupTests
     }
 
     [Fact]
-    public async Task ReviewRejectsLegacyDensityAndRechecksCurrentSourceAtActivation()
+    public async Task DensityReviewRequiresAreaAndRechecksCurrentSourceAtActivation()
     {
         var h = new Harness();
         h.AddRule("OVERCROWDING_CONGESTION", "CROWD_DENSITY", "PEOPLE_PER_M2");
         var review = await h.Setup.Review(h.Zone.ZoneId, default);
         Assert.False(review.CanActivate);
-        Assert.Contains(review.Issues,i=>i.Code=="INVALID_RULE_UNIT");
+        Assert.Contains(review.Issues,i=>i.Code=="DENSITY_AREA_REQUIRED");
+        h.Zone.AreaM2 = 5;
+        Assert.True((await h.Setup.Review(h.Zone.ZoneId, default)).CanActivate);
         h.Connection.LastTestResult = "FAILED";
         var error = await Assert.ThrowsAsync<AppError>(() => h.Setup.Activate(h.Zone.ZoneId, true, h.Configuration.UpdatedAt, default));
         Assert.Equal("MONITORING_NOT_READY", error.Code);
         Assert.Equal("DRAFT", h.Configuration.Status);
+    }
+
+    [Fact]
+    public async Task DensityRejectsTwoRoisOnOneCamera()
+    {
+        var h = new Harness();
+        h.Zone.AreaM2 = 5;
+        h.AddRule("OVERCROWDING_CONGESTION", "CROWD_DENSITY", "PEOPLE_PER_M2");
+        var roi = h.Store.Values.OfType<CameraZoneMapping>().Single();
+        h.Store.Values.Add(new CameraZoneMapping { CameraZoneId = Guid.NewGuid(), CameraId = roi.CameraId,
+            ZoneId = roi.ZoneId, RoiPolygon = roi.RoiPolygon });
+
+        var review = await h.Setup.Review(h.Zone.ZoneId, default);
+        Assert.False(review.CanActivate);
+        Assert.Contains(review.Issues, issue => issue.Code == "DENSITY_SINGLE_ROI_REQUIRED");
+        h.Configuration.Status = "ACTIVE";
+        var snapshot = Assert.Single(await new MonitoringSnapshotReader(h.Store).ReadAll(default));
+        Assert.Equal("DENSITY_SINGLE_ROI_REQUIRED", snapshot.IssueCode);
     }
 
     [Fact]

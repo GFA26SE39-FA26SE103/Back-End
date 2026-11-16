@@ -78,6 +78,7 @@ public sealed partial class MonitoringSetup
         try { MonitoringPolicy.Confidence(configuration.ConfidenceThreshold); }
         catch (DomainException e) { issues.Add(new(e.Code, e.Message)); }
         var enabled = rules.Where(r => r.Enabled).ToArray();
+        var densityEnabled = false;
         if (enabled.Length == 0) issues.Add(new("NO_ENABLED_RULES", "Enable at least one supported AI rule."));
         foreach (var rule in enabled)
         {
@@ -88,14 +89,20 @@ public sealed partial class MonitoringSetup
                 issues.Add(new("CHECKOUT_ZONE_REQUIRED", "Waiting-time monitoring requires a checkout zone and Service ROI."));
             try { MonitoringPolicy.ValidateForActivation(rule, type); }
             catch (DomainException e) { issues.Add(new(e.Code, $"{type.Name}: {e.Message}")); }
+            densityEnabled |= MonitoringPolicy.RuntimeDefinition(rule, type).Mode == MonitoringPolicy.DensityMode;
         }
         var cameras = MappedCameras(zone, mappings, cameraRecords, connections);
         if (cameras.Select(c => c.CameraId).Distinct().Count() > 1)
             issues.Add(new("MEASUREMENT_SOURCE_AMBIGUOUS", "Keep exactly one active camera source for this zone; multiple ROIs on that camera are allowed."));
         if (cameras.Length == 0 || cameras.Any(c => !c.Ready))
             issues.Add(new("CAMERA_NOT_READY", "Every active ROI needs a valid polygon and a tested, enabled AI-compatible camera source."));
+        if (densityEnabled && !MonitoringPolicy.ValidDensityArea(zone.AreaM2))
+            issues.Add(new("DENSITY_AREA_REQUIRED", "Enter the measured zone area in Store layout before activating crowd density."));
+        if (densityEnabled && cameras.Length > 1)
+            issues.Add(new("DENSITY_SINGLE_ROI_REQUIRED", "Crowd density requires one active ROI covering the measured zone area."));
         var warnings = new List<string>();
         if (cameras.Any(c => c.SourceType == "RECORDED")) warnings.Add("Recorded video is a controlled test source, not live operational CCTV.");
+        if (densityEnabled) warnings.Add("Verify that the camera ROI covers the same physical floor area entered for the zone.");
         warnings.Add("Activation requests backend-owned monitoring. Check runtime separately; an ACTIVE configuration does not guarantee usable measurements.");
         return new(configuration, StoreSetup.View(zone), cameras, issues.ToArray(), warnings.ToArray(), issues.Count == 0);
     }

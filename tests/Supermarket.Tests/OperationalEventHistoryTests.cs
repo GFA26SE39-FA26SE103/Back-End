@@ -41,6 +41,14 @@ public sealed class OperationalEventHistoryTests
     private static MonitoringSetupTests.MemoryStore Store() => new() { Values = { new Zone { ZoneId = ZoneId, Name = "Checkout", Status = "INACTIVE" } } };
     private static OperationalEventHistory Service(Queries queries, string role = "OPERATOR") => new(queries, Store(), new MonitoringSetupTests.User(role), new Clock(), new(StoreCalendar.Zone(null)));
 
+    [Theory]
+    [InlineData("CONGESTION", "CROWD_DENSITY", "{\"measurementMode\":\"PEOPLE_COUNT\"}", "PEOPLE_COUNT")]
+    [InlineData("CONGESTION", "PEOPLE_COUNT", "{\"measurementMode\":\"CROWD_DENSITY\"}", "CROWD_DENSITY")]
+    [InlineData("CONGESTION", "CROWD_DENSITY", null, "UNAVAILABLE")]
+    [InlineData("LONG_QUEUE", "QUEUE_LENGTH", null, "QUEUE_LENGTH")]
+    public void HistoryUsesTheRecordedCongestionMeasurement(string code, string catalog, string? metadata, string expected) =>
+        Assert.Equal(expected, EfOperationalEventQueries.MeasurementType(code, catalog, metadata));
+
     [Fact]
     public async Task DefaultsIncludeAllStatusesPrioritiesAndHistory()
     {

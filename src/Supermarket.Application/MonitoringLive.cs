@@ -32,7 +32,8 @@ public sealed class MonitoringLive(ISetupStore store,ICurrentUser current,IMonit
                             rule.SustainSec,rule.CooldownSec,rule.ClearDurationSec,null,0,0,0,"INCIDENT_RULE_RUNTIME_UNSUPPORTED"));
                     }
                 }
-            zones.Add(new(zone.ZoneId,zone.Name,config?.ConfigId,config?.UpdatedAt,config?.Status??"NOT_CONFIGURED",config?.ConfidenceThreshold??0,null,null,ruleViews.ToArray()));
+            zones.Add(new(zone.ZoneId,zone.Name,config?.ConfigId,config?.UpdatedAt,config?.Status??"NOT_CONFIGURED",config?.ConfidenceThreshold??0,
+                null,null,ruleViews.ToArray(), AreaM2: ruleViews.Any(r => r.Mode == MonitoringPolicy.DensityMode) ? zone.AreaM2 : null));
         }
         var active=zones.Where(z=>z.ConfigurationStatus=="ACTIVE").ToArray();
         var source=(await store.List<CameraConnection>(c=>c.CameraId==cameraId,ct)).SingleOrDefault()?.SourceType;

@@ -96,6 +96,17 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
             Rules.Status(r.Status, "ACTIVE", "INACTIVE");
             Rules.Optional(r.ZoneType, 50, "ZoneType");
             Rules.ZoneColor(r.ColorHex);
+            if (r.AreaM2Specified)
+                Rules.Require(r.AreaM2 is null || MonitoringPolicy.ValidDensityArea(r.AreaM2), "INVALID_ZONE_AREA",
+                    "Zone area must be between 0.01 and 9999999999.99 m² with at most two decimal places.");
+            if (r.AreaM2Specified && r.AreaM2 != x.AreaM2)
+            {
+                var active = (await store.List<MonitoringConfiguration>(m => m.ZoneId == x.ZoneId && m.Status == "ACTIVE", ct)).SingleOrDefault();
+                if (active is not null && (await store.List<MonitoringRule>(rule => rule.ConfigId == active.ConfigId
+                        && rule.Enabled && rule.ThresholdUnit == MonitoringPolicy.DensityUnit, ct)).Count > 0)
+                    throw new ApplicationException("MONITORING_ACTIVE", "Deactivate crowd density monitoring before changing the zone area.");
+                x.AreaM2 = r.AreaM2;
+            }
             x.Name = Rules.Text(r.Name, 100, "Name");
             x.ZoneType = r.ZoneType;
             x.ColorHex = r.ColorHex?.ToUpperInvariant();
@@ -134,6 +145,6 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
             return true;
         }, ct);
     }
-    public static ZoneView View(Zone x) => new(x.ZoneId, x.FloorId, x.Code, x.Name, x.ZoneType, JsonSerializer.Deserialize<Point[]>(x.MapPolygon)!, x.ColorHex, x.MinStaff, x.Status, x.UpdatedAt);
+    public static ZoneView View(Zone x) => new(x.ZoneId, x.FloorId, x.Code, x.Name, x.ZoneType, JsonSerializer.Deserialize<Point[]>(x.MapPolygon)!, x.ColorHex, x.MinStaff, x.Status, x.UpdatedAt, x.AreaM2);
     private Task Save<T>(T x, Guid? id, CancellationToken ct) where T : Entity, new() => id is null ? store.Add(x, ct) : store.Update(x, ct);
 }

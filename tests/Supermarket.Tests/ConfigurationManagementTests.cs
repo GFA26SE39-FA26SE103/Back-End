@@ -10,6 +10,27 @@ namespace Supermarket.Tests;
 
 public sealed class ConfigurationManagementTests
 {
+    [Fact]
+    public async Task ZonePatchPreservesOmittedAreaAndCanSetOrClearMeasuredArea()
+    {
+        var (h, _, _) = World();
+        var setup = new StoreSetup(h.Store, new MonitoringSetupTests.User("ADMIN"));
+        Point[] rectangle = [new(0, 0), new(1, 0), new(1, 1), new(0, 1)];
+        var request = new ZoneRequest("TEST", "Zone", "AISLES", rectangle);
+        var created = await setup.SaveZone(null, h.Zone.FloorId, request with { AreaM2 = 5.25m }, default);
+        Assert.Equal(5.25m, created.AreaM2);
+
+        var omitted = JsonSerializer.Deserialize<ZoneRequest>(
+            JsonSerializer.Serialize(new { request.Code, request.Name, request.ZoneType, request.MapPolygon }))!;
+        var preserved = await setup.SaveZone(created.ZoneId, null, omitted, default);
+        Assert.Equal(5.25m, preserved.AreaM2);
+        Assert.Equal("INVALID_ZONE_AREA", (await Assert.ThrowsAsync<DomainException>(() => setup.SaveZone(
+            created.ZoneId, null, request with { AreaM2 = 0.001m }, default))).Code);
+
+        var cleared = await setup.SaveZone(created.ZoneId, null, request with { AreaM2 = null }, default);
+        Assert.Null(cleared.AreaM2);
+    }
+
     private static (MonitoringSetupTests.Harness H, Floor Floor, Store Store) World()
     {
         var h = new MonitoringSetupTests.Harness(); h.AddRule();

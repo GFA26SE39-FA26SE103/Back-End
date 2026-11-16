@@ -110,6 +110,10 @@ Ví dụ mapping:
 
 Mỗi quan hệ được lưu hai chiều. API xóa cả hai chiều của liên kết cũ trước khi tạo tập mới, nhưng không chạm vào quan hệ giữa các Zone khác. Zone nguồn/đích phải tồn tại, khác nhau và cùng Floor; ID lặp trả 422 `ZONE_ADJACENCY_DUPLICATE`, tự nối trả 422 `ZONE_ADJACENCY_SELF`, khác Floor trả 422 `ZONE_ADJACENCY_CROSS_FLOOR`. Quan hệ này chỉ là dữ liệu không gian được Admin xác nhận cho dispatch; API không tự suy ra từ polygon hoặc vị trí trên bản đồ.
 
+### Measured Zone area
+
+`POST /api/floors/{floorId}/zones` và `PATCH /api/zones/{zoneId}` nhận `areaM2` tùy chọn. Nhập diện tích đã đo, từ 0.01 đến 9999999999.99 m², tối đa hai chữ số thập phân. Bỏ field khi PATCH để giữ giá trị cũ. Gửi `null` để xóa giá trị. Zone response trả `areaM2`. Khi Crowd Density đang active, việc đổi diện tích trả `MONITORING_ACTIVE` cho tới khi Admin deactivate.
+
 ### Monitoring Draft / Review / Activate / Delete
 
 `GET /api/incident-types` tạm giữ contract frontend cũ nhưng dữ liệu measurement/default được lấy từ `OperationalEventType`; `incidentTypeId` chỉ dùng để map catalog cũ sang event type tương ứng khi lưu. Rule `OPERATIONAL_EVENT` chỉ persist `event_type_id`, không persist `incident_type_id`. Catalog read-only, không gồm staff-reported-only types. Checkout Capacity chưa supported vì counter/composite measurement chưa được chốt.
@@ -134,7 +138,7 @@ Ví dụ tạo Draft:
 }
 ```
 
-`GET .../review` trả `configuration, zone, cameras[], issues[], warnings[], canActivate`. Camera summary gồm mapping/ROI, source type/protocol, enabled, test result/time, readiness và issues; không trả stream URI, username hoặc camera credentials. Cần zone ACTIVE, ít nhất một supported rule enabled và đúng một ACTIVE mapped camera cùng tầng có ROI hợp lệ, nguồn LIVE HTTP/RTSP/HLS hoặc RECORDED FILE tested-success/enabled. Nguồn tổng hợp `DEMO` không còn được chấp nhận; row cũ phải cấu hình lại thành LIVE hoặc RECORDED. Density enabled cần area_m2 > 0 nhưng chưa được runtime hỗ trợ. Review kiểm tra dữ liệu đã lưu, không thay một connection probe mới. Multi-camera selection/overlap còn mở nên nhiều ACTIVE mappings là blocker. Recorded source là test/fallback và được cảnh báo rõ; runtime hiện hỗ trợ count/queue theo increment bên dưới.
+`GET .../review` trả `configuration, zone, cameras[], issues[], warnings[], canActivate`. Camera summary có mapping/ROI, source type, readiness và kết quả test, với credentials được giữ nội bộ. Generic monitoring cần Zone ACTIVE, ít nhất một rule enabled được hỗ trợ, và một camera nguồn hợp lệ cùng tầng. Nguồn có thể là LIVE HTTP/RTSP/HLS hoặc RECORDED FILE đã test thành công và bật. Crowd Density yêu cầu `zone.areaM2 > 0` và đúng một ROI active bao phủ vùng sàn đã đo. Hai điều kiện này trả `DENSITY_AREA_REQUIRED` hoặc `DENSITY_SINGLE_ROI_REQUIRED` trong review khi chưa đạt. Review dùng trạng thái đã lưu. RECORDED là nguồn test/fallback.
 
 `POST .../activate` và `POST .../deactivate` nhận:
 
@@ -142,7 +146,7 @@ Ví dụ tạo Draft:
 {"expectedUpdatedAt":"<updatedAt from reviewed/saved configuration, ISO UTC>"}
 ```
 
-Activate revalidates readiness trong Serializable transaction (409 `MONITORING_NOT_READY` nếu blocker), không tin review cũ; đúng một ACTIVE camera mapping per-zone và enabled count/queue rule cần thiết. Response là ConfigurationView status ACTIVE/INACTIVE và updatedAt mới, **không** khẳng định worker đã RUNNING. Worker đọc cấu hình rồi khởi động/reconfigure AI. ADMIN only; Deactivate trước khi sửa rule/confidence/source/mapping/ROI. Thiếu schema runtime trả503 `MONITORING_SCHEMA_NOT_READY`.
+Activate kiểm lại readiness trong Serializable transaction và trả `MONITORING_NOT_READY` khi có blocker. Response trả ConfigurationView và `updatedAt` mới. Xem runtime riêng để xác nhận worker RUNNING. API dành cho ADMIN. Deactivate trước khi sửa rule, confidence, nguồn, mapping, ROI hoặc diện tích của Zone đang chạy Crowd Density. Thiếu schema runtime trả 503 `MONITORING_SCHEMA_NOT_READY`.
 
 `DELETE /api/zones/{zoneId}/monitoring` (ADMIN) nhận JSON body `{"configId":"<saved config UUID>","expectedUpdatedAt":"<saved updatedAt, ISO UTC>"}`. Chỉ xóa DRAFT hoặc INACTIVE; ACTIVE trả 409 `MONITORING_ACTIVE`, phải Deactivate trước. Config ID hoặc timestamp thay đổi trả 409 `CONFIGURATION_CHANGED`, kể cả khi config cũ đã bị xóa và tạo lại. Không có config trả 404. Thành công trả 204, xóa config và rules của nó trong cùng transaction; Zone, Camera và CameraZoneMapping/ROI được giữ. Historical OperationalEvent/Incident được giữ; `OperationalEvent.rule_id` và `Incident.monitoring_rule_id` được detach thành null, metadata snapshot không đổi. Các FK khác vẫn được tôn trọng và lỗi persistence rollback transaction. Sau xóa, GET monitoring trả 404, setup overview có configuration null; có thể tạo Draft mới. UI yêu cầu xác nhận tên config/zone/floor, có Cancel/close/Escape; thất bại giữ config và hộp thoại để Admin đọc lỗi.
 
@@ -160,7 +164,9 @@ Rule validation codes: `INVALID_CONFIDENCE`, `INVALID_THRESHOLDS`, `INVALID_RULE
 
 ### ROI monitoring / incident feed increment
 
-Catalog có additive `measurementOptions[]` (`mode, unit, supported, reason, defaultWarningThreshold, defaultCriticalThreshold`). Overcrowding là PEOPLE_COUNT/PEOPLE: đếm mọi người hiện có trong từng ROI rồi áp dụng sustain của rule; không dùng diện tích Zone hay PEOPLE_PER_M2. Long Queue là QUEUE_LENGTH/PEOPLE: chỉ đếm track đã ở liên tục trong từng ROI ít nhất 5 giây, sau đó mới áp dụng sustain. Khi một camera có nhiều ROI cho cùng Zone, rule dùng giá trị cao nhất của từng ROI, không cộng các ROI; vẫn một episode/event cho mỗi rule + Zone. Nhiều camera nguồn ACTIVE cho cùng Zone trả `MEASUREMENT_SOURCE_AMBIGUOUS`, nhưng nhiều ROI của một camera được phép. Waiting/Checkout disabled Draft; legacy enabled unsupported phải tắt trước activation. Enabled unsupported trả `RULE_RUNTIME_UNSUPPORTED`. Event history được giữ khi bỏ rule, reference rule_id trở null. Save phải giữ ít nhất một rule; array rỗng trả422 RULES_REQUIRED.
+Catalog trả `measurementOptions[]` với `mode`, `unit`, `supported`, `reason`, `defaultWarning` và `defaultCritical`. Với `CONGESTION`, rule dùng `PEOPLE` để đếm người hiện tại trong ROI hoặc `PEOPLE_PER_M2` để tính `peopleCount / areaM2` trên một ROI. Mỗi cấu hình có một rule cho loại Event này. Đổi đơn vị khi episode còn mở trả `OPEN_CONGESTION_EVENT`. Rule mật độ dùng ngưỡng thập phân, sustain, clear duration và cooldown hiện có. Runtime trả `CROWD_DENSITY`, `areaM2` và metric người/m². Metadata Event giữ số đếm, diện tích, mode và unit của quan sát.
+
+Long Queue dùng `QUEUE_LENGTH`/`PEOPLE` và chỉ đếm track đã ở trong ROI ít nhất 5 giây. Count/queue giữ hành vi nhiều ROI trên một camera và dùng giá trị cao nhất theo ROI. Nhiều camera generic active cho cùng Zone trả `MEASUREMENT_SOURCE_AMBIGUOUS`. Event history được giữ khi bỏ rule và `rule_id` được đặt null.
 
 `GET /api/cameras/{id}/monitoring-runtime` — JWT **ADMIN/OPERATOR**, read-only. Response `cameraId,state,reason,errorCode,videoSourceType,sessionId,sourceElapsedMs,observedAt,isStale,annotationContext,zones[]`. State STARTING/RUNNING/ERROR/COMPLETED, hoặc STOPPED với NO_ACTIVE_CONFIGURATION. Per-zone: `zoneId,zoneName,configId?,configVersion?,configurationStatus,confidence,peopleCount?,queueCount?,issueCode?,rules[]`. Counts chưa đo là **null**, không giả0. Per-rule: `ruleId,incidentCode,incidentName,mode,unit,warningThreshold,criticalThreshold,sustainSec,cooldownSec,clearDurationSec,metricValue?,warningProgressMs,criticalProgressMs,cooldownRemainingSec,reason,incidentId?`. Progress theo source-video ms. QUEUE_DWELL_PENDING nghĩa đang chờ5s membership; SUSTAIN_PENDING là chờ thời gian trên threshold. Errors/stale giữ last-known, không khẳng định còn live. Poll không tạo measurement hay activate.
 

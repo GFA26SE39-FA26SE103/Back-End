@@ -27,11 +27,17 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
                 return new IncidentTypeView(t.IncidentTypeId,t.Code,t.Name,t.Description,"STAFF_REPORTED",null,t.Status,
                     true,null,null,null,null,null,t.RequiresBeforePhoto);
             var eventType=x.EventType; var d = MonitoringPolicy.Definition(eventType);
+            var congestion = MonitoringPolicy.SupportsCongestion(eventType);
             var supported=t.Status=="ACTIVE" && eventType.Status=="ACTIVE"
-                && (eventType.Code=="LONG_QUEUE" && eventType.MeasurementType=="QUEUE_LENGTH"
-                    || eventType.Code=="CONGESTION" && eventType.MeasurementType is "PEOPLE_COUNT" or "CROWD_DENSITY");
-            var options=eventType.Code=="CONGESTION" && eventType.MeasurementType is "PEOPLE_COUNT" or "CROWD_DENSITY"
-                ? new[] { new MonitoringMeasurementOptionView("PEOPLE_COUNT","PEOPLE",supported,"Counts people currently detected inside the ROI; unlike Long Queue, no 5-second queue dwell is applied.",d?.Warning,d?.Critical) }
+                && (eventType.Code=="LONG_QUEUE" && eventType.MeasurementType=="QUEUE_LENGTH" || congestion);
+            var options=congestion
+                ? new[]
+                {
+                    new MonitoringMeasurementOptionView("PEOPLE_COUNT", "PEOPLE", supported, "Counts people currently detected inside the ROI.", d?.Warning, d?.Critical),
+                    new MonitoringMeasurementOptionView(MonitoringPolicy.DensityMode, MonitoringPolicy.DensityUnit, supported,
+                        "Divides the current ROI count by the measured zone area. Use one ROI that covers that floor area.",
+                        MonitoringPolicy.CrowdDensity.Warning, MonitoringPolicy.CrowdDensity.Critical)
+                }
                 : new[] { new MonitoringMeasurementOptionView(eventType.MeasurementType,d?.Unit??"PENDING",supported,supported?null:"Measurement runtime is not yet implemented.",d?.Warning,d?.Critical) };
             return new IncidentTypeView(t.IncidentTypeId,t.Code,t.Name,t.Description,"AI_DETECTED",eventType.MeasurementType,t.Status,
                 supported,d?.Unit,d?.Warning,d?.Critical,supported?null:"Select a supported measurement mode or keep this rule disabled in Draft.",options,t.RequiresBeforePhoto);
@@ -80,6 +86,9 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
                     ClearDurationSec = r.ClearDurationSec,
                     Enabled = r.Enabled, ParametersJson = RuleHysteresis.Merge(r.ParametersJson, r.WarningExitThreshold, r.CriticalExitThreshold), CreatedAt = old?.CreatedAt ?? default, UpdatedAt = old?.UpdatedAt ?? default };
                 MonitoringPolicy.Validate(rule, eventType);
+                if (old is not null && MonitoringPolicy.SupportsCongestion(eventType) && old.ThresholdUnit != rule.ThresholdUnit
+                    && (await store.List<OperationalEvent>(e => e.RuleId == old.RuleId && e.ClearedAt == null, ct)).Count > 0)
+                    throw new ApplicationException("OPEN_CONGESTION_EVENT", "Resolve the open congestion event before changing the measurement unit.");
                 prepared.Add((rule, old is null, r.IncidentTypeId));
             }
             var retainedRuleIds=prepared.Select(x=>x.Rule.RuleId).ToHashSet();

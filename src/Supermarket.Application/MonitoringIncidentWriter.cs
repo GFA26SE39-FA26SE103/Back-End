@@ -34,7 +34,7 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
             if(rule.Mode is "CHECKOUT_CAPACITY" or "WAITING_TIME" && command.MetricOverride is null
                 || rule.Mode is not ("CHECKOUT_CAPACITY" or "WAITING_TIME") && command.MetricOverride is not null)
                 throw new ApplicationException("CHECKOUT_MEASUREMENT_INVALID","Checkout rules require a validated aggregate metric.",503);
-            var metric=command.MetricOverride??(rule.Mode=="QUEUE_LENGTH"?command.Measurement.QueueCount:command.Measurement.PeopleCount);
+            var metric=command.MetricOverride??rule.CameraMetric(zone,command.Measurement);
             var metadata=Metadata(command,metric);
 
             if(outcome=="INCIDENT")
@@ -128,6 +128,8 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
         command.Zone.ConfigId,configurationVersion=command.Zone.ConfigVersion,command.Zone.Confidence,
         videoSourceType=command.Snapshot.Connection.SourceType,command.Batch.SessionId,command.Batch.ContinuityId,command.Batch.Sequence,
         command.Batch.SourceElapsedMs,command.Batch.ConfigurationFingerprint,metric,command.Measurement.PeopleCount,command.Measurement.QueueCount },Json)!.AsObject();
+        if (command.Rule.Mode == MonitoringPolicy.DensityMode)
+            metadata["areaM2"] = JsonSerializer.SerializeToNode(command.Zone.AreaM2, Json);
         if(command.CheckoutEvidence is not null) metadata["checkout"]=JsonSerializer.SerializeToNode(command.CheckoutEvidence,Json);
         return metadata.ToJsonString(Json);
     }
