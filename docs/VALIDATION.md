@@ -1,3 +1,11 @@
+# Manager analytics export audit — 2026-11-17
+
+- Report 5 case AT-FE10-006 reproduced 0 audit rows after 3 successful downloads on `dev` at `7587d9d`. The local fix commits each audit row before completing the export response.
+- The exact retest on an isolated SQL Express database produced 3 persisted `SUCCESS` rows for CSV, XLSX and PDF. The SQL regression also forced a renderer error and verified the HTTP 503 plus persisted `FAILED` rows. All 26 focused analytics and export tests passed.
+- All 988 non-SQL tests passed, and the Release publish completed. Staging verification remains pending.
+
+---
+
 # Crowd Density and measured zone area — 2026-11-16
 
 - Read-only metadata check against `FA26SE103_Dev`: `dbo.Zone.area_m2` was present as `decimal(12,2) NULL`, with zero positive areas across five zones. `CONGESTION` catalog measurement was `CROWD_DENSITY`; its existing rule used `PEOPLE`. The multi-ROI index was present. The area property and mapping were taken from a schema-only EF scaffold against that database.
