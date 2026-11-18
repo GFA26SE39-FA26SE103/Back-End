@@ -72,7 +72,7 @@ A push to `dev` runs non-SQL tests, validates deployment/recovery scripts, build
 - deploy/configure the Python AI service and its runtime schema before turning on `Monitoring__Enabled`;
 - deploy the frontend and set its build-time `VITE_API_URL`; add its exact public origin to backend CORS;
 - perform camera/Cloudinary/large-upload acceptance, monitoring runtime acceptance, alerting/log collection and production hardening;
-- create the separate Production environment, domain, DB, secrets, container, volumes and approval workflow. Dev resources must not be relabeled as Production.
+- configure the separate Production environment and credentials for the [Main deployment workflow](DEPLOY_MAIN.md).
 
 Deployment is not zero-downtime. A docs-only push to `dev` also triggers the current workflow. Required reviewers are not enabled on the Dev GitHub Environment. Add path filtering or a separate release trigger later if the team wants to avoid unnecessary image deployments.
 

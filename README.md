@@ -145,6 +145,8 @@ The repo documents a `dev`-branch pipeline that tests, builds/pushes a container
 
 Follow [docs/DEPLOY_DEV.md](docs/DEPLOY_DEV.md) before changing infrastructure or credentials.
 
+The `main` workflow deploys the production API through its own GitHub Environment and the existing production Compose stack. See [docs/DEPLOY_MAIN.md](docs/DEPLOY_MAIN.md) for setup and rollback.
+
 ## Safety and scope boundaries
 
 - `OperationalEvent` and `Incident` are separate branches. Camera rules produce/update OperationalEvents under the current approved baseline; confirmed Staff reports can qualify as Incidents.
