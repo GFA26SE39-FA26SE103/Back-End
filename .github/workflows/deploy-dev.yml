@@ -1,0 +1,101 @@
+name: Deploy backend Dev
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-dev-deploy
+  cancel-in-progress: false
+
+jobs:
+  image:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.image-name.outputs.name }}@${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore --configfile NuGet.Config
+      - name: Tests without SQL Server
+        run: dotnet test -c Release --no-restore --filter "Category!=SqlIntegration"
+      - name: Validate deployment script and recovery behavior
+        run: |
+          bash -n deploy/dev/deploy.sh
+          bash tests/deploy-dev.test.sh
+      - id: image-name
+        name: Set registry image name
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ steps.image-name.outputs.name }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: dev
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+          ping: ${{ vars.DEV_SSH_HOST || '100.105.191.20' }}
+      - name: Deploy through SSH over Tailscale
+        shell: bash
+        env:
+          SSH_HOST: ${{ vars.DEV_SSH_HOST || '100.105.191.20' }}
+          SSH_USER: ${{ vars.DEV_SSH_USER || 'shiori' }}
+          SSH_PORT: ${{ vars.DEV_SSH_PORT || '22' }}
+          SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+          IMAGE: ${{ needs.image.outputs.image }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          [[ "$SSH_HOST" =~ ^[a-zA-Z0-9.-]+$ && "$SSH_USER" =~ ^[a-z_][a-z0-9_-]*$ && "$SSH_PORT" =~ ^[0-9]{1,5}$ ]]
+          [[ "$IMAGE" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ && "$REGISTRY_USER" =~ ^[a-zA-Z0-9_-]+$ ]]
+          test -n "$SSH_PRIVATE_KEY" && test -n "$SSH_KNOWN_HOSTS"
+          ssh_dir=$(mktemp -d "$RUNNER_TEMP/backend-dev-ssh.XXXXXX")
+          trap 'rm -rf -- "$ssh_dir"' EXIT
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$ssh_dir/key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
+          ssh_options=(-i "$ssh_dir/key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$ssh_dir/known_hosts" -o ConnectTimeout=20)
+          target="$SSH_USER@$SSH_HOST"
+          release="/opt/capstone/backend-dev/releases/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          ssh "${ssh_options[@]}" -p "$SSH_PORT" "$target" "test -s /opt/capstone/backend-dev/api.env && mkdir -p '$release'"
+          scp "${ssh_options[@]}" -P "$SSH_PORT" deploy/dev/compose.yml deploy/dev/deploy.sh "$target:$release/"
+          printf '%s' "$REGISTRY_TOKEN" | ssh "${ssh_options[@]}" -p "$SSH_PORT" "$target" "bash '$release/deploy.sh' '$IMAGE' '$REGISTRY_USER'"

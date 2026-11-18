@@ -1,0 +1,7 @@
+<RunSettings>
+  <DataCollectionRunSettings><DataCollectors><DataCollector friendlyName="XPlat Code Coverage"><Configuration>
+    <Exclude>[*]Supermarket.Infrastructure.Persistence.Scaffolded.*</Exclude>
+    <ExcludeByFile>**/Persistence/Scaffolded/*.cs</ExcludeByFile>
+    <Format>cobertura</Format>
+  </Configuration></DataCollector></DataCollectors></DataCollectionRunSettings>
+</RunSettings>

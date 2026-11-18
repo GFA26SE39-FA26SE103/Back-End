@@ -1,0 +1,68 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using System.ComponentModel.DataAnnotations;
+using Supermarket.Application;
+using Supermarket.Domain;
+using Store = Supermarket.Domain.Supermarket;
+namespace Supermarket.Api.Controllers;
+
+[ApiController, Authorize, Route("api/supermarkets")]
+public sealed class StoreController(StoreSetup setup, FloorPlanUpload floorPlans) : ControllerBase
+{
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet] public Task<List<Store>> List(CancellationToken ct) => setup.Stores(ct);
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet("{id:guid}")] public Task<Store> Get(Guid id, CancellationToken ct) => setup.Get<Store>(id, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpPost]
+    public async Task<IActionResult> Create(StoreRequest r, CancellationToken ct)
+    {
+        var x = await setup.SaveStore(null, r, ct);
+        return Created($"/api/supermarkets/{x.SupermarketId}", x);
+    }
+    [Authorize(Roles = AccessRoles.Admin), HttpPatch("{id:guid}")] public Task<Store> Update(Guid id, StoreRequest r, CancellationToken ct) => setup.SaveStore(id, r, ct);
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet("{id:guid}/floors")] public Task<List<Floor>> Floors(Guid id, CancellationToken ct) => setup.Floors(id, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpPost("{id:guid}/floors")]
+    public async Task<IActionResult> CreateFloor(Guid id, FloorRequest r, CancellationToken ct)
+    {
+        var x = await setup.SaveFloor(null, id, r, ct);
+        return Created($"/api/floors/{x.FloorId}", x);
+    }
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet("/api/floors/{id:guid}")] public Task<Floor> Floor(Guid id, CancellationToken ct) => setup.Get<Floor>(id, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpPatch("/api/floors/{id:guid}")] public Task<Floor> UpdateFloor(Guid id, FloorRequest r, CancellationToken ct) => setup.SaveFloor(id, null, r, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpPatch("/api/floors/{id:guid}/details")] public Task<Floor> UpdateFloorDetails(Guid id, FloorDetailsRequest r, CancellationToken ct) => setup.UpdateFloorDetails(id, r, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpPost("/api/floors/{id:guid}/map")]
+    [RequestSizeLimit(21L * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 21L * 1024 * 1024)]
+    public async Task<FloorPlanView> UploadFloorMap(Guid id, [FromForm] FloorPlanUploadForm form, CancellationToken ct)
+    {
+        await using var stream = form.File.OpenReadStream();
+        var mapUrl = Url.ActionLink(nameof(GetFloorMap), values: new { id })
+            ?? throw new InvalidOperationException("Could not generate the floor-map URL.");
+        return await floorPlans.Upload(id, stream, form.File.FileName, form.File.ContentType, form.File.Length, mapUrl, ct);
+    }
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet("/api/floors/{id:guid}/map")]
+    public async Task<IActionResult> GetFloorMap(Guid id, CancellationToken ct)
+    {
+        var file = await floorPlans.Open(id, ct);
+        Response.Headers.CacheControl = "no-store";
+        return File(file.Content, file.ContentType);
+    }
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet("/api/floors/{id:guid}/zones")] public Task<List<ZoneView>> Zones(Guid id, CancellationToken ct) => setup.Zones(id, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpPost("/api/floors/{id:guid}/zones")]
+    public async Task<IActionResult> CreateZone(Guid id, ZoneRequest r, CancellationToken ct)
+    {
+        var x = await setup.SaveZone(null, id, r, ct);
+        return Created($"/api/zones/{x.ZoneId}", x);
+    }
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet("/api/zones/{id:guid}")] public Task<ZoneView> Zone(Guid id, CancellationToken ct) => setup.Zone(id, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpPatch("/api/zones/{id:guid}")] public Task<ZoneView> UpdateZone(Guid id, ZoneRequest r, CancellationToken ct) => setup.SaveZone(id, null, r, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpDelete("/api/zones/{id:guid}")]
+    public async Task<IActionResult> DeleteZone(Guid id, CancellationToken ct)
+    {
+        await setup.DeleteZone(id, ct);
+        return NoContent();
+    }
+}
+
+public sealed class FloorPlanUploadForm
+{
+    [Required] public IFormFile File { get; set; } = null!;
+}

@@ -1,0 +1,358 @@
+using Supermarket.Domain;
+namespace Supermarket.Application;
+
+/// <summary>
+/// MF-03 Task completion (Report 3 §3.7.4–3.7.5, §3.9.4–3.9.5): the assigned Staff member submits the required
+/// completion evidence; an Operator who did not perform the work verifies it or rejects it for rework (BR-25–BR-28).
+/// </summary>
+/// <remarks>
+/// A submission has no own table: it is the COMPLETION_NOTE row, and its photos are the rows uploaded after the
+/// previous note. Verifying a Task never resolves its OperationalEvent. Verifying the last open mandatory Task of an
+/// Incident closes that Incident (BR-22, <see cref="IncidentClosure"/>).
+/// </remarks>
+public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IClock clock, TaskNotifier notifier, TaskDispatch dispatch,
+    TaskVerification verification, ITaskSchema schema, ITaskEvidenceStorage files)
+{
+    public const string Submitted = "TASK_SUBMITTED", Verified = "TASK_VERIFIED", Rejected = "TASK_REJECTED", ReassignmentRequired = "TASK_REASSIGNMENT_REQUIRED";
+
+    public async Task<TaskEvidenceView> Get(Guid taskId, CancellationToken ct)
+    {
+        await schema.Require(ct);
+        var task = await Readable(taskId, ct);
+        return await View(task, ct);
+    }
+
+    /// <summary>Adds a before/after photo to the draft. A second photo of the same type replaces the first, so a retried upload never duplicates evidence.</summary>
+    public async Task<TaskEvidenceView> Upload(Guid taskId, string evidenceType, Stream content, string filename, string contentType, long length, CancellationToken ct)
+    {
+        UseCase.Staff(current);
+        await schema.Require(ct);
+        Rules.Status(evidenceType, TaskEvidenceType.Photos);
+        Workable(await Assigned(taskId, ct));
+        // Store the file first, outside the transaction; an orphan file is removed if the row cannot be written.
+        var stored = await files.Save(taskId, content, filename, contentType, length, ct);
+        TaskEvidence? replaced = null;
+        try
+        {
+            replaced = await store.Transaction(async () =>
+            {
+                Workable(await Assigned(taskId, ct));
+                var previous = (await Drafts(taskId, ct)).FirstOrDefault(e => e.EvidenceType == evidenceType);
+                if (previous is not null) await store.Remove(previous, ct);
+                await store.Add(new TaskEvidence { EvidenceId = Guid.NewGuid(), TaskId = taskId, SubmittedByUserId = current.UserId, EvidenceType = evidenceType,
+                    EvidenceImage = stored.Token, ReviewStatus = TaskEvidenceReview.Draft, CreatedAt = clock.UtcNow }, ct);
+                return previous;
+            }, ct);
+        }
+        catch
+        {
+            await files.Delete(taskId, stored.Token, ct);
+            throw;
+        }
+        if (replaced?.EvidenceImage is { } old) await files.Delete(taskId, old, ct);
+        return await Get(taskId, ct);
+    }
+
+    public async Task<TaskEvidenceView> RemoveDraft(Guid taskId, Guid evidenceId, CancellationToken ct)
+    {
+        UseCase.Staff(current);
+        await schema.Require(ct);
+        var removed = await store.Transaction(async () =>
+        {
+            Workable(await Assigned(taskId, ct));
+            var draft = (await Drafts(taskId, ct)).SingleOrDefault(e => e.EvidenceId == evidenceId)
+                ?? throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
+            await store.Remove(draft, ct);
+            return draft;
+        }, ct);
+        if (removed.EvidenceImage is { } token) await files.Delete(taskId, token, ct);
+        return await Get(taskId, ct);
+    }
+
+    public async Task<TaskCompletionResult> Submit(Guid taskId, TaskSubmitRequest request, CancellationToken ct)
+    {
+        UseCase.Staff(current);
+        await schema.Require(ct);
+        var requestedNote = request.Note?.Trim();
+        var missingPhotoReason = request.MissingPhotoReason?.Trim();
+        Rules.Optional(requestedNote, TaskEvidenceRules.MaxNoteLength, "Completion note");
+        Rules.Optional(missingPhotoReason, TaskEvidenceRules.MaxMissingPhotoReasonLength, "Missing photo reason");
+        await store.Transaction(async () =>
+        {
+            var task = await Assigned(taskId, ct);
+            // Retrying a submission that already went through is not an error.
+            if (task.Status == WorkTaskStatus.Submitted) return 0;
+            Workable(task);
+            Fresh(task, request.ExpectedUpdatedAt);
+            var sla = IncidentSlaPolicyService.ReadSnapshot(task.SlaSnapshotJson);
+            TaskVerificationRules.Initialize(task, task.TaskTypeId is { } taskTypeId ? await store.Find<TaskType>(taskTypeId, ct) : null, sla?.PriorityCode);
+            var drafts = await Drafts(taskId, ct);
+            var hasAfterPhoto = drafts.Any(e => e.EvidenceType == TaskEvidenceType.AfterPhoto);
+            var note = task.OriginType == TaskOrigin.Incident
+                ? string.IsNullOrWhiteSpace(requestedNote) ? null : requestedNote
+                : Rules.Text(requestedNote, TaskEvidenceRules.MaxNoteLength, "Completion note");
+            if (task.OriginType == TaskOrigin.Incident && note is null && !hasAfterPhoto)
+                throw new ApplicationException("EVIDENCE_REQUIRED", "An Incident task needs an after photo or a completion note.", 422);
+            if (task.OriginType == TaskOrigin.Incident && !hasAfterPhoto)
+                Rules.Require(!string.IsNullOrWhiteSpace(missingPhotoReason), "MISSING_PHOTO_REASON_REQUIRED",
+                    "Explain why the required after photo is unavailable.");
+            else
+                Rules.Require(string.IsNullOrWhiteSpace(missingPhotoReason), "MISSING_PHOTO_REASON_NOT_APPLICABLE",
+                    "A missing photo reason is only accepted for an Incident task submitted without an after photo.");
+            var now = clock.UtcNow;
+            foreach (var draft in drafts)
+            {
+                draft.ReviewStatus = TaskEvidenceReview.Pending;
+                await store.Update(draft, ct);
+            }
+            await store.Add(new TaskEvidence { EvidenceId = Guid.NewGuid(), TaskId = taskId, SubmittedByUserId = current.UserId, EvidenceType = TaskEvidenceType.CompletionNote,
+                Note = note, ReviewStatus = TaskEvidenceReview.Pending, CreatedAt = now }, ct);
+            if (missingPhotoReason is not null)
+                await store.Add(new TaskEvidence { EvidenceId = Guid.NewGuid(), TaskId = taskId, SubmittedByUserId = current.UserId,
+                    EvidenceType = TaskEvidenceType.MissingPhotoReason, Note = missingPhotoReason,
+                    ReviewStatus = TaskEvidenceReview.Pending, CreatedAt = now }, ct);
+            task.Status = WorkTaskStatus.Submitted; task.SubmittedAt = now;
+            await store.Update(task, ct);
+            var outcome = await verification.TryAuto(task, ct);
+            if (outcome is AutoVerificationOutcome.NotAuto)
+                await notifier.Send(Submitted, "Task waiting for verification", $"{task.Title}: {Name(await store.Find<UserAccount>(current.UserId, ct))} submitted the work.",
+                    task, await notifier.Operators(ct), "OPERATOR", ct);
+            return 0;
+        }, ct);
+        return await Result(taskId, ct);
+    }
+
+    public async Task<TaskCompletionResult> Verify(Guid taskId, TaskVerifyRequest request, CancellationToken ct)
+    {
+        UseCase.Operator(current);
+        await schema.Require(ct);
+        await store.Transaction(async () =>
+        {
+            var (task, submission) = await Reviewable(taskId, request.ExpectedUpdatedAt, ct);
+            var photos = (await Photos(task.TaskId, ct)).Where(e => e.ReviewStatus == TaskEvidenceReview.Pending).ToList();
+            var missingReason = (await MissingPhotoReasons(task.TaskId, ct)).SingleOrDefault(e => e.ReviewStatus == TaskEvidenceReview.Pending);
+            if (task.OriginType == TaskOrigin.Incident && string.IsNullOrWhiteSpace(submission.Note)
+                && photos.All(e => e.EvidenceType != TaskEvidenceType.AfterPhoto))
+                throw new ApplicationException("EVIDENCE_REQUIRED", "The Incident submission needs an after photo or a completion note.", 422);
+            if (task.OriginType == TaskOrigin.Incident && photos.All(e => e.EvidenceType != TaskEvidenceType.AfterPhoto)
+                && string.IsNullOrWhiteSpace(missingReason?.Note))
+                throw new ApplicationException("MISSING_PHOTO_REASON_REQUIRED", "The Incident submission must explain why the after photo is unavailable.", 422);
+            var now = clock.UtcNow;
+            foreach (var row in photos.Append(submission).Concat(missingReason is null ? [] : [missingReason]))
+            {
+                row.ReviewStatus = TaskEvidenceReview.Verified;
+                await store.Update(row, ct);
+            }
+            task.Status = WorkTaskStatus.Verified; task.VerifiedByUserId = current.UserId; task.VerifiedAt = now;
+            await store.Update(task, ct);
+            await EndAssignment(task, null, now, null, ct);
+            await notifier.Send(Verified, "Task verified", $"{task.Title}: the Operator confirmed the work.", task, [submission.SubmittedByUserId], "PERFORMER", ct);
+            await new IncidentMitigation(store).AfterManualTaskVerified(task, current.UserId, ct);
+            await new IncidentClosure(store, clock, notifier).AfterTaskVerified(task, current.UserId, ct);
+            return 0;
+        }, ct);
+        return await Result(taskId, ct);
+    }
+
+    /// <summary>Returns the work for rework, automatically dispatches after rejection two, then stops at Operator if the replacement is rejected.</summary>
+    public async Task<TaskCompletionResult> Reject(Guid taskId, TaskRejectRequest request, CancellationToken ct)
+    {
+        UseCase.Operator(current);
+        await schema.Require(ct);
+        var reason = Rules.Text(request.Reason, 2000, "Rejection reason");
+        await store.Transaction(async () =>
+        {
+            var (task, submission) = await Reviewable(taskId, request.ExpectedUpdatedAt, ct);
+            var now = clock.UtcNow;
+            // Count the pending submission explicitly. EF queries below run before SaveChanges and
+            // therefore cannot observe the ReviewStatus mutation made in this transaction, while
+            // the in-memory store can. Computing committed rejections + the current review keeps
+            // the reassignment threshold identical for both stores.
+            var performer = submission.SubmittedByUserId;
+            var rejectedForPerformer = 1 + (await store.List<TaskEvidence>(e => e.TaskId == task.TaskId
+                && e.EvidenceType == TaskEvidenceType.CompletionNote && e.SubmittedByUserId == performer
+                && e.ReviewStatus == TaskEvidenceReview.Rejected, ct)).Count;
+            var reviewRows = (await Photos(task.TaskId, ct)).Where(e => e.ReviewStatus == TaskEvidenceReview.Pending).Append(submission)
+                .Concat((await MissingPhotoReasons(task.TaskId, ct)).Where(e => e.ReviewStatus == TaskEvidenceReview.Pending));
+            foreach (var row in reviewRows)
+            {
+                row.ReviewStatus = TaskEvidenceReview.Rejected; row.RejectReason = reason;
+                await store.Update(row, ct);
+            }
+            var alreadyReassigned = (await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId
+                && a.Reason == TaskEvidenceRules.RejectedTwiceReason, ct)).Count > 0;
+            task.RejectionCount++; task.SubmittedAt = null;
+            if (!alreadyReassigned && rejectedForPerformer < TaskEvidenceRules.RejectionsBeforeReassignment)
+            {
+                task.Status = WorkTaskStatus.InProgress;
+                await store.Update(task, ct);
+                await notifier.Send(Rejected, "Rework needed", $"{task.Title}: {reason}", task, [performer], "PERFORMER", ct);
+                return 0;
+            }
+            // Rejection two leaves the first performer and automatically continues the D1 rings.
+            // A rejected replacement is terminal for automatic dispatch and returns to the Operator.
+            task.Status = WorkTaskStatus.Offered; task.CurrentAssigneeUserId = null; task.AssignedByUserId = null; task.AssignedAt = null;
+            task.AcceptedAt = null; task.StartedAt = null; task.PlannedStartAt = null;
+            await store.Update(task, ct);
+            await EndAssignment(task, performer, now, alreadyReassigned
+                ? TaskEvidenceRules.RejectedAfterReassignmentReason
+                : TaskEvidenceRules.RejectedTwiceReason, ct);
+            if (alreadyReassigned)
+            {
+                await notifier.Send(Rejected, "Task needs Operator reassignment", $"{task.Title}: the replacement submission was rejected ({reason}).",
+                    task, [performer], "PERFORMER", ct);
+                await notifier.Send(ReassignmentRequired, "Task needs Operator reassignment", $"{task.Title}: the replacement submission was rejected.",
+                    task, await notifier.Operators(ct), "OPERATOR", ct);
+                return 0;
+            }
+            await notifier.Send(Rejected, "Task reassigned", $"{task.Title}: rejected twice ({reason}). Offering it to another eligible Staff member.",
+                task, [performer], "PERFORMER", ct);
+            await dispatch.Advance(task, null, ct);
+            return 0;
+        }, ct);
+        return await Result(taskId, ct);
+    }
+
+    public async Task<EvidenceFile> Image(Guid taskId, Guid evidenceId, CancellationToken ct)
+    {
+        await schema.Require(ct);
+        await Readable(taskId, ct);
+        var evidence = await store.Find<TaskEvidence>(evidenceId, ct);
+        if (evidence is null || evidence.TaskId != taskId || evidence.EvidenceImage is null)
+            throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
+        // Staff only see their own photos; Operators and Managers see every submission.
+        if (current.Role == "STAFF" && evidence.SubmittedByUserId != current.UserId)
+            throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
+        return await files.Open(taskId, evidence.EvidenceImage, ct) ?? throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
+    }
+
+    // ---------------------------------------------------------------- helpers
+
+    private async Task<WorkTask> Assigned(Guid taskId, CancellationToken ct)
+    {
+        var task = await store.Find<WorkTask>(taskId, ct);
+        if (task is null || task.CurrentAssigneeUserId != current.UserId) throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
+        return task;
+    }
+
+    private static void Workable(WorkTask task)
+    {
+        if (task.Status != WorkTaskStatus.InProgress)
+            throw new ApplicationException("TASK_NOT_IN_PROGRESS", task.Status == WorkTaskStatus.Accepted
+                ? "Start the task before adding evidence or submitting it."
+                : "Only a task in progress can take evidence or be submitted.");
+    }
+
+    private static void Fresh(WorkTask task, DateTime? expected)
+    {
+        if (expected is { } value && value != task.UpdatedAt)
+            throw new ApplicationException("TASK_CHANGED", "This task changed. Reload it before continuing.");
+    }
+
+    /// <summary>The assigned Staff member, any Staff member who held the Task, or an operational reader.</summary>
+    private async Task<WorkTask> Readable(Guid taskId, CancellationToken ct)
+    {
+        var task = UseCase.Found(await store.Find<WorkTask>(taskId, ct));
+        if (current.Role == "STAFF")
+        {
+            var me = current.UserId;
+            var involved = task.CurrentAssigneeUserId == me || (await store.List<TaskEvidence>(e => e.TaskId == taskId && e.SubmittedByUserId == me, ct)).Count > 0;
+            if (!involved) throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
+        }
+        else UseCase.Viewer(current);
+        return task;
+    }
+
+    private async Task<(WorkTask Task, TaskEvidence Submission)> Reviewable(Guid taskId, DateTime? expected, CancellationToken ct)
+    {
+        var task = UseCase.Found(await store.Find<WorkTask>(taskId, ct));
+        Fresh(task, expected);
+        if (task.Status != WorkTaskStatus.Submitted)
+            throw new ApplicationException("TASK_NOT_SUBMITTED", "Only a submitted task can be verified or rejected.");
+        if (task.VerificationMode == TaskVerificationMode.Auto)
+            throw new ApplicationException("AUTO_VERIFICATION_PENDING", "This task is waiting for its automatic verification condition.");
+        var submission = (await store.List<TaskEvidence>(e => e.TaskId == taskId && e.EvidenceType == TaskEvidenceType.CompletionNote
+            && e.ReviewStatus == TaskEvidenceReview.Pending, ct)).OrderByDescending(e => e.CreatedAt).FirstOrDefault()
+            ?? throw new ApplicationException("TASK_NOT_SUBMITTED", "The task has no pending submission.");
+        // BR-27: the performer never reviews their own work.
+        if (submission.SubmittedByUserId == current.UserId || task.CurrentAssigneeUserId == current.UserId)
+            throw new ApplicationException("SELF_VERIFICATION", "The person who performed a task cannot verify it.", 403);
+        return (task, submission);
+    }
+
+    private async Task EndAssignment(WorkTask task, Guid? performer, DateTime now, string? rejectionReason, CancellationToken ct)
+    {
+        foreach (var assignment in await store.List<TaskAssignmentHistory>(a => a.TaskId == task.TaskId && a.Status == OfferStatus.Accepted && a.EndedAt == null, ct))
+        {
+            if (performer is { } staff && assignment.StaffUserId != staff) continue;
+            assignment.EndedAt = now;
+            if (rejectionReason is not null) assignment.Reason = rejectionReason;
+            await store.Update(assignment, ct);
+        }
+        if (rejectionReason is null) return;
+        foreach (var offer in await store.List<TaskOffer>(o => o.TaskId == task.TaskId && o.Status == TaskOfferStatus.Accepted, ct))
+        {
+            if (performer is { } staff && offer.StaffUserId != staff) continue;
+            // Release UX_TaskOffer_Accepted_Task before a replacement accepts. RespondedAt
+            // still records the original acceptance; the reason explains why it was closed.
+            offer.Status = TaskOfferStatus.Cancelled;
+            offer.DeclineReasonCode = rejectionReason;
+            await store.Update(offer, ct);
+        }
+    }
+
+    private static EvidenceRequirement Requirement(WorkTask task) => EvidenceRequirement.For(task);
+
+    private Task<List<TaskEvidence>> Drafts(Guid taskId, CancellationToken ct)
+        => store.List<TaskEvidence>(e => e.TaskId == taskId && e.ReviewStatus == TaskEvidenceReview.Draft
+            && TaskEvidenceType.Photos.Contains(e.EvidenceType), ct);
+
+    private Task<List<TaskEvidence>> Photos(Guid taskId, CancellationToken ct)
+        => store.List<TaskEvidence>(e => e.TaskId == taskId && TaskEvidenceType.Photos.Contains(e.EvidenceType), ct);
+
+    private Task<List<TaskEvidence>> MissingPhotoReasons(Guid taskId, CancellationToken ct)
+        => store.List<TaskEvidence>(e => e.TaskId == taskId && e.EvidenceType == TaskEvidenceType.MissingPhotoReason, ct);
+
+    private static string Name(UserAccount? user) => user?.FullName is { Length: > 0 } name ? name : "The Staff member";
+
+    private async Task<TaskEvidenceView> View(WorkTask task, CancellationToken ct)
+    {
+        var rows = await store.List<TaskEvidence>(e => e.TaskId == task.TaskId, ct);
+        if (current.Role == "STAFF") rows = rows.Where(e => e.SubmittedByUserId == current.UserId).ToList();
+        var requirement = Requirement(task);
+        var people = rows.Select(e => e.SubmittedByUserId).Distinct().ToList();
+        var names = (await store.List<UserAccount>(u => people.Contains(u.UserId), ct)).ToDictionary(u => u.UserId, u => u.FullName);
+        TaskEvidencePhotoView Photo(TaskEvidence e) => new(e.EvidenceId, e.EvidenceType, $"/api/tasks/{task.TaskId}/evidence/{e.EvidenceId}/image", e.CreatedAt);
+
+        var notes = rows.Where(e => e.EvidenceType == TaskEvidenceType.CompletionNote).OrderBy(e => e.CreatedAt).ToList();
+        var photos = rows.Where(e => TaskEvidenceType.Photos.Contains(e.EvidenceType) && e.ReviewStatus != TaskEvidenceReview.Draft).OrderBy(e => e.CreatedAt).ToList();
+        var missingReasons = rows.Where(e => e.EvidenceType == TaskEvidenceType.MissingPhotoReason).OrderBy(e => e.CreatedAt).ToList();
+        var submissions = new List<TaskSubmissionView>();
+        DateTime? previous = null;
+        foreach (var note in notes)
+        {
+            // A submission's photos were uploaded after the previous note and before this one.
+            var own = photos.Where(p => p.SubmittedByUserId == note.SubmittedByUserId && (previous is null || p.CreatedAt > previous) && p.CreatedAt <= note.CreatedAt);
+            var missingReason = missingReasons.LastOrDefault(e => e.SubmittedByUserId == note.SubmittedByUserId
+                && (previous is null || e.CreatedAt > previous) && e.CreatedAt <= note.CreatedAt);
+            submissions.Add(new(note.EvidenceId, note.SubmittedByUserId, names.GetValueOrDefault(note.SubmittedByUserId), note.Note ?? "", note.CreatedAt,
+                note.ReviewStatus, note.RejectReason, missingReason?.Note, own.Select(Photo).ToArray()));
+            previous = note.CreatedAt;
+        }
+        var drafts = rows.Where(e => e.ReviewStatus == TaskEvidenceReview.Draft && TaskEvidenceType.Photos.Contains(e.EvidenceType))
+            .OrderBy(e => e.CreatedAt).Select(Photo).ToArray();
+        return new(task.TaskId, task.Status, task.VerificationMode, task.VerificationMethod,
+            requirement.BeforePhoto, requirement.AfterPhoto, task.RejectionCount, drafts,
+            submissions.OrderByDescending(s => s.SubmittedAt).ToArray());
+    }
+
+    private async Task<TaskCompletionResult> Result(Guid taskId, CancellationToken ct)
+    {
+        var task = UseCase.Found(await store.Find<WorkTask>(taskId, ct));
+        return new(task.TaskId, task.Status, task.SubmittedAt, task.VerifiedAt, task.RejectionCount, task.CurrentAssigneeUserId, task.UpdatedAt, await View(task, ct));
+    }
+}
+
+/// <summary>Task state after a completion action, with its evidence.</summary>
+public sealed record TaskCompletionResult(Guid TaskId, string Status, DateTime? SubmittedAt, DateTime? VerifiedAt, int RejectionCount, Guid? AssigneeUserId,
+    DateTime UpdatedAt, TaskEvidenceView Evidence);

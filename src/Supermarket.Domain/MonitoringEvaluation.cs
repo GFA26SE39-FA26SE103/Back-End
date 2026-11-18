@@ -1,0 +1,75 @@
+namespace Supermarket.Domain;
+
+public sealed record MonitoringEvaluationSettings(string Mode,string Unit,decimal WarningThreshold,decimal CriticalThreshold,
+    int SustainSec,int CooldownSec,bool Enabled,int? ClearDurationSec=null,decimal? WarningExitThreshold=null,decimal? CriticalExitThreshold=null)
+{
+    /// <summary>Hysteresis: a level is held until the value drops below its exit threshold; missing exit = enter threshold.</summary>
+    public decimal WarningExit => WarningExitThreshold ?? WarningThreshold;
+    public decimal CriticalExit => CriticalExitThreshold ?? CriticalThreshold;
+}
+public sealed record RuleObservation(Guid SessionId,Guid ContinuityId,long Sequence,long SourceElapsedMs,decimal MetricValue,
+    string ConfigFingerprint,bool ContinuityBroken);
+public sealed record RuleEvaluationState(Guid? SessionId=null,Guid? ContinuityId=null,long Sequence=0,long SourceElapsedMs=0,
+    string? ConfigFingerprint=null,long? WarningStartMs=null,long? CriticalStartMs=null,long? RecoveryStartMs=null);
+public sealed record RuleEvaluationResult(RuleEvaluationState NextState,string? EligibleSeverity,long WarningProgressMs,long CriticalProgressMs,
+    string Reason,bool Accepted=true,bool ShouldClear=false,long RecoveryProgressMs=0);
+
+public static class MonitoringRuleEvaluator
+{
+    public static RuleEvaluationResult Evaluate(MonitoringEvaluationSettings settings,RuleEvaluationState state,RuleObservation observation)
+    {
+        if(!settings.Enabled) return new(new(),null,0,0,"RULE_DISABLED",false);
+        var checkout=settings.Mode=="CHECKOUT_CAPACITY" && settings.Unit=="PEOPLE_PER_STAFFED_COUNTER";
+        var waiting=settings.Mode=="WAITING_TIME" && settings.Unit=="MINUTES";
+        var density=settings.Mode==MonitoringPolicy.DensityMode && settings.Unit==MonitoringPolicy.DensityUnit;
+        var count=settings.Mode is "PEOPLE_COUNT" or "QUEUE_LENGTH" && settings.Unit=="PEOPLE";
+        if(!checkout && !waiting && !density && !count) return new(new(),null,0,0,"RULE_RUNTIME_UNSUPPORTED",false);
+        if(observation.MetricValue<0 || count && decimal.Truncate(observation.MetricValue)!=observation.MetricValue || observation.Sequence<1
+           || observation.SourceElapsedMs<0 || observation.SessionId==Guid.Empty || observation.ContinuityId==Guid.Empty)
+            return new(new(),null,0,0,"MEASUREMENT_INVALID",false);
+        var recoverySec=settings.ClearDurationSec??settings.SustainSec;
+        if(settings.SustainSec<0 || settings.CooldownSec<0 || recoverySec<0 || settings.WarningThreshold<0 || settings.CriticalThreshold<=settings.WarningThreshold
+           || (checkout && settings.WarningThreshold==0)
+           || settings.WarningExit<0 || settings.WarningExit>settings.WarningThreshold
+           || settings.CriticalExit>settings.CriticalThreshold || settings.CriticalExit<=settings.WarningThreshold)
+            return new(new(),null,0,0,"RULE_INVALID",false);
+        var matching=state.SessionId==observation.SessionId && state.ContinuityId==observation.ContinuityId && state.ConfigFingerprint==observation.ConfigFingerprint;
+        if(matching && state.Sequence==observation.Sequence)
+            return new(state,null,0,0,"DUPLICATE",false);
+        var broken=observation.ContinuityBroken || !matching || observation.Sequence!=state.Sequence+1 || observation.SourceElapsedMs<state.SourceElapsedMs;
+        // Dual threshold: enter at value >= threshold, stay while value >= exit (dead band between them), leave below exit.
+        var warningHeld=!broken && state.WarningStartMs is not null;
+        var criticalHeld=!broken && state.CriticalStartMs is not null;
+        var warningOn=observation.MetricValue>=settings.WarningThreshold || warningHeld && observation.MetricValue>=settings.WarningExit;
+        var criticalOn=observation.MetricValue>=settings.CriticalThreshold || criticalHeld && observation.MetricValue>=settings.CriticalExit;
+        var warning=warningOn ? (!broken?state.WarningStartMs:null)??observation.SourceElapsedMs : (long?)null;
+        var critical=criticalOn ? (!broken?state.CriticalStartMs:null)??observation.SourceElapsedMs : (long?)null;
+        // Recovery (event clear) only counts once the value is below the warning exit threshold.
+        var recovery=!warningOn ? (!broken?state.RecoveryStartMs:null)??observation.SourceElapsedMs : (long?)null;
+        var warningProgress=warning is null?0:observation.SourceElapsedMs-warning.Value;
+        var criticalProgress=critical is null?0:observation.SourceElapsedMs-critical.Value;
+        var recoveryProgress=recovery is null?0:observation.SourceElapsedMs-recovery.Value;
+        var sustain=settings.SustainSec*1000L;
+        var recovered=recovery is not null && recoveryProgress>=recoverySec*1000L;
+        var severity=critical is not null && criticalProgress>=sustain ? "CRITICAL" : warning is not null && warningProgress>=sustain ? "WARNING" : null;
+        var next=new RuleEvaluationState(observation.SessionId,observation.ContinuityId,observation.Sequence,observation.SourceElapsedMs,
+            observation.ConfigFingerprint,warning,critical,recovery);
+        var reason=severity is not null?"THRESHOLD_SUSTAINED":warning is not null?"SUSTAIN_PENDING":recovered?"RECOVERY_SUSTAINED":"RECOVERY_PENDING";
+        return new(next,severity,warningProgress,criticalProgress,reason,true,recovered,recoveryProgress);
+    }
+}
+
+public sealed record IncidentDecision(string Action,decimal CooldownRemainingSec);
+public static class IncidentPolicy
+{
+    public static IncidentDecision Decide(Incident? existingIncident,DateTime? latestEndedAt,string? eligibleSeverity,
+        MonitoringEvaluationSettings settings,DateTime utcNow)
+    {
+        if(existingIncident is { ClosedAt:null })
+            return new("UPDATE",0);
+        var remaining=latestEndedAt is null?0m:Math.Max(0m,settings.CooldownSec-(decimal)(utcNow-latestEndedAt.Value).TotalSeconds);
+        if(eligibleSeverity is null) return new("OBSERVE",remaining);
+        if(remaining>0) return new("SUPPRESSED",remaining);
+        return new("CREATE",0);
+    }
+}

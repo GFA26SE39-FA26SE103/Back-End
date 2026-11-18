@@ -1,0 +1,367 @@
+using System.Security.Claims;
+using System.Text;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
+using Swashbuckle.AspNetCore.SwaggerGen;
+using Supermarket.Api;
+using Supermarket.Api.Configuration;
+using Supermarket.Application;
+using Supermarket.Domain;
+using Supermarket.Infrastructure;
+using Supermarket.Infrastructure.Ai;
+using Supermarket.Infrastructure.FloorPlans;
+using Supermarket.Infrastructure.Persistence;
+using Supermarket.Infrastructure.Persistence.Scaffolded;
+using Supermarket.Infrastructure.Video;
+using Supermarket.Infrastructure.Monitoring;
+using Supermarket.Infrastructure.Notifications;
+using Supermarket.Infrastructure.Tasks;
+using UserAccount = Supermarket.Domain.UserAccount;
+using Role = Supermarket.Domain.Role;
+
+var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: false).AddEnvironmentVariables();
+builder.Services.AddBackendReverseProxy(builder.Configuration);
+builder.Services.AddOptions<JwtOptions>().Bind(builder.Configuration.GetSection("Jwt")).Validate(o => Encoding.UTF8.GetByteCount(o.Key) >= 32, "Set Jwt:Key to a secret containing at least 32 UTF-8 bytes.").Validate(o => o.LifetimeMinutes is > 0 and <= 1440, "JWT lifetime must be 1 to 1440 minutes.").ValidateOnStart();
+builder.Services.Configure<VideoOptions>(builder.Configuration.GetSection("Video"));
+builder.Services.AddOptions<PushDeliveryOptions>().Bind(builder.Configuration.GetSection("Notifications:Push"))
+    .Validate(o => o.PollSeconds is >= 1 and <= 300 && o.BatchSize is >= 1 and <= 200 && o.MaxAttempts is >= 1 and <= 10
+        && o.MaxDevicesPerRecipient is >= 1 and <= 50 && o.TaskOfferTtlSeconds is >= 30 and <= 3600 && o.DefaultTtlHours is >= 1 and <= 168,
+        "Notifications:Push limits are invalid.").ValidateOnStart();
+builder.Services.AddSingleton(services => services.GetRequiredService<IOptions<PushDeliveryOptions>>().Value);
+builder.Services.AddOptions<FirebaseOptions>().Bind(builder.Configuration.GetSection("Notifications:Firebase"))
+    .Validate(o => !o.Enabled || !string.IsNullOrWhiteSpace(o.ProjectId), "Notifications:Firebase:ProjectId is required when Firebase is enabled.")
+    .ValidateOnStart();
+builder.Services.PostConfigure<VideoOptions>(options =>
+    options.RecordedRoot = Path.GetFullPath(options.RecordedRoot, builder.Environment.ContentRootPath));
+builder.Services.AddOptions<MediaGatewayOptions>().Bind(builder.Configuration.GetSection("MediaGateway"))
+    .Validate(o => !o.Enabled || Uri.TryCreate(o.ControlBaseUrl, UriKind.Absolute, out var control) && control.Scheme is "http" or "https", "MediaGateway:ControlBaseUrl must be an absolute HTTP(S) URI.")
+    .Validate(o => !o.Enabled || Uri.TryCreate(o.PublicBaseUrl, UriKind.Absolute, out var publicUrl) && publicUrl.Scheme == "https", "MediaGateway:PublicBaseUrl must be an absolute HTTPS URI.")
+    .Validate(o => !o.Enabled || o.TimeoutSeconds is > 0 and <= 30, "MediaGateway:TimeoutSeconds must be 1 to 30 seconds.")
+    .Validate(o => !o.Enabled || !string.IsNullOrWhiteSpace(o.ControlUsername) && !string.IsNullOrWhiteSpace(o.ControlPassword), "MediaGateway control credentials are required when enabled.")
+    .ValidateOnStart();
+builder.Services.AddOptions<FloorPlanOptions>().Bind(builder.Configuration.GetSection("FloorPlan"))
+    .Validate(o => o.Provider.Equals("Local", StringComparison.OrdinalIgnoreCase) || o.Provider.Equals("Cloudinary", StringComparison.OrdinalIgnoreCase), "FloorPlan:Provider must be Local or Cloudinary.")
+    .Validate(o => o.MaxBytes is > 0 and <= 20971520, "FloorPlan:MaxBytes must be between 1 and 20971520.")
+    .ValidateOnStart();
+builder.Services.PostConfigure<FloorPlanOptions>(options =>
+    options.Root = Path.GetFullPath(options.Root, builder.Environment.ContentRootPath));
+builder.Services.AddOptions<CloudinaryOptions>().Bind(builder.Configuration.GetSection("Cloudinary"))
+    .Validate(o => !string.Equals(builder.Configuration["FloorPlan:Provider"], "Cloudinary", StringComparison.OrdinalIgnoreCase) || o.IsValid(),
+        "Set Cloudinary:CloudName, ApiKey, ApiSecret, Folder and TimeoutSeconds (1-120) before enabling the Cloudinary floor-plan provider.")
+    .ValidateOnStart();
+builder.Services.AddOptions<HealthWorkerOptions>().Bind(builder.Configuration.GetSection("CameraHealth"))
+    .Validate(o => o.IntervalSeconds is >= 5 and <= 3600, "CameraHealth:IntervalSeconds must be 5 to 3600 seconds.")
+    .Validate(o => o.MaxConcurrentChecks is >= 1 and <= 16, "CameraHealth:MaxConcurrentChecks must be 1 to 16.")
+    .Validate(o => o.BadObservationsToOpen is >= 1 and <= 100, "CameraHealth:BadObservationsToOpen must be 1 to 100.")
+    .Validate(o => o.GoodObservationsToResolve is >= 1 and <= 100, "CameraHealth:GoodObservationsToResolve must be 1 to 100.")
+    .ValidateOnStart();
+builder.Services.Configure<MonitoringWorkerOptions>(builder.Configuration.GetSection("Monitoring"));
+builder.Services.AddOptions<CheckoutConfigurationOptions>().Bind(builder.Configuration.GetSection("Checkout:Configuration"))
+    .Validate(o => o.IsValid() && o.MaxCountersPerZone <= 128 && o.MaxMappingsPerCounter <= 16 && o.MaxMappingsPerCamera <= 128,
+        "Checkout configuration capacities exceed supported protocol limits.").ValidateOnStart();
+builder.Services.AddSingleton(s => s.GetRequiredService<IOptions<CheckoutConfigurationOptions>>().Value);
+builder.Services.AddOptions<CheckoutMonitoringOptions>().Bind(builder.Configuration.GetSection("Checkout:Monitoring"))
+    .Configure<CheckoutConfigurationOptions>((o,c) => {
+        o.MaxCountersPerZone=c.MaxCountersPerZone; o.MaxSourcesPerCounter=c.MaxMappingsPerCounter; o.MaxMappingsPerCamera=c.MaxMappingsPerCamera;
+    })
+    .Validate(o => o.PresentSeconds is >=1 and <=3600 && o.AbsentSeconds is >=1 and <=3600
+        && o.MaxObservationAgeSeconds is >=1 and <=300 && o.MaxObservationGapMs is >=1 and <=300000
+        && o.MaxClockSkewSeconds is >=0 and <=60 && o.MaxZones is >=1 and <=128,
+        "Checkout observation timing/capacity options are invalid.").ValidateOnStart();
+builder.Services.AddSingleton(s => s.GetRequiredService<IOptions<CheckoutMonitoringOptions>>().Value);
+builder.Services.Configure<TaskOfferWorkerOptions>(builder.Configuration.GetSection("TaskOffers"));
+builder.Services.AddOptions<TaskEvidenceOptions>().Bind(builder.Configuration.GetSection("TaskEvidence"))
+    .Validate(o => o.MaxBytes is > 0 and <= 10485760, "TaskEvidence:MaxBytes must be between 1 and 10485760.")
+    .Validate(o => string.IsNullOrWhiteSpace(o.Provider) || o.Provider.Equals("Local", StringComparison.OrdinalIgnoreCase) || o.Provider.Equals("Cloudinary", StringComparison.OrdinalIgnoreCase), "TaskEvidence:Provider must be Local or Cloudinary.")
+    .ValidateOnStart();
+builder.Services.PostConfigure<TaskEvidenceOptions>(options =>
+{
+    options.Root = Path.GetFullPath(options.Root, builder.Environment.ContentRootPath);
+    // Keep evidence where floor plans are kept unless TaskEvidence:Provider says otherwise.
+    if (string.IsNullOrWhiteSpace(options.Provider)) options.Provider = builder.Configuration["FloorPlan:Provider"] ?? "Local";
+});
+builder.Services.Configure<ShiftSwapWorkerOptions>(builder.Configuration.GetSection("ShiftSwaps"));
+builder.Services.Configure<SlaWorkerOptions>(builder.Configuration.GetSection("SlaMonitor"));
+// Shift times are local store times; the default is the store's Vietnam time zone.
+builder.Services.AddSingleton(new StoreCalendar(StoreCalendar.Zone(builder.Configuration["Store:TimeZone"])));
+builder.Services.AddOptions<AiPreviewOptions>().Bind(builder.Configuration.GetSection("AiPreview"))
+    .PostConfigure(o => o.Classes = o.Classes.Distinct().ToArray())
+    .Validate(o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https", "AiPreview:BaseUrl must be an absolute HTTP(S) URI.")
+    .Validate(o => o.TimeoutSeconds is > 0 and <= 120, "AiPreview timeout must be 1 to 120 seconds.")
+    .Validate(o => o.MaxMonitoringResponseBytes is >=1024 and <=67108864, "AI monitoring response limit must be 1 KiB to 64 MiB.")
+    .Validate(o => o.Confidence is >= 0 and <= 1, "AiPreview confidence must be in [0,1].")
+    .Validate(o => o.Classes.SequenceEqual([0]), "AiPreview:Classes must contain only the person class 0.")
+    .ValidateOnStart();
+builder.Services.AddDbContext<AppDbContext>(o =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("SqlServer");
+    if (string.IsNullOrWhiteSpace(connectionString))
+        throw new InvalidOperationException("Set ConnectionStrings:SqlServer in appsettings.Local.json, appsettings.Production.json, or ConnectionStrings__SqlServer.");
+    o.UseSqlServer(connectionString);
+});
+var keyPath = builder.Configuration["DataProtection:KeyPath"] ?? Path.Combine(builder.Environment.ContentRootPath, ".local", "keys");
+builder.Services.AddDataProtection().SetApplicationName("FA26SE103").PersistKeysToFileSystem(new DirectoryInfo(keyPath));
+builder.Services.AddSingleton<IClock, SystemClock>();
+builder.Services.AddSingleton<IPasswordService, PasswordService>();
+builder.Services.AddSingleton<ICredentialProtector, CredentialProtector>();
+builder.Services.AddScoped<ICameraStream, CameraStream>();
+builder.Services.AddHttpClient<IMediaGateway, MediaMtxGateway>((services, client) =>
+{
+    var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<MediaGatewayOptions>>().Value;
+    client.BaseAddress = new Uri(options.ControlBaseUrl.EndsWith('/') ? options.ControlBaseUrl : options.ControlBaseUrl + "/");
+    client.Timeout = Timeout.InfiniteTimeSpan;
+});
+builder.Services.AddScoped<IRecordedVideoStorage, RecordedVideoStorage>();
+builder.Services.AddScoped<RecordedVideoUpload>();
+builder.Services.AddScoped<LocalFloorPlanStorage>();
+builder.Services.AddHttpClient<CloudinaryFloorPlanStorage>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<IFloorPlanStorage, FloorPlanStorage>();
+builder.Services.AddScoped<FloorPlanUpload>();
+builder.Services.AddScoped<ISetupStore, EfSetupStore>();
+builder.Services.AddScoped<INotificationInboxStore, EfNotificationInboxStore>();
+builder.Services.AddScoped<ICurrentUser, CurrentUser>();
+builder.Services.AddScoped<ITokenIssuer, TokenIssuer>();
+builder.Services.AddScoped<Accounts>();
+builder.Services.AddScoped<StoreSetup>();
+builder.Services.AddScoped<ZoneAdjacencies>();
+builder.Services.AddScoped<CameraSetup>();
+builder.Services.AddScoped<ICheckoutSchema, EfCheckoutSchema>();
+builder.Services.AddScoped<ICheckoutConfigurationQueries, EfCheckoutConfigurationQueries>();
+builder.Services.AddScoped<CheckoutConfiguration>();
+builder.Services.AddScoped<CheckoutSourceGuard>();
+builder.Services.AddScoped<ICheckoutCameraUsability, CheckoutCameraUsability>();
+builder.Services.AddScoped<ICheckoutEventHistory, EfCheckoutEventHistory>();
+builder.Services.AddSingleton<CheckoutMonitoringRuntime>();
+builder.Services.AddSingleton<ICheckoutRuntimeState>(s => s.GetRequiredService<CheckoutMonitoringRuntime>());
+builder.Services.AddScoped<CameraPlayback>();
+builder.Services.AddScoped<MonitoringSetup>();
+builder.Services.AddScoped<IMonitoringSnapshotReader,MonitoringSnapshotReader>();
+builder.Services.AddScoped<IMonitoringIncidentQueries,EfMonitoringIncidentQueries>();
+builder.Services.AddScoped<ITaskSchema, EfTaskSchema>();
+builder.Services.AddScoped<IOperatorTaskQueries, EfOperatorTaskQueries>();
+builder.Services.AddScoped<IAuditLogQueries, EfAuditLogQueries>();
+builder.Services.AddScoped<AuditLogs>();
+builder.Services.AddScoped<StaffRoster>();
+builder.Services.AddScoped<TaskNotifier>();
+builder.Services.AddScoped<TaskVerification>();
+builder.Services.AddScoped<TaskDispatch>();
+builder.Services.AddScoped<IOperationalEventResponder>(s => s.GetRequiredService<TaskDispatch>());
+builder.Services.AddScoped<TaskViews>();
+builder.Services.AddScoped<StaffTasks>();
+builder.Services.AddScoped<OperatorTasks>();
+builder.Services.AddScoped<IncidentTypeCatalog>();
+builder.Services.AddScoped<StaffReportWork>();
+builder.Services.AddScoped<SlaMonitor>();
+builder.Services.Configure<StaffReportMediaOptions>(builder.Configuration.GetSection("StaffReportMedia"));
+builder.Services.AddScoped<IncidentSlaPolicies>();
+builder.Services.AddScoped<OperationalEventSlaPolicies>();
+builder.Services.AddScoped<TaskTypeSlaPolicies>();
+builder.Services.AddScoped<SlaEscalationPolicies>();
+builder.Services.AddScoped<IncidentActions>();
+builder.Services.AddScoped<LocalTaskEvidenceStorage>();
+builder.Services.AddHttpClient<CloudinaryTaskEvidenceStorage>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<IStaffReportMediaStorage, CloudinaryStaffReportMediaStorage>();
+builder.Services.AddHttpClient<IStaffReportAudioStorage, CloudinaryStaffReportAudioStorage>(client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+builder.Services.AddScoped<ITaskEvidenceStorage, TaskEvidenceStorage>();
+builder.Services.AddScoped<TaskEvidenceWork>();
+builder.Services.AddScoped<NotificationInbox>();
+builder.Services.AddScoped<NotificationSettings>();
+builder.Services.AddScoped<UserDevices>();
+builder.Services.AddScoped<IPushDispatchStore, EfPushDispatchStore>();
+builder.Services.AddScoped<PushDispatch>();
+builder.Services.AddSingleton<IPushSender>(services => FirebasePushSender.Create(
+    services.GetRequiredService<Microsoft.Extensions.Options.IOptions<FirebaseOptions>>().Value,
+    services.GetRequiredService<ILogger<FirebasePushSender>>()));
+builder.Services.AddSingleton(services => new NotificationCapabilities(services.GetRequiredService<IPushSender>().Configured));
+builder.Services.AddHostedService<PushDeliveryWorker>();
+builder.Services.AddResponsePolicyManagement();
+builder.Services.AddHostedService<TaskOfferWorker>();
+builder.Services.AddScoped<IShiftSwapSchema, EfShiftSwapSchema>();
+builder.Services.AddScoped<SwapPlanner>();
+builder.Services.AddScoped<ShiftSwaps>();
+builder.Services.AddScoped<ShiftPlanning>();
+builder.Services.AddHostedService<ShiftSwapWorker>();
+builder.Services.AddHostedService<SlaWorker>();
+builder.Services.AddScoped<MonitoringIncidentWriter>();
+builder.Services.AddScoped<IncidentSlaPolicyService>();
+builder.Services.AddScoped<StandaloneTaskSlaPolicyService>();
+builder.Services.AddScoped<MonitoringLive>();
+builder.Services.AddSingleton<MonitoringCameraCoordinator>();
+builder.Services.AddSingleton<IMonitoringRuntimeState>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());
+builder.Services.AddSingleton<IMonitoringSessionOwnership>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());
+builder.Services.AddScoped<SetupOverview>();
+builder.Services.AddScoped<IAnalyticsQueries, EfAnalyticsQueries>();
+builder.Services.AddScoped<ManagerAnalytics>();
+builder.Services.AddSingleton<IAnalyticsReportRenderer, AnalyticsReportRenderer>();
+builder.Services.AddScoped<ManagerAnalyticsExport>();
+builder.Services.AddScoped<IRecommendationQueries, EfRecommendationQueries>();
+builder.Services.AddScoped<RecommendationWork>();
+builder.Services.AddScoped<RecommendationEvidenceReader>();
+builder.Services.AddOptions<RecommendationAiOptions>().Bind(builder.Configuration.GetSection("OperationalRecommendationAi"))
+    .Validate(o => o.TimeoutSeconds is > 0 and <= 120, "OperationalRecommendationAi timeout must be 1 to 120 seconds.")
+    .ValidateOnStart();
+builder.Services.AddHttpClient<IRecommendationModel, OpenAiRecommendationModel>(client =>
+    client.BaseAddress = new Uri("https://api.openai.com/v1/"));
+builder.Services.AddScoped<IOperationalEventQueries, EfOperationalEventQueries>();
+builder.Services.AddScoped<OperationalEventHistory>();
+builder.Services.AddScoped<CameraHealth>();
+builder.Services.AddSingleton(services =>
+{
+    var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<HealthWorkerOptions>>().Value;
+    return new CameraHealthRuntimeState(options.BadObservationsToOpen, options.GoodObservationsToResolve);
+});
+builder.Services.AddScoped<AiPreview>();
+builder.Services.AddOptions<StaffReportAiOptions>().Bind(builder.Configuration.GetSection("StaffReportAi"))
+    .Validate(o => o.TimeoutSeconds is > 0 and <= 120, "StaffReportAi timeout must be 1 to 120 seconds.")
+    .ValidateOnStart();
+builder.Services.AddHttpClient<IStaffReportDraftClient, OpenAiStaffReportDraftClient>((services, client) =>
+{
+    var options = services.GetRequiredService<IOptions<StaffReportAiOptions>>().Value;
+    client.BaseAddress = new Uri("https://api.openai.com/v1/");
+    client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+});
+builder.Services.AddHttpClient<IAiPreviewClient, AiPreviewClient>((services, client) =>
+{
+    var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiPreviewOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+});
+builder.Services.AddHttpClient<IFrameHealthAnalyzer, AiFrameHealthClient>((services, client) =>
+{
+    var options = services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiPreviewOptions>>().Value;
+    client.BaseAddress = new Uri(options.BaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+});
+builder.Services.AddHostedService<CameraHealthWorker>();
+builder.Services.AddHttpClient<IAiMonitoringClient,AiMonitoringClient>((services,client)=> {
+    var options=services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AiPreviewOptions>>().Value;
+    client.BaseAddress=new Uri(options.BaseUrl); client.Timeout=TimeSpan.FromSeconds(options.TimeoutSeconds);
+});
+builder.Services.AddHostedService<MonitoringWorker>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
+{
+    var jwt = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new();
+    o.TokenValidationParameters = new TokenValidationParameters { ValidateIssuer = true, ValidateAudience = true, ValidateLifetime = true, ValidateIssuerSigningKey = true, ValidIssuer = jwt.Issuer, ValidAudience = jwt.Audience, IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Key)), ClockSkew = TimeSpan.FromSeconds(30) };
+    o.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = async context =>
+        {
+            var userId = context.Principal?.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(userId, out var id))
+            {
+                context.Fail("Invalid account.");
+                return;
+            }
+            var store = context.HttpContext.RequestServices.GetRequiredService<ISetupStore>();
+            var user = await store.Find<UserAccount>(id, context.HttpContext.RequestAborted);
+            var role = user is null ? null : await store.Find<Role>(user.RoleId, context.HttpContext.RequestAborted);
+            if (user?.Status != "ACTIVE" || role?.Name != context.Principal?.FindFirstValue(ClaimTypes.Role))
+                context.Fail("Account is no longer authorized.");
+        }
+    };
+});
+builder.Services.AddAuthorization();
+builder.Services.AddControllers();
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<ApiErrors>();
+builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? ["http://localhost:5173"]).AllowAnyHeader().AllowAnyMethod().WithExposedHeaders("X-Frame-Sequence", "X-Session-Id")));
+builder.Services.AddRateLimiter(o => { o.RejectionStatusCode = 429; o.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions { PermitLimit = 10, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 })); });
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(o =>
+{
+    o.SwaggerDoc("v1", new OpenApiInfo { Title = "FA26SE103 Operations API", Version = "v1" });
+    o.OperationFilter<AiPreviewOpenApiFilter>();
+    o.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme { Type = SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "JWT" });
+    o.AddSecurityRequirement(document => new OpenApiSecurityRequirement { { new OpenApiSecuritySchemeReference("Bearer", document), new List<string>() } });
+});
+var app = builder.Build();
+// Suppress framework exception diagnostics to avoid logging sensitive adapter/SQL messages.
+app.UseExceptionHandler(new ExceptionHandlerOptions { SuppressDiagnosticsCallback = _ => true });
+app.UseBackendReverseProxy();
+app.UseStatusCodePages();
+app.UseCors();
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
+if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Swagger:Enabled")) { app.UseSwagger(); app.UseSwaggerUI(); }
+app.MapControllers();
+app.MapGet("/health/live", () => Results.Ok(new { status = "UP" })).AllowAnonymous();
+app.MapGet("/health/ready", async (AppDbContext db, CancellationToken ct) =>
+{
+    try
+    {
+        return await db.Database.CanConnectAsync(ct) ? Results.Ok(new
+        {
+            status = "READY"
+        }) : Results.StatusCode(503);
+    }
+    catch (Exception) { return Results.StatusCode(503); }
+}).AllowAnonymous();
+await Bootstrap.Run(app);
+app.Run();
+public partial class Program;
+
+public sealed class AiPreviewOpenApiFilter : IOperationFilter
+{
+    public void Apply(OpenApiOperation operation, OperationFilterContext context)
+    {
+        var path = context.ApiDescription.RelativePath;
+        if (string.Equals(path, "api/cameras/{id}/ai-preview/frame", StringComparison.OrdinalIgnoreCase))
+            operation.Deprecated = true;
+
+        var leaseProtectedRead = path is
+            "api/cameras/{id}/ai-preview/status" or
+            "api/cameras/{id}/ai-preview/frame" or
+            "api/cameras/{id}/ai-preview/frame/next";
+        if (leaseProtectedRead)
+        {
+            var lease = operation.Parameters?.FirstOrDefault(parameter =>
+                string.Equals(parameter.Name, "X-AI-Viewer-Lease", StringComparison.OrdinalIgnoreCase));
+            if (lease is OpenApiParameter mutableLease) mutableLease.Required = true;
+            operation.Responses?.TryAdd("409", new OpenApiResponse
+            {
+                Description = "Viewer lease is expired or belongs to an earlier session generation (`AI_VIEWER_LEASE_EXPIRED`)."
+            });
+            operation.Responses?.TryAdd("422", new OpenApiResponse
+            {
+                Description = "Viewer lease is missing (`AI_VIEWER_LEASE_REQUIRED`)."
+            });
+        }
+
+        if (string.Equals(path, "api/cameras/{id}/ai-preview/start", StringComparison.OrdinalIgnoreCase))
+            operation.Responses?.TryAdd("409", new OpenApiResponse
+            {
+                Description = "Camera-worker capacity, monitoring start, or shared configuration conflict (`AI_SESSION_CAPACITY`, `AI_MONITORING_START_PENDING`, `AI_PREVIEW_CONFIGURATION_CONFLICT`)."
+            });
+
+        if (string.Equals(path, "api/cameras/{id}/ai-preview/stop", StringComparison.OrdinalIgnoreCase))
+        {
+            if (operation.RequestBody is OpenApiRequestBody mutableBody) mutableBody.Required = true;
+            operation.Responses?.TryAdd("409", new OpenApiResponse
+            {
+                Description = "Viewer lease is expired or belongs to an earlier session generation (`AI_VIEWER_LEASE_EXPIRED`)."
+            });
+            operation.Responses?.TryAdd("422", new OpenApiResponse
+            {
+                Description = "Viewer lease is missing (`AI_VIEWER_LEASE_REQUIRED`)."
+            });
+        }
+
+        if (string.Equals(path, "api/cameras/{id}/ai-preview/frame", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "api/cameras/{id}/ai-preview/frame/next", StringComparison.OrdinalIgnoreCase))
+            operation.Responses?.TryAdd("503", new OpenApiResponse
+            {
+                Description = "Annotated frame is not ready (`AI_FRAME_NOT_READY`)."
+            });
+    }
+}

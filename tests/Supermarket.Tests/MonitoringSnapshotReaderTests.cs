@@ -1,0 +1,45 @@
+using Supermarket.Application;
+using Supermarket.Domain;
+using Xunit;
+namespace Supermarket.Tests;
+public sealed class MonitoringSnapshotReaderTests
+{
+    [Fact]
+    public async Task SameCameraCanCoverOneZoneWithMultipleIndependentRois()
+    {
+        var h=new MonitoringSetupTests.Harness(); h.AddRule();
+        h.Store.Values.Add(new CameraZoneMapping { CameraZoneId=Guid.NewGuid(),CameraId=h.Camera.CameraId,ZoneId=h.Zone.ZoneId,
+            RoiPolygon=System.Text.Json.JsonSerializer.Serialize(new Point[] { new(.5m,0),new(1,0),new(1,1) }),Status="ACTIVE" });
+        var review=await h.Setup.Review(h.Zone.ZoneId,default);
+        Assert.True(review.CanActivate,string.Join(",",review.Issues.Select(i=>i.Code)) + ";" +
+            string.Join(",",review.Cameras.SelectMany(c=>c.Issues).Select(i=>i.Code)));
+        h.Configuration.Status="ACTIVE";
+        var snapshot=Assert.Single(await new MonitoringSnapshotReader(h.Store).ReadAll(default));
+        Assert.Null(snapshot.IssueCode);
+        var zone=Assert.Single(snapshot.Zones);
+        Assert.Single(zone.AdditionalRois!);
+    }
+    [Fact]
+    public async Task ActiveSnapshotIsVersionedButHealthUpdatesDoNotRestartTracking()
+    {
+        var h=new MonitoringSetupTests.Harness(); h.AddRule(); h.Configuration.Status="ACTIVE";
+        var reader=new MonitoringSnapshotReader(h.Store);
+        var snapshot=Assert.Single(await reader.ReadAll(default));
+        Assert.Equal(h.Camera.CameraId,snapshot.CameraId); Assert.Single(snapshot.Zones);
+        var rule=Assert.Single(snapshot.Zones[0].Rules); Assert.NotEqual(Guid.Empty,rule.EventTypeId); Assert.Equal("LONG_QUEUE",rule.EventTypeCode);
+        Assert.True(await reader.IsCurrent(snapshot,h.Zone.ZoneId,default));
+        h.Camera.UpdatedAt=DateTime.UtcNow; h.Camera.LastSeenAt=DateTime.UtcNow; h.Camera.HealthStatus="ONLINE";
+        Assert.Equal(snapshot.Fingerprint,Assert.Single(await reader.ReadAll(default)).Fingerprint);
+        h.Configuration.UpdatedAt=h.Configuration.UpdatedAt.AddMilliseconds(1);
+        Assert.False(await reader.IsCurrent(snapshot,h.Zone.ZoneId,default));
+        h.Configuration.Status="INACTIVE";
+        Assert.Empty(await reader.ReadAll(default));
+    }
+    [Fact]
+    public async Task ActiveDensityWithNoAreaIsUnavailable()
+    {
+        var h=new MonitoringSetupTests.Harness(); h.AddRule("OVERCROWDING_CONGESTION","CROWD_DENSITY","PEOPLE_PER_M2"); h.Configuration.Status="ACTIVE";
+        var snapshot=Assert.Single(await new MonitoringSnapshotReader(h.Store).ReadAll(default));
+        Assert.Equal("DENSITY_AREA_REQUIRED",snapshot.IssueCode);
+    }
+}

@@ -1,0 +1,472 @@
+# Manager analytics export audit — 2026-11-17
+
+- Report 5 case AT-FE10-006 reproduced 0 audit rows after 3 successful downloads on `dev` at `7587d9d`. The local fix commits each audit row before completing the export response.
+- The exact retest on an isolated SQL Express database produced 3 persisted `SUCCESS` rows for CSV, XLSX and PDF. The SQL regression also forced a renderer error and verified the HTTP 503 plus persisted `FAILED` rows. All 26 focused analytics and export tests passed.
+- All 988 non-SQL tests passed, and the Release publish completed. Staging verification remains pending.
+
+---
+
+# Crowd Density and measured zone area — 2026-11-16
+
+- Read-only metadata check against `FA26SE103_Dev`: `dbo.Zone.area_m2` was present as `decimal(12,2) NULL`, with zero positive areas across five zones. `CONGESTION` catalog measurement was `CROWD_DENSITY`; its existing rule used `PEOPLE`. The multi-ROI index was present. The area property and mapping were taken from a schema-only EF scaffold against that database.
+- Backend `dev` at `6e3deb3`: non-SQL suite passed 988 tests. It includes omitted-area PATCH preservation, readiness with one measured ROI, and a synthetic 5 m² worker run covering 0.40 → 0.60 WARNING → 1.00 CRITICAL → 0.20 CLEARED on one OperationalEvent. AI input remains the existing people count contract.
+- Frontend `main` at `cedfb22`: 51 focused tests passed and the production build completed. Three Store Layout ROI-save tests failed in the broader focused run and reproduced against the unmodified frontend HEAD.
+- The V20 recovery script is needed only for databases that lack the area column. It was not run. Dev data, deployment, and live camera end-to-end results were not changed or exercised.
+
+---
+
+# Checkout Backend configuration/runtime and cross-event Task audit — 2026-11-11
+
+Branch: `feature/checkout-counter-backend`, based on `dev` at `8c1a1fe`.
+
+- Final focused run: `dotnet test tests/Supermarket.Tests --no-restore --filter 'FullyQualifiedName~Checkout|FullyQualifiedName~AiMonitoringClientTests|FullyQualifiedName~MonitoringCoordinatorTests' --verbosity quiet`: **267 passed, 0 failed, 0 skipped**, including configuration/auth/geometry/version guards, EF model mapping, snapshot/readiness, fractional rules, AI protocol/response limits, HTTP round-trip and shared-session aggregation regressions. No SQL-integration tests were selected.
+- Earlier scaffold checkpoint: **35 focused / 639 non-SQL tests passed**. Those are historical checkpoint results, not an assertion that the final full suite was rerun. At the user's request, final verification stayed focused; no additional full/SQL suite was run.
+- Backend now wires the bounded per-counter projection through configuration CRUD, readiness/activation guards, private AI v2 adapter, shared camera coordinator, aggregate rule evaluation, OperationalEvent writer and runtime GET. Presence uses per-source hysteresis; unknown/stale/unusable data cannot become zero or clear an event. Regression tests cover health-only timestamp changes not resetting config, evidence expiring during awaited history/snapshot checks, empty-page health failure, and completed buffered observations being evaluated before source invalidation. Runtime requires explicit `Checkout:Monitoring:AiContractEnabled=true` after a compatible AI-Service deployment is validated; default is false.
+- Existing Task dispatch is idempotent per `EventId`, **not across different event types in the same Zone**. Six non-SQL characterization cases verify that LONG_QUEUE and CHECKOUT_CAPACITY can create separate policy-linked Tasks even for the same TaskType; replay does not create additional dispatch entities. These tests do not establish SQL concurrency safety or approve a cross-event coordination policy. Runtime dispatch was not changed.
+- `OperationalEvent.CameraId` remains non-nullable. The contributing camera whose observation first triggers the confirmed aggregate episode becomes the locked originating CameraId; subsequent updates retain it and metadata records contributing sources. Focused tests exercise that origin lock and aggregate clear/cooldown. The filtered unique index protects active `RuleId + ZoneId`, not every event type in one Zone; separate OE-01/OE-04 episodes/Tasks remain possible. Live SQL race verification was not performed; no nullable-column migration was added.
+- V17 was applied to the explicitly approved `FA26SE103_Dev` after user-confirmed backup. Preflight rejected prior/partial checkout objects; transactional DDL created only `CheckoutCounter` and `CameraCheckoutMapping`. Post-apply queries verified column types/nullability, three enabled/trusted FKs, pair/code uniqueness and the filtered enabled-queue-source unique index. Both new tables are empty. Sampled existing counts before/after: Zone 5, Camera 7, CameraZoneMapping 2 (unchanged). No test records or legacy-data DML were executed.
+- `scripts/Scaffold.ps1` now includes both checkout tables and was run against that database. Filtered unique indexes were incorrectly reverse-engineered as one-to-one relationships for checkout mappings and standalone TaskType policies; custom configuration outside generated files preserves the correct many-to-one relationships, covered by model-only regression tests. Other generated changes were reviewed; no scaffold files were hand-edited.
+- Regenerated `docs/openapi.json` from the in-memory HTTP test host via explicit `CHECKOUT_OPENAPI_OUTPUT`; documented routes, config bounds, ratio rules and private AI protocol in `docs/CHECKOUT_API.md` and `docs/CHECKOUT_AI_PROTOCOL.md`. Frontend/AI-Service implementation, real-footage/camera acceptance, SQL concurrency and deployed end-to-end behavior are not claimed. No deployment, commit or push; user backup unchanged/unstaged. No additional database writes were performed during final focused verification.
+
+---
+# Manager analytics report export (D13 / FE-10) — 2026-11-11
+
+- Added MANAGER-only `GET /api/manager/analytics/export` with the existing inclusive local-date and optional Zone filters. `format=csv|xlsx|pdf` returns UTF-8 CSV, native XLSX or paginated PDF from one consistent analytics read.
+- All formats preserve period/timezone/Zone context, generation time, Event/Incident/Task summaries, daily and Zone breakdowns, and explicit unavailable-data notes. Dismissed Incidents remain in reconciliation fields but are excluded from Incident KPI totals. CSV/XLSX neutralize spreadsheet formula-like text.
+- Successful generation and renderer failures write `EXPORT_ANALYTICS_REPORT` audit rows containing only report scope, format, timestamp and result status; credentials and personal Staff data are not exported or audited.
+- Focused `ManagerAnalyticsTests`: **23 passed, 0 failed**. Full non-SQL suite: **613 passed, 0 failed, 0 skipped**. Isolated SQL integration suite: **21 passed, 0 failed, 0 skipped**. Release publish: **PASS**.
+- Runtime Development Swagger export: **PASS**; `docs/openapi.json` documents four query parameters and the CSV/XLSX/PDF response media types. The owned temporary documentation API was stopped.
+- No shared database mutation, deployment, push or schema/scaffold change was performed. Manager Web still needs to connect its export controls to this endpoint; camera-health and AI-measurement time series are truthfully marked unavailable in the current analytics dataset.
+
+# MF-04 Manager-assisted COVER and direct shift changes — 2026-10-29
+
+Added the mentor-approved exception paths without a schema migration: Staff can ask a Manager to select cover (`PENDING_MANAGER` with no target), and Manager can directly COVER/SWAP future unchecked-in slots with a mandatory reason, persisted request audit and notifications. The existing peer A → B → Manager flow remains unchanged. Candidate responses expose a 40 h planning recommendation while preserving the 48 h hard weekly limit.
+
+- Backend Release build: PASS; focused `ShiftSwapTests`: **13 passed, 0 failed**.
+- Frontend Manager test/build/lint: PASS; lint retains only the three pre-existing `ZoneStaffing.tsx` warnings.
+- Mobile static analysis: PASS; focused HTTP/demo repository tests: **39 passed, 0 failed**.
+- Runtime Development Swagger export: PASS; `docs/openapi.json` regenerated from the compiled API and the temporary local process stopped.
+- No shared database mutation, deployment, push, or schema/generated-scaffold change was performed.
+
+# MF-01 validation 2026-10-01
+
+Verified locally with .NET SDK 10.0.300, runtime 10.0.8 and SQL Server Express. Build and Release publish succeeded with 0 warnings and 0 errors.
+
+`dotnet test --no-restore --settings coverage.runsettings --collect:'XPlat Code Coverage' --results-directory TestResults`: **56 passed, 0 failed, 0 skipped**. SQL integration tests read the shared `Project/DB/FA26SE103_Database_V0.1.sql`, create isolated databases and remove them after execution. Backend does not maintain a separate SQL schema copy. Tests do not use EF InMemory or SQLite.
+
+Coverage excludes scaffolded persistence code. Current measured line coverage after source formatting: Domain **98.67%** (business rules **97.14%**), Application **88.43%**, API **84.28%**, Infrastructure **60.29%**. Infrastructure coverage is lower because live FFmpeg decoding and background-worker timer paths require external video/runtime validation. These figures are not a claim of live-camera acceptance coverage.
+
+Verified behavior:
+
+- Normalized geometry, polygon validity, same-floor mapping, warranty/position validation.
+- Login, role permissions, revoked account token rejection, last-active-Admin protection and concurrent disable attempts.
+- Store/floor/zone persistence, duplicate rejection, map dimensions and mutation timestamps.
+- Connection default disabled, test/preview/enable/reload, credential encryption and sanitized responses, test reset after configuration changes.
+- A stale asynchronous test cannot overwrite a newer connection configuration.
+- Camera-zone mapping is idempotent and rejects cross-floor requests.
+- Monitoring readiness checks and activation.
+- Demo camera ONLINE → disconnect → one OPEN event → INVESTIGATING → restore → RESOLVED.
+- OpenAPI generation documents setup endpoints without exposing credential/password-hash fields.
+
+Local initialization was run successfully and created `FA26SE103_MF01_Local`. Admin bootstrap remains available through `Start-Local.ps1 -BootstrapAdmin`; no shared/default production password is committed.
+
+The local API was started on port 5080, liveness returned UP, SQL readiness returned READY, and the Swagger contract was exported to `docs/openapi.json`. The smoke-test process was then stopped so the first Admin can be bootstrapped on the user's next start.
+
+Not verified in this workspace: real CCTV/RTSP connectivity, continuous browser streaming, AI pipeline integration, React integration, Docker image build, GitHub Actions execution or VPS deployment. This dated evidence predates the ERD v3 documentation baseline; MonitoringRule/IncidentType persistence remains outside this MF-01 increment even though ERD v3 now defines their physical structures.
+
+## Floor-plan upload and camera placement validation 2026-10-03
+
+Verified after implementing authenticated floor-plan storage and the real Store Layout placement flow:
+
+- `dotnet build Supermarket.sln --no-restore`: **PASS**, 0 warnings, 0 errors.
+- Focused backend floor-plan tests: **11 passed**. Coverage includes ADMIN/STAFF/anonymous authorization, binary retrieval and Content-Type, empty/oversized/unsupported/signature-mismatched rejection, serialized concurrent replacement, replacement cleanup, and preservation of the previous stored file after persistence failure.
+- Backend Domain + floor-plan test selection: **59 passed**.
+- Frontend `npm run build`: **PASS**. Vite emitted only the existing bundle-size advisory; type-check and production bundle completed.
+- Frontend `npm run lint`: **PASS**, no warnings.
+- Frontend `npm run test -- --run`: **37 passed across 9 files**. Coverage includes multipart/bearer contract, authenticated Blob download, complete camera PATCH, normalized geometry, drag/rotate/keyboard interaction, API-backed Store Layout loading, replacement upload, successful save, and save-failure dirty-state retention.
+- Runtime Development Swagger export: **PASS** (`GET /swagger/v1/swagger.json` returned 200); `docs/openapi.json` was regenerated from the running controller contract.
+
+The complete SQL integration suite was not rerun because the approved shared SQL schema file is not present in this checkout. No live browser-to-database acceptance, real PDF visual inspection, object-storage deployment, S3/MinIO integration, or concurrent multi-process storage validation is claimed here.
+
+## Zone editor contract validation 2026-10-03
+
+- `Zone.color_hex` and `Zone.area_m2` were added additively to `FA26SE103_Dev`; the table contained no Zone rows at migration time.
+- EF scaffold regenerated from the updated database and maps `color_hex` as `nvarchar(7) NULL` and `area_m2` as `decimal(12,2) NULL`.
+- Release solution build: **PASS**, 0 warnings and 0 errors.
+- Backend tests not requiring the unavailable shared SQL file: **100 passed**. The new SQL integration test compiles and covers color/area round-trip plus invalid values, but could not execute without the shared schema file.
+- Development Swagger export: **PASS**; `docs/openapi.json` was regenerated from the running Release API contract.
+- Frontend build and lint: **PASS**. Frontend tests: **44 passed across 10 files**.
+
+## Monitoring configuration / review / activation validation 2026-10-03
+
+Approved scope: MF-01 per-zone Draft rule persistence and readiness-validated activation; existing team ROI UI is reused. Database source is the separate Database repository's baseline plus approved `migrations/20261003_01_monitoring_rules_erd_v3.sql`. EF was re-scaffolded from the migrated Dev schema (12 tables); generated files were not hand-edited.
+
+- Full backend suite: **168 passed, 0 failed, 0 skipped**, .NET SDK 10.0.302 / SQL Server Express. Tests create fixture-owned `FA26SE103_MF01_Test_<guid>` databases, apply the approved SQL baseline/migration with the guard retargeted to that temporary catalog, and remove the test database. No shared Dev configuration/rule data was mutated by tests.
+- Real SQL API coverage: ADMIN JWT, AI-only catalog, Draft save/reload, rule replacement/removal and retained IDs, numeric confidence/threshold round trip, explicit zero timing/confidence, disabled rule persisted despite SQL defaults, stale-version conflict, malformed/domain/RBAC rejection, active-configuration/source/mapping/ROI/area protection, sanitized review, readiness rechecked after a source becomes disabled, deactivate→new Draft.
+- Domain/application coverage: supported measurement/unit defaults per PROJECT_CONTEXT §§24–26, precision/range/integer counts, sustain/cooldown, JSON parameters, disabled Checkout Draft, missing rules/ROI/source/mapping/zone area, role restrictions, saved zone-confidence preview and stop-before-start restart.
+- Frontend: **118 tests passed across 18 files**, production build and lint **PASS** (no lint warnings; existing Vite bundle-size advisory). New tests exercise actual React components with controlled HTTP responses: saved numeric payload/bearer, review-before-activate/version body, blockers, failed-save input preservation, unknown-config load failure, active/deactivate lifecycle, dirty-review invalidation, saved zone-confidence annotated preview and existing ROI editor navigation.
+- Release publish **PASS**. Runtime Development Swagger export **PASS**, 41 paths including catalog/review and zoneId preview query; `docs/openapi.json` regenerated from the current compiled controller contract. Temporary documentation API ran on 5087 with bootstrap and health worker disabled, then only that owned process was stopped. The user's existing Debug API was not stopped.
+
+Not claimed: real browser-to-shared-DB mutation acceptance, live YOLO/GPU confidence comparison, continuous rule evaluation, ROI measurements, OperationalEvents/Incidents, cooldown/dedup/dispatch, multi-camera count aggregation, checkout composite implementation, GitHub Actions execution or deployment. AI-service source confirms the supplied confidence is passed to YOLO tracking; controlled HTTP tests verify the BE payload, not GPU results. MF-01 ACTIVE is configuration state, not evidence of MF-02 incident processing.
+
+## CI test-category split validation 2026-10-03
+
+The previous `verify` filter excluded only names containing `ApiFlowTests`. Both `ConcurrencyTests` still loaded `SqlApiFixture`, causing the standalone runner to fail before test execution when the approved SQL schema was unavailable. `ApiFlowTests` (including its partial monitoring tests) and `ConcurrencyTests` now carry `Category=SqlIntegration`. The workflow selects complementary categories: `Category!=SqlIntegration` in `verify`, `Category=SqlIntegration` in the existing conditional SQL job.
+
+- Release build and non-SQL test selection with coverage: **159 passed, 0 failed, 0 skipped**. On this restricted Windows host, the first run failed in 14 HTTP tests because the optional Windows EventLog provider could not write to `.NET Runtime`. Rerunning with process-only `Logging__EventLog__LogLevel__Default=None` passed; the environment value was restored afterward. No application or workflow logging configuration was changed.
+- SQL-category discovery with `--list-tests`: **11 tests selected**, including both concurrency tests and both monitoring API-flow tests. Discovery does not initialize fixtures or execute SQL tests; no shared database was accessed.
+- `dotnet publish src/Supermarket.Api -c Release --no-restore`: **PASS**.
+- `git diff --check`: **PASS**.
+
+SQL integration execution and a new GitHub Actions run are not claimed. The SQL job retains its existing schema-repository prerequisite; the CI fix does not change the database schema, SQL source, or runtime business behavior.
+
+## MF-01 setup dashboard validation 2026-10-03
+
+Added ADMIN-only `GET /api/setup/overview` for the single default store, saved floor/zone/configuration prerequisites and camera health. Readiness is shared with Monitoring Review/Activate. Missing configurations remain absent; the overview does not create records, probe sources or activate monitoring. Camera health, lifecycle, enabled connections and configuration activation remain independent.
+
+- Backend Release non-SQL selection (`Category!=SqlIntegration`) with coverage: **178 passed, 0 failed, 0 skipped**. Process-only `Logging__EventLog__LogLevel__Default=None` avoids the restricted Windows host's optional EventLog sink. New application/HTTP tests cover missing seed/config, readiness parity with Review for valid/invalid/disabled/cross-floor/recorded/demo/density cases, N:M mappings, no saved-data mutations, ACTIVE with OFFLINE health, disabled ONLINE exclusion, sanitized responses, ADMIN/other-role/anonymous authorization and no-store headers. HTTP tests use an in-memory `ISetupStore`; they do not access SQL.
+- `dotnet publish src/Supermarket.Api -c Release --no-restore`: **PASS**.
+- Frontend: **143 tests passed across 19 files**; **27 focused dashboard/camera/layout tests passed** after the final selection-feedback change; production build and lint **PASS**. Only the existing Vite bundle-size advisory remains. Dashboard tests cover actual bearer HTTP contracts, saved status separation, filters/action URLs, empty setup, load/refresh/check failures, stale snapshot retention, explicit health probing and visible/hidden polling cleanup. Cameras and Store Layout tests cover requested camera/floor selection, missing targets and cross-floor target rejection.
+- Playwright/Edge browser checks with synthetic API responses at **1920×1080 and 1280×720**: **PASS**. Checked filtering, missing requirements, explicit health check and snapshot reload, links opening the correct camera/floor/configuration, read-only AI Config detail, stale warning/retry, missing seed/empty setup and absence of horizontal page overflow. The only fixture write was the explicitly clicked health check; no shared DB data was accessed or mutated.
+- Development Swagger export: **PASS**, **42 paths**, including the overview route and all new DTO schemas. The temporary Release documentation API used a dummy SQL connection with bootstrap/health worker disabled; only Swagger was requested. It was stopped after export; the existing user Debug API was not stopped.
+
+SQL-backed overview execution, live camera/browser acceptance, event Investigation/Resolve forms, GitHub Actions execution and VPS deployment are not claimed. No schema/scaffold/DB script was changed or used to determine this contract. Dashboard readiness reflects the existing activation policy, rather than defining new activation requirements or MF-02 runtime behavior.
+
+## Configuration deletion and floor editing validation 2026-10-03
+
+Added ADMIN-only configuration DELETE with explicit config ID and saved timestamp checks. ACTIVE configs require deactivation; deleting DRAFT/INACTIVE removes their rules and config in the existing transaction, preserving spatial setup. AI Config now exposes the existing Review → Activate flow in a prominent detail banner. Store Layout adds Create/Edit floor dialogs; metadata editing uses a dedicated name/number PATCH that retains the latest stored map metadata.
+
+- Backend Release non-SQL tests (`Category!=SqlIntegration`) with coverage: **199 passed, 0 failed, 0 skipped**. Process-only EventLog logging override used as above. **38 focused tests passed**, including 21 new cases for DRAFT/INACTIVE removal, spatial and other-config preservation, ACTIVE/stale/replaced config rejection, recreation, updated-map preservation, duplicate/name validation, application and HTTP ADMIN/other-role/anonymous checks, and the 204 response. HTTP tests substitute an in-memory store; no SQL fixture runs.
+- Release build: **PASS**, 0 warnings/errors. `dotnet publish src/Supermarket.Api -c Release --no-restore`: **PASS**.
+- Frontend: **152 tests passed across 19 files**, production build and lint **PASS**. Only the existing bundle-size advisory remains. Added coverage for delete confirmation/cancel/version/bearer/conflict/overview, active deletion restrictions, floor creation/editing/selection/map preservation, local validation, duplicate retry, discarded input/focus, missing seed and current-edit guards. Fixed a missing warning SVG that otherwise crashed the no-floor guidance.
+- Playwright/Edge at **1920×1080 and 1280×720** using synthetic API responses: **PASS**. Verified review blockers, Activate/Deactivate, ACTIVE deletion blocked, delete confirmation/Escape/focus restoration/conflict/success, detail/overview updates, floor metadata edit, Create cancel/Escape, duplicate errors retaining input, successful creation selecting the new floor, upload availability, empty floors/missing seed and no horizontal page overflow. Screenshots were inspected. All intercepted writes used the synthetic session; no shared database or real backend mutation endpoint was called.
+- Runtime Swagger export: **PASS**, **43 paths**, including floor details PATCH, monitoring DELETE with 204 and their DTOs. Preserved the existing required-rule annotation. The owned Release API on 5087 used a dummy SQL connection and disabled bootstrap/health worker; only Swagger was requested, then that owned API was stopped. The user's Debug API was not stopped.
+
+SQL transaction/FK rollback execution, shared-DB acceptance, actual GPU/camera work, GitHub Actions and deployment were not exercised in this increment. No SQL script, database schema or generated scaffold was modified. Floor deletion and System Health/event lifecycle forms are outside this request.
+
+## Cloudinary floor-plan storage validation 2026-10-03
+
+Added a selectable Cloudinary adapter using signed HTTPS Upload API calls (SHA-256 per Cloudinary documentation), with authenticated assets, private original-file downloads and asynchronous exact-asset cleanup. The default remains Local until keys are supplied and Provider is changed. Existing local references remain readable through the routing adapter. No schema/scaffold change, SQL script or shared database access was required.
+
+- Release solution build: **PASS**, 0 warnings/errors. Backend non-SQL selection (`Category!=SqlIntegration`) with coverage: **234 passed, 0 failed, 0 skipped**. **58 focused storage/Operator tests passed**, including 35 new Cloudinary cases. Process-only EventLog logging override used as above.
+- Controlled HttpMessageHandler tests verify signed multipart/form fields, no exposed secret, authenticated type, immutable asset references, image/raw resource types, original PNG/JPEG/PDF bytes and MIME, pre-upload size/extension/signature/incomplete/truncated-header rejection, malformed/transformed upstream response, sanitized auth/network/timeout errors, old-map preservation, DB-failure cleanup, exact prior deletion without touching unrelated assets, cleanup-failure warning without failing a committed upload, fresh-adapter read, local fallback, invalid/cross-floor/external references, cloud mismatch, missing asset and fail-fast startup configuration. WebApplicationFactory tests exercise the production DI and real POST/GET controllers for ADMIN/OPERATOR/MANAGER/STAFF/anonymous and no-store delivery; store and cloud transport are fake.
+- Existing local persistence-failure test now additionally proves the prior map can still be read after rollback; spatial configuration is not changed by storage upload.
+- `dotnet publish src/Supermarket.Api -c Release --no-restore`: **PASS**.
+- Frontend floor-plan HTTP timeout compatibility: **29 focused tests across 3 files passed** (floor API, client and Store Layout), production build and lint **PASS**. Upload timeout is 300 seconds and map download 150 seconds to cover the supported remote operation timeout range; a fake-clock test checks a 31-second upload remains eligible and explicit download cancellation still aborts/cleans timers. Existing Vite bundle-size advisory remains. No UI/DTO/API route or authentication behavior changed.
+- Prepared the ignored `appsettings.Local.json` Cloudinary section without printing credentials or changing existing DB/JWT settings; tracked base/example configuration contains empty credentials and Provider Local. Verified Git ignores the real local file. API and setup instructions were updated; OpenAPI route/DTO schemas are unchanged.
+
+No real Cloudinary credential was supplied, so live upload/download/delete, account limits/PDF permissions and actual cross-machine/restart acceptance remain unverified. No shared local map was uploaded/deleted, no SQL integration was executed and no VPS was accessed. Previously saved local images require their local files until explicitly replaced with the same originals under the Cloudinary provider. Cleanup/network failures can leave unreferenced assets; warnings/manual storage inspection are documented, with no automatic bulk deletion or startup migration.
+
+## Cloudinary Media Library folder correction 2026-10-03
+
+After the user supplied credentials locally and reported a floor-plan image appearing in Cloudinary Home, source inspection found that uploads only prefixed `public_id` with the configured Folder. Cloudinary dynamic folders require a separate `asset_folder` parameter. Uploads now send the configured value in both locations; existing asset IDs/downloads are unchanged and no remote asset was moved.
+
+- Release build performed by focused tests: **PASS**. Cloudinary/floor-plan/Operator selection: **59 passed, 0 failed, 0 skipped**, including 36 Cloudinary cases. PNG/JPEG/PDF contract checks now assert `asset_folder`; an additional case verifies a custom Folder value and the signed request. `git diff --check`: **PASS**.
+- README and API storage notes explain new uploads, existing Home assets and folder moves. No frontend/API schema/SQL change. Live acceptance of the newly added folder parameter remains unverified; no real credentials were printed or used by these tests.
+
+## MF-02 ROI count / queue / incident runtime validation 2026-10-03
+
+Post-integration verification (2026-10-04): BE Release **279 passed, 0 failed, 0 skipped** including fixture-owned SQL integration tests; the complementary non-SQL category gate passed **259/259** with an intentionally unavailable SQL connection. FE **169/169** across 22 files, build/lint and BE publish passed. Conflicts were resolved keeping Cloudinary/floor editing/setup overview/config deletion alongside monitoring runtime/feed. Review and overview both reject ambiguous multi-camera measurements; deletion now detaches optional rule references while retaining historical events and snapshots (SQL regression verified). Empty rule saves follow the team's newer RULES_REQUIRED policy. The initial restricted-host non-SQL run failed on Windows EventLog permissions and passed when rerun outside the sandbox. No shared Dev DB mutation or new browser/GPU acceptance was performed during integration. Code was committed/pushed on the existing BE/FE branches; these local documentation changes remain uncommitted. AI-Service/Database were not pushed in this operation.
+
+Assigned increment: explicit temporary PEOPLE_COUNT for overcrowding (no m² estimate), QUEUE_LENGTH with observed continuous ROI dwell ≥5s, then independent warning/critical sustain, backend-owned monitoring, aggregate OperationalEvent persistence and one open DETECTED Incident per zone/type. DETECTED means not dispatched. This is the user's approved increment, not a claim that the team's BR/ERD documents were revised. Density, waiting-time/checkout runtime, dispatch/tasks, product closure endpoints, media evidence and analytics remain unimplemented.
+
+- `dotnet restore --configfile NuGet.Config`: **PASS**.
+- `dotnet test -c Release --no-restore --settings coverage.runsettings --collect:'XPlat Code Coverage' --results-directory TestResults`: **200 passed, 0 failed, 0 skipped**. Tests use fixture-owned local SQL Express databases, apply Database baseline + migration01 + migration02, and clean up those fixtures. Shared Dev was not migrated or mutated.
+- `dotnet publish src/Supermarket.Api -c Release --no-restore -o .local/publish`: **PASS**.
+- Both Database migration runners: **PASS**, including preserved upgrade/rerun history, nested caller transaction, schema/JSON/FK/lifecycle/unique-open guards, wrong target, partial/missing/altered CHECK/index rejection and DDL rollback. EF scaffold was generated from an isolated migrated SQL fixture (14 tables), not manually edited.
+- Real-SQL API/production coordinator tests cover Draft → Review → Activate, no area required for explicit count, WARNING → CRITICAL without a second open incident, no auto-close/downgrade, viewer start/stop independence, EOF once, restart/post-closure cooldown, deactivate/queued-observation race, concurrent serializable writers/idempotent retries, 1000 tied-history rows with bounded SQL keyset pagination, and two configuration versions on one camera without stop/recorded rewind. The hosted timer is disabled in these tests: controlled production `Tick` verifies processing, not scheduler cadence under load. Closure is fixture SQL only, not a product endpoint.
+- Worker regressions cover partial-frame retry checkpoints, source/credential identity release before restart, ordered low observations between highs, and all-frame evaluation with SQL writes restricted to source-second samples or newly sustained severity. Last observed incident ID is retained between samples. Fixture DateTime parameters explicitly use datetime2(3); a deterministic .002→.003 legacy datetime rounding reproduction prevented a false cooldown-boundary result.
+- Generated Swagger contract: **43 paths, 40 schemas**; typed runtime/feed, additive catalog options/preview purpose, RBAC and readiness503 covered by a real-SQL test host. `docs/openapi.json` is exported from that compiled host. It is not an export from the user's running API or shared DB.
+- FE `npm run test -- --run`: **148 passed across 21 files**. `npm run build` and `npm run lint`: **PASS**, no lint warnings; existing Vite >500kB chunk advisory remains. Tests cover explicit count conversion/no silent density reuse, team overview/detail/edit preservation, non-overlapping polling, camera-switch cancellation, separate endpoint errors/stale data, runtime/DEMO/DETECTED display, owned preview startup/EOF/Draft conflict, pending-stop guidance and existing ROI/minimap behavior.
+- AI full pytest using existing native venv and a unique writable `--basetemp` (`-p no:cacheprovider`): **52 passed, 1 skipped**. The skipped IP Webcam test requires `AI_TEST_STREAM_URL`; it is not GPU validation. One existing Starlette/httpx dependency deprecation warning remains.
+- Native AI smoke on RTX4060 Laptop GPU used existing YOLO26n + ByteTrack and an existing uploaded video, read-only and bounded to its first 8s: **240 frames / 7967ms source time**, two zone confidence contexts (.5/.7), maximum counts1/1, final JPEG118745 bytes, COMPLETED and no EOF replay. Queue remained0 in this sample; positive 5s dwell is covered by deterministic tests, not claimed observed in this native sample. Installed Ultralytics emitted a `half` deprecation advisory; no dependency upgrade was made.
+- `git diff --check` in BE/FE/AI/Database: **PASS**; no conflict markers. Current branches preserved; no stage, commit or push.
+
+Supplemental CI prerequisite verification: the old non-SQL name filter also selected `ConcurrencyTests`, which uses `SqlApiFixture`. It was corrected to `FullyQualifiedName!~ApiFlowTests&FullyQualifiedName!~ConcurrencyTests`. The corrected Release selection passed **180/180** with `MF01_TEST_SERVER=localhost\MF02_NO_SQL_UNIT_GATE` (intentionally unavailable), confirming no SQL fixture was required. The first sandbox attempt additionally failed on Windows EventLog/SQL integrated-auth permissions; these are execution-environment limitations, not a green test result. Full Release200/200 and the corrected filter were run with normal local permissions. GitHub Actions itself remains unverified.
+
+Final deactivation race regression: real-SQL test RED STOPPED→GREEN STOPPING before worker cleanup, RED premature Activate200→GREEN409 MONITORING_STOP_PENDING, then STOPPED/owner cleared followed by fresh-session source-time0 replay. Existing same-source two-zone reconfiguration remains allowed. After this fix the complete BE Release suite **200/200**, local publish and FE **148/148/build/lint** were rerun successfully.
+
+Not verified: one joint native AI + SQL + real browser acceptance session, real phone/CCTV monitoring, sustained multi-camera/load/long-history performance, GitHub Actions execution or deployment. The native smoke validates actual GPU inference separately; SQL tests use fake measurement transport and FE tests use controlled API responses. Runtime lease, in-memory buffer and progress are transient; restart resets continuity, while SQL incident/cooldown history remains authoritative. After reviewing/running migration02 on shared Dev, restart the upgraded services, deactivate legacy density configurations, explicitly choose count with new integer thresholds, Save → Review → Activate, then validate runtime/incident panels in the live page.
+
+## YOLO26s and sequence-aware preview validation 2026-10-04
+
+- Default model references in AI and BE changed to `../yolo26s.pt`; the official 20,422,725-byte checkpoint is present locally in `CAPSTONE/setup` and was loaded on the RTX 4060 Laptop GPU. No model weights or video were added to Git. Local AI `.env` and BE `appsettings.Local.json` do not override this model.
+- A read-only 30-frame sample from an existing 854×480, 29.97 FPS MP4 measured full preview tracking + annotation + JPEG at 17.9 ms/frame for YOLO26n and 18.9 ms/frame for YOLO26s after five warm-up frames. Another 854×480, 30 FPS sample measured YOLO26s at 16.3 ms/frame. These are local processing measurements, not end-to-end browser FPS or accuracy scores.
+- Native AI HTTP smoke with the real YOLO26s, ByteTrack and recorded MP4: `POST /sessions/{id}/start` returned STARTING, then `GET .../frame/next` returned JPEG200 with sequence1 and 106,249 bytes. The owned test session was stopped. No BE/SQL/browser was part of this smoke.
+- AI pytest: **54 passed, 1 skipped** (IP Webcam opt-in stream absent); one pre-existing Starlette/httpx warning. BE tests excluding SQL integration: **261 passed**, 0 failed. BE Release publish: **PASS**. FE: **172 passed across 22 files**, lint and production build **PASS**; existing Vite chunk-size advisory remains.
+- New tests cover waiting for a newer frame, no duplicate at EOF, session-ID reset, no stale frame after ERROR, AI 200/204 contracts, BE proxy headers/204, React sequence/no redraw, delayed Blob URL cleanup, recorded completion, ROI, abort, and a frame-request/session-restart race. `git diff --check` and checked-in OpenAPI JSON syntax were checked separately. Runtime Swagger export, shared SQL integration, full browser acceptance, real IP Webcam and sustained end-to-end FPS remain unverified in this increment.
+
+## Backend Dev deployment preparation 2026-10-04
+
+Prepared an API-only Compose package for the inspected Ubuntu VM (`192.168.1.206`, Tailscale `100.105.191.20`) and its existing `capstone_default` SQL network, with NPM on `192.168.1.243`. Manual GitHub-hosted deployment builds/pushes GHCR and updates via Tailscale/OpenSSH using the image digest. Server runtime secrets remain in a private raw env file; key ring, recorded videos and local maps have persistent named volumes. Only API is updated, with readiness/previous-release recovery; existing CI and DB/network/container ownership are unchanged.
+
+- After integrating the latest monitoring runtime, Release backend non-SQL suite with coverage: **271 passed, 0 failed, 0 skipped**. Release publish: **PASS**, no warnings/errors. Process-only EventLog logging override used as above. No shared DB access or SQL integration was performed.
+- **12 new HTTP cases** use the real API pipeline/TestServer: trusted/untrusted/disabled proxy headers, IPv4-mapped proxy address, one-hop forwarding, ignored forwarded Host, fail-fast invalid/empty proxy configuration, login limits separated by forwarded client IP, opt-in Staging Swagger and default Production-off Swagger. Non-Development demo routes remain absent. Dummy SQL connection and disabled bootstrap/health/monitoring workers prevent test DB activity.
+- **6 rollout/recovery scenarios** passed with fake Docker and locking: first success, successful upgrade, failed readiness restoring prior image/Compose without advancing state, failed pull preserving the running API, failed first rollout stopping API only, and failed rollback reported without claiming success. Temporary registry credentials are removed. Shell syntax check **PASS**. These tests simulate state transitions, not actual Docker/network/lock behavior.
+- Compose configuration validation **PASS** without a Docker daemon, using sample/synthetic values only. `actionlint` **1.7.12** validates the new workflow: **PASS**; tool downloaded from the official release and SHA-256 matched its published checksum before execution, kept under ignored `.local`. `git diff --check`: **PASS**. Local runtime config is ignored and excluded from publish; no real deployment env/credential/key is tracked.
+- README, API hosting behavior and `docs/DEPLOY_DEV.md` cover GitHub/Tailscale/SSH setup, DNS/NPM, runtime env/volumes, readiness limitations, existing Cloudinary references, Windows recorded-video path replacement, resuming the health worker, frontend API URL and recovery. API endpoint/DTO schemas are unchanged, so the OpenAPI snapshot needs no regeneration. Unrelated frontend changes are preserved.
+
+Actual Docker image build/run remains unverified locally because Docker Desktop's Linux daemon is unavailable. No SSH connection, deployment, GHCR push, GitHub workflow run, NPM/DNS change, live SQL/Cloudinary/camera operation, or AI rollout occurred. First deployment must validate registry permissions, Tailnet access, pinned SSH key/auth, volume permissions, proxy source/HTTPS URL behavior and MF-01 endpoints on the Dev DB. Readiness checks SQL connectivity only. `CameraHealth:Enabled=false` is an explicit initial sample setting until the recorded file is re-uploaded/tested/enabled; the guide requires turning health checks back on afterward.
+
+## AI monitoring person-class binding regression 2026-10-04
+
+- Root cause reproduced through the real ASP.NET Options pipeline: the `AiPreviewOptions.Classes` default `[0]` was combined with `AiPreview:Classes=[0]`, producing `[0,0]`. The Python monitoring contract correctly rejected that request with `AI_REQUEST_INVALID` because runtime monitoring supports exactly the person class `[0]`.
+- Regression test `AiMonitoringBindsThePersonClassOnce` was observed RED with expected `[0]`, actual `[0,0]`, then GREEN after post-bind deduplication and fail-fast validation that the effective list is exactly `[0]`.
+- Backend non-SQL suite: **274 passed, 0 failed**. Release publish: **PASS**.
+- Local native integration after restarting the backend: `POST /monitoring/sessions/{cameraId}/start` returned **200**, repeated measurement requests returned **200**, and the AI session for `CAM-PHONE` reported `LIVE`, purpose `MONITORING`, confidence context `0.2`. This smoke used the existing active configuration and recorded source; it did not change SQL configuration or claim browser/incident acceptance.
+## MF-01 camera health/readiness validation 2026-10-03
+
+Separated transport status, visual-health events and processing availability. Added event-type-specific hysteresis, an immediate-start/bounded-concurrency worker, CPU-only frame analysis through the private AI service, derived `READY/NOT_READY`, and frontend presentation. No database/ERD migration was required; `CameraHealthEvent.event_type` already supports the new values. The camera-health branch originally exposed readiness as a fail-closed gate; after integration, the existing monitoring runtime consumes that gate before producing measurement/rule/event/incident results.
+
+- Backend non-SQL suite using isolated build artifacts: **241 passed, 0 failed, 0 skipped**.
+- Backend focused health + AI-client contract selection: **12 passed, 0 failed, 0 skipped**.
+- Backend Release publish: **PASS**.
+- Runtime Swagger comparison for health GET/check paths, `CameraHealthView`, and `SetupCamera`: **MATCH** with `docs/openapi.json`.
+- Frontend: **152 tests passed across 19 files**; lint and production build **PASS**. Existing Vite bundle-size advisory remains.
+- AI service CPU/API/session/recorded/redaction selection: **32 passed**. Focused frame-health tests: **4 passed**. A Starlette/httpx deprecation warning is dependency-owned and does not affect the result.
+- SQL integration was not rerun because this change does not alter schema or EF mappings.
+
+## ERD V6 additive migration and outcome routing validation 2026-10-18
+
+Prepared the ERD V6 migration in two stages. `FA26SE103_Database_V5.sql` is the non-destructive compatibility expansion; `FA26SE103_Database_V6_Cleanup.sql` is the guarded destructive cutover script. V5 and V6 Cleanup have now both been applied to the connected shared Development database after backup and explicit cutover approval.
+
+- Before Cleanup, Development contained `OperationalEvent=852`, `Incident=1`, and `MonitoringRule=1`. The Incident was confirmed test data with invalid V6 provenance: it was `AI_DETECTED` and linked to an `OPERATIONAL_EVENT` rule. With explicit approval, 851 legacy Event links were cleared and that one test Incident was deleted rather than fabricating an INCIDENT rule.
+- Post-Cleanup verification: 37 dbo tables; `OperationalEvent=852`, `Incident=0`, `MonitoringRule=1`. The remaining rule is `OPERATIONAL_EVENT` with only `event_type_id` populated.
+- Legacy columns/tables are absent: `OperationalEvent.incident_id`, `OperationalEvent.event_type`, `Incident.trigger_camera_id`, `IncidentType.source_type`, `IncidentType.measurement_type`, `NotificationConfig`, and `ZoneShiftRequirement` all resolve absent.
+- `CK_MonitoringRule_ExactlyOneOutcome` and `CK_Incident_Source` enforce the V6 target/source discriminators. `DBCC CHECKCONSTRAINTS WITH ALL_CONSTRAINTS` completed without reporting a violation.
+- Backend EF scaffold expanded to the 37-table V6 compatibility schema. Runtime writing now routes `OPERATIONAL_EVENT` rules to OperationalEvent episodes and `INCIDENT` rules directly to Incident, without creating the other outcome branch.
+- Backend non-SQL suite (`Category!=SqlIntegration`): **282 passed, 0 failed, 0 skipped**.
+- Backend Release publish: **PASS**.
+- Both SQL migration files passed SQL Server parse-only validation. Repository `git diff --check` is recorded separately after the final documentation edit.
+
+Not performed: shared-database test-data insertion, SQL integration-suite execution, commit, push, merge, or backend deployment. Older V5-compatible writers must not be restarted against this post-cleanup database.
+
+### Exact V6 cutover preparation continuation
+
+- Compared all live dbo table/column names against the supplied ERD V6 draw.io: all 37 target tables/columns exist after V5; the remaining differences were two legacy tables and legacy columns on Incident, IncidentType, OperationalEvent, Recommendation, ResponsePolicy and ResponsePolicyAction. Cleanup now removes the complete verified delta, including `OperationalEvent.event_type` and `IncidentType.measurement_type`.
+- Replayed the historical backup plus Database V2 → V3 → V4 → V5 → V6 Cleanup on a locally owned disposable SQL Server database: **PASS**. The cleanup handled the historical unique constraint/index variants, completed transactionally, and the disposable database was removed.
+- Regenerated the 37-entity EF scaffold from that exact post-cleanup schema. `MonitoringRule.event_type_id` / `incident_type_id` are nullable outcome targets; legacy Event→Incident, trigger-camera, string event-type, IncidentType source/measurement, Recommendation-Incident and response-policy Incident qualification mappings are absent.
+- Monitoring setup continues to accept the current frontend catalog contract, but measurement metadata is sourced from `OperationalEventType` and saved operational rules persist only `event_type_id`. Direct Incident runtime activation fails closed until a validated measurement/model contract exists.
+- Backend non-SQL suite (`Category!=SqlIntegration`): **283 passed, 0 failed, 0 skipped**. Focused V6 monitoring/model selection: **50 passed**. Backend Release publish: **PASS**.
+- Shared Development cleanup preflight data gates: **PASS** after removal of the explicitly approved legacy test Incident. `NotificationConfig`, `ZoneShiftRequirement`, and legacy Recommendation/ResponsePolicy/Action data were all empty.
+
+The shared Development database is now on the exact V6 post-cleanup schema. The database cutover is complete; coordinated deployment of the V6-aware backend remains required. No commit, push, or merge was performed.
+
+## MF-02 Staff-task integration into ERD V6 — 2026-10-19
+
+Merged the current `origin/dev` (including MF-02) into `feature/erd-v6-migration` locally and resolved the overlap against the exact post-cleanup V6 scaffold. Generated files under `Persistence/Scaffolded` remain byte-for-byte from the ERD V6 branch; the retired `NotificationConfig` entity was not restored. The MF-02 retry configuration now reads the non-secret `SystemSetting` keys `task_offer.retry_interval_sec` and `task_offer.max_retry_count`.
+
+- `MonitoringIncidentWriter` invokes Task dispatch only for the `OPERATIONAL_EVENT` outcome. The independent `INCIDENT` outcome remains direct and does not create an OperationalEvent or event-origin Task.
+- Release build: **PASS**, 0 warnings and 0 errors.
+- Backend non-SQL suite (`Category!=SqlIntegration`): **301 passed, 0 failed, 0 skipped** after the final V6 settings adaptation.
+- Backend Release publish: **PASS**; build completed with 0 warnings and 0 errors.
+- Shared SQL integration and database mutation were not performed during this merge resolution.
+- The resolved merge remains local for review; no push or deployment was performed.
+
+## MF-04 SWAP/COVER shift swap — 2026-10-19
+
+Branch `feature/mf04-shift-swap` from `origin/dev` at `f63b3cd` (ERD V6 scaffold). No generated scaffold file and no database script were changed.
+
+- Release build: **PASS**, 0 warnings and 0 errors.
+- Backend non-SQL suite (`Category!=SqlIntegration`): **312 passed, 0 failed, 0 skipped**, including 11 new `ShiftSwapTests`. Mutation check: disabling the deadline or weekly-hour rule makes the corresponding tests fail.
+- SQL-backed HTTP check against an isolated LocalDB `FA26SE103_LocalSwap` (Backup 18/10/2026 at V5 + `FA26SE103_Database_V6_Cleanup.sql`; the single legacy test Incident was removed from that copy because V6 cleanup refuses it): **28/28 checks passed** (re-run 2026-10-20 after limiting rule details to the Manager view). Covered:
+  - eligible COVER/SWAP candidates with overlapping colleagues hidden, and the exact `expires_at` (24 h before Friday 14:00 local = Thursday 07:00 UTC);
+  - one pending request per shift; peer accept → Manager approve exchanges both `ShiftAssignment.user_id` rows in SQL, and the Staff shift list follows;
+  - peer decline, Manager reject (reason required), requester cancel with actor, and immediate EXPIRED read plus worker-stored EXPIRED;
+  - 403 for Staff approve and Operator queue, 404 for an uninvolved Staff member, Staff views without `checks[]` (colleagues' hours and availability stay with the Manager), in-app notifications, and Swagger routes.
+- `docs/openapi.json`: 8 paths, 10 schemas and 2 tags inserted from the running API without reformatting existing entries.
+- Not claimed: shared `FA26SE103_Dev` execution, concurrent double-approval under load, FCM delivery, Manager shift creation/publishing or `StaffUnavailability` management.
+
+## MF-04 Manager shift planning — 2026-10-20
+
+Same branch `feature/mf04-shift-swap`, on top of `078acf7`. No generated scaffold file and no database script were changed.
+
+- Release build: **PASS**, 0 warnings and 0 errors.
+- Backend non-SQL suite (`Category!=SqlIntegration`): **319 passed, 0 failed, 0 skipped**, including 7 new `ShiftPlanningTests`. Mutation check: removing the BR-02 publish gate or the BR-33 length rule makes the corresponding tests fail.
+- SQL-backed HTTP check on the isolated LocalDB `FA26SE103_LocalSwap`: **25/25 checks passed**. Covered:
+  - template length rule and the in-use time lock;
+  - DRAFT hidden from Staff, then the coverage gap blocking publish and a successful publish with `SHIFT_PUBLISHED`;
+  - staff options limited to active STAFF;
+  - leave clashing with a scheduled shift refused, leave blocking assignment, and leave deletion;
+  - reassigning a published shift (owner changed in SQL, both Staff notified);
+  - `SWAP_PENDING` on edit, and cancel cascading to the pending swap;
+  - 403 for Staff/Operator mutations, Operator read access, and Swagger routes.
+- Swap HTTP regression re-run on the same database: **28/28 checks passed**.
+- `docs/openapi.json`: 10 paths, 14 schemas and 3 tags inserted (1003 added lines, existing entries unchanged).
+- Not claimed: shared `FA26SE103_Dev` execution, concurrent planning by two Managers under load, or frontend/mobile integration.
+
+## MF-02 V6 Task mapper and live SQL rollback proof — 2026-10-25
+
+Branch `feature/mf02-staff-tasks`, based on `f6a9369`. Removed `TargetIncidentTypeId` and `ProposedIncidentSeverity` from the domain `ResponsePolicyAction`: the approved V6 scaffold and live table no longer contain these fields. Previously `EfSetupStore` reflected every domain property without checking its corresponding persistence property, so reading a real policy action could throw before Task creation. Mapping now validates property existence/type/accessors explicitly. Generated scaffold, SQL schema and HTTP contracts are unchanged.
+
+Verification:
+
+- Release build before the fix: PASS; the defect is runtime mapping rather than compilation.
+- `dotnet test tests/Supermarket.Tests/Supermarket.Tests.csproj -c Release --no-restore --disable-build-servers -p:UseSharedCompilation=false --filter 'Category!=SqlIntegration' --verbosity minimal`: **340 passed, 0 failed, 0 skipped** after the fix. Includes two new tests using actual `EfSetupStore` Add/Find with tracked EF rows (no SQL connection) for V6 policy actions and Event-origin Tasks/offers.
+- Read the configured shared `FA26SE103_Dev`: **37 dbo tables**. Task has 22 columns including `rejection_count`; ResponsePolicyAction has 10 columns and no obsolete Incident-qualification fields; Event has its independent type/priority/clear columns and no `incident_id`.
+- Actual schema readiness checks `EfTaskSchema.Ready` and `EfMonitoringIncidentQueries.EnsureSchema`: PASS.
+- Controlled SQL proof used the production snapshot reader, evaluator, writer, Task dispatch, Staff use cases and EF mapper/store with **synthetic aggregate observations**. An outer SERIALIZABLE transaction isolated temporary Zone/config/rule/policies/shift assignments and temporary camera/connection enablement. A store decorator flushed nested application transactions to SQL without committing the outer transaction. Rows were queried from SQL before rollback.
+- Check-in persisted and eligibility became true; unchecked-in Staff were excluded. A sustained Warning created one Event, one `OPERATIONAL_EVENT` Task, one eligible offer and an `IN_APP` recipient. After a second Staff check-in, retry added their offer. Handle Later accepted the Task; a subsequent second acceptance returned `TASK_ALREADY_TAKEN`; Start moved it to IN_PROGRESS. This is sequential competing acceptance, not a concurrent-load test.
+- Critical escalation updated the same Event/Task; sustained recovery cleared the Event while retaining the accepted Task IN_PROGRESS. No Incident was created.
+- Example transient proof IDs: Event `c6db8651-e2bc-4d88-b318-5bed8c010c2f`, Task `cf444d04-705d-455a-bcce-7206a344ce03`. These were rolled back and are not persistent demo records.
+- Rollback verified: fixture Zone/config/rule/policies/shift, temporary check-ins, Event/Task removed; original camera/connection status restored.
+
+Current data blockers observed at approximately 11:23–11:28 Asia/Saigon on 25/10:
+
+- The only saved active rule is CONGESTION on `zone test 2` (`6288c2c2-1bda-40fb-9e63-72e94c8d8167`); no ResponsePolicy/action is configured.
+- Its camera is INACTIVE; recorded FILE connection is disabled, with an older saved SUCCESS test. No current capture/test was executed.
+- There are two active Staff accounts but no current checked-in Staff covering that Zone. Today's saved assignment is 14:00–22:00 on `ZONE 1`, unchecked-in. Retry settings are absent, so defaults apply.
+- The database still contains historical `INCIDENT_LINKED` Event status strings from older data. Their presence is not evidence of current Event→Incident behavior; this task did not rewrite historical data.
+
+No permanent shared-data/schema changes, deployment, live-camera/AI inference, HTTP/mobile acceptance, FCM delivery or complete legacy SQL integration suite was performed. Local evidence JSON and repeatable scratch harness are kept in the workspace `.audit` and `tmp/task-sql-smoke`; they contain no connection secrets and are not included in this repository patch.
+
+## Owner A — Task Board assignment integration, 2026-10-25
+
+- Mechanical ownership split saved in local commit `9f8488b`: separated StaffTasks, OperatorTasks, TaskViews and their HTTP controllers into individual files. Namespaces, routes, DTOs and class bodies were unchanged by that commit. Non-SQL suite after the split: **340 PASS**.
+- Added optional `TaskAssignRequest.expectedUpdatedAt` for Operator writes. A mismatched version returns 409 `TASK_CHANGED`; normal EF concurrency still applies during persistence. Clients omitting the field retain the existing contract. Reassignment/outside-Zone assignment now requires a reason (422 `REASON_REQUIRED`); the checked-in/current-shift/workload and OFFERED/ACCEPTED-only restrictions remain.
+- Non-SQL suite after assignment guards: **343 passed, 0 failed, 0 skipped**, including stale-board acceptance, audit-reason preservation and prevention of reassignment after work starts. API.md and OpenAPI schema were synchronized.
+- Started the Release API locally at port 5192 with Bootstrap, CameraHealth, Monitoring, TaskOffers and ShiftSwaps disabled. Issued short-lived local QA tokens for existing active roles using local signing configuration without exposing or persisting tokens/secrets. **15 HTTP checks PASS** against configured Development SQL: ready/list/needsAssignment/Staff-own tasks/inbox; anonymous 401, Staff board 403, Admin assign 403, Operator-only mutation boundaries, invalid filter 422 and absent Task 404. Mutation probes used a random nonexistent TaskId, so they did not change operational rows.
+- Extended the rollback SQL harness to invoke actual OperatorTasks.Assign: stale version refused; correct-version assignment persisted ACCEPTED; reasonless reassignment refused; valid reassignment persisted with old history EndedAt/REASSIGNED and TASK_ASSIGNED notification. The manual fixture Task `8a7ff5a2-1b2b-4580-a507-707d8a0d193a`, Event fixture `d3a47ab9-34af-4bb6-8c54-2f63e4906589` and all related fixtures were rolled back; original camera/connection states were verified restored. These rows are not persistent demo data.
+- Front-End branch `feature/operator-task-board`: API client, Task Board/detail, assignment dialog, role-aware actions, status/needs-assignment filters, UTC→Vietnam presentation and foreground polling/backoff. **205 frontend tests PASS**, including 12 new feature/lifecycle checks; production build and lint PASS. Existing bundle-size warning remains.
+- Edge browser QA with intercepted API fixture responses verified Board/detail navigation, outside-Zone reason validation and successful assignment updating to Accepted. Local screenshots: `Front-End/output/playwright/task-board.png`, `task-assignment-validation.png`, `task-assigned.png`. The UI fixture is deliberately separate from real-SQL HTTP validation and is not evidence of mobile/public-backend acceptance.
+
+No shared schema change, permanent policy/shift/check-in update, deployment, camera/model capture, concurrent-load SQL acceptance, mobile evidence submission or Operator verification implementation was performed in this continuation. Those remain the B/C/integration workstreams. Local scratch evidence is outside the backend repository; only intended source/tests/contracts/docs belong in the patch.
+
+## Global notification settings and role web inboxes — 2026-10-28
+
+Branches `feature/notification-settings` from Back-End `dev` (`286c477`) and Front-End `main` (`7d59de3`). No worktree, push, deployment, shared-database write, migration, generated scaffold edit or static OpenAPI regeneration was performed.
+
+- Back-End adds Admin-only typed GET/PUT for the four approved `notification.*` FCM policy keys using existing `SystemSetting`, aggregate optimistic concurrency, `PUSH_NOT_CONFIGURED` fail-closed enablement and one sanitized `AuditLog` per save.
+- Existing `/api/me/notifications` and `/read-all` are now backed by one bounded recipient-scoped query/update service for Staff, Operator and Manager. SQL query takes at most 100 newest `IN_APP` rows; read-all updates only the authenticated recipient.
+- Back-End non-SQL Release suite: **402 passed, 0 failed, 0 skipped**. Focused coverage includes safe defaults, upsert/audit, stale writes, non-Admin denial, provider-unavailable denial, V6 EF mapping, controller role metadata, three recipient roles, ownership/read boundaries, the 100-row ceiling, Staff-only device registration, idempotency, token rotation/transfer, own-device revocation and raw-token response exclusion.
+- Front-End notification/API focused suite: **6 passed, 0 failed**. Production build: **PASS**. Lint: **PASS with 3 existing warnings in `ZoneStaffing.tsx`**, none in notification files.
+- Full Front-End suite: **225 passed, 3 failed**. The three repeatable failures are existing Camera preview tests waiting for `Stop preview`; notification-focused tests remain green. This increment did not change Camera/preview code, but the full suite is therefore not claimed green.
+
+Database V8 notification seed: `FA26SE103_Database_V8_Notification_Settings.sql` was added on Database branch `feature/notification-settings`, applied to the configured `FA26SE103_Dev` database and rerun successfully. Verification returned exactly four distinct valid `BOOLEAN` `notification.*` rows; the migration preserves valid Admin values and does not create or change `task_offer.*` settings.
+
+Deferred deliberately: FCM provider/credentials, durable push dispatch/retry/TTL, Staff Mobile integration and Gate B staging/device acceptance. The backend device registration/token rotation/revocation lifecycle is implemented, but `pushConfigured=false`; FCM cannot be enabled or sent in this increment. Existing durable in-app notification creation and Task/Offer/Swap state machines are unchanged.
+
+## MF-02 Monitoring/Event V6 rollback proof — 2026-10-27
+
+Branch `feature/mf02-monitoring-db`. Added the opt-in `tools/Mf02MonitoringSqlProof` console tool. It reads the local SQL connection configuration without printing credentials, uses the locked `LONG_QUEUE` 3/5–5s–5s–30s contract, prefers a LIVE camera template, creates a temporary Zone/configuration/rule/mapping in one outer SERIALIZABLE transaction, runs the production snapshot reader/evaluator/writer/EF path, and always rolls back. `--readiness-only` is read-only; `--require-live` fails closed when only RECORDED is available.
+
+- Focused `MonitoringIncidentWriterTests`, `MonitoringWorkerTests`, and `MonitoringEvaluationTests`: **14 passed, 0 failed, 0 skipped**. These include missing-data recovery protection, stale/idempotent writes, episode open/escalate/clear, and Event/Incident outcome separation.
+- Shared `FA26SE103_Dev` rollback proof: **PASS**. Sustained warning opened one OperationalEvent, the same episode escalated to CRITICAL, sustained valid recovery cleared it, Incident count did not change, and all fixture rows were absent after rollback.
+- Saved template observed during the proof: camera `304ff686-593e-486b-942a-470bb74489c6`, Zone `4f90b3d3-6608-4770-bc25-05b826364290`, rule `6288c2c2-1bda-40fb-9e63-72e94c8d8167`; source `RECORDED`, readiness `CAMERA_NOT_ACTIVE`. This is backend/SQL evidence with synthetic aggregate observations, not live-camera/AI acceptance.
+- Full backend suite: **369 passed, 20 failed**. All 20 SQL-fixture tests share the missing historical bootstrap problem. Database V0.1 + V2–V6 is not a valid clean-install chain: V2 expects runtime tables such as OperationalEvent that V0.1 does not create, while the previously documented `20261003_02_monitoring_runtime_erd_v3.sql` is absent from the current Database repository. No replacement schema was invented and no data-bearing backup was used as a test installer.
+
+## MF-04 Weekly Work Shifts — 2026-10-28
+
+Branch `feature/weekly-work-shifts`. Applied `FA26SE103_Database_V7_Weekly_Work_Shifts.sql` to the configured `FA26SE103_Dev` database and re-scaffolded EF from that database. The migration added `Shift.week_start`, preserved all existing assignments by cloning/relinking Work Shifts per historical Monday–Sunday week, and added Monday and supermarket/week/name uniqueness enforcement.
+
+- Dev data verification: **7 Work Shifts across 3 weeks**, all **17 assignments** linked to the matching week; zero duplicate names per supermarket/week and zero non-Monday `week_start` values.
+- Focused `ShiftPlanningTests`: **8 passed, 0 failed, 0 skipped**, including copy-to-empty-week and no assignment copying.
+- Full non-SQL backend regression: **379 passed, 0 failed, 0 skipped**.
+- Frontend production build: **PASS**. Focused Manager Work Shifts/Schedule/Zone Staffing tests: **11 passed, 0 failed**.
+- Runtime Swagger export: **PASS** from an owned temporary Development API with Bootstrap, CameraHealth, Monitoring, TaskOffers and ShiftSwaps disabled; `docs/openapi.json` now includes weekly Work Shift DTOs, `weekStart` query/input and `/api/shifts/copy-week`. The temporary process was stopped.
+
+This increment does not auto-copy Staff assignments or publish a target week. Manager copy creates only ACTIVE Work Shift definitions, then Staff assignment and publication remain deliberate weekly actions. No deployment, commit, push or merge was performed.
+
+## Zone minimum staffing setup — 2026-10-29
+
+The original `feature/zone-min-staff` increment exposed `Zone.min_staff` through Admin setup. The ownership was corrected on `dev`: Admin setup now only creates/maps the Zone, while Manager updates the per-Zone baseline through `PATCH /api/zones/{id}/minimum-staff` from Zone staffing. No schema or generated scaffold changed. The baseline applies to every active Work Shift; create keeps the database-aligned zero default and Admin edits preserve the Manager-owned value.
+
+- Backend focused domain/configuration suite: **81 passed, 0 failed, 0 skipped**.
+- Exact non-SQL CI suite (`Category!=SqlIntegration` with coverage): **419 passed, 0 failed, 0 skipped**.
+- Backend Release publish and OpenAPI JSON parse: **PASS**.
+- Frontend focused Zone editor/layout/schedule/API suite: **39 passed, 0 failed**.
+- Full frontend suite: **235 passed, 0 failed**. Production build: **PASS**.
+
+Existing Zone rows are deliberately not rewritten. Their current `min_staff=0` continues to mean that no minimum coverage gate is configured until a Manager records the approved baseline in Zone staffing.
+
+## MF-02 V7 TaskOffer + specialty dispatch — 2026-11-05
+
+Branch `feature/task-offer-dispatch`, based on the V7 backend synchronization branch. Runtime claim/accept/decline/expire/cancel state now uses `TaskOffer`; `TaskAssignmentHistory` is retained only for audit/current assignment history. Eligibility is bounded to `SAME_ZONE` and requires active STAFF, current check-in/shift, active Zone assignment, workload below two, and `UserAccount.specialty_id == TaskType.required_specialty_id`. Response policies can persist an explicit `taskTypeCode`; missing or ambiguous TaskType resolution fails closed. No adjacent-Zone expansion or full SLA warning/breach escalation is claimed.
+
+- `dotnet build Supermarket.sln --no-restore -m:1`: **PASS**, 0 warnings and 0 errors.
+- Direct focused execution of 37 non-HTTP `[Fact]` tests across `StaffTaskTests`, `StaffExecutionTests`, `TaskPersistenceMappingTests` and `ResponsePolicyTests`: **37 passed, 0 failed**. This covers specialty filtering, no-eligible Operator exception, accepted/declined/expired/retry flows, first-winner cancellation, active duplicate prevention, V7 EF mapping and explicit policy TaskType.
+- The normal filtered `dotnet test` invocation could not start tests in this host because `vstest.console` did not connect to `testhost` within 60 seconds. The temporary direct runner was removed after execution. No full-suite or HTTP/SQL acceptance claim is made from this run.
+- `docs/openapi.json` parses successfully after adding `taskTypeCode`, Staff specialty account fields and `GET /api/staff-specialties`.
+
+## MF-03 Task Evidence integrated with dev — 2026-10-29
+
+Branch `feature/mf03-task-evidence` was updated from `origin/dev` at `d0a3b24`. The two content conflicts were resolved by retaining both Task Evidence and Notification registrations in `Program.cs`, and by documenting both notification/device behavior and the MF-03 evidence API in `docs/API.md`.
+
+- Release build: **PASS**, 0 warnings and 0 errors.
+- Focused `TaskEvidenceTests` and `CloudinaryTaskEvidenceTests`: **9 passed, 0 failed, 0 skipped**.
+- Exact non-SQL CI suite (`Category!=SqlIntegration` with coverage): **417 passed, 0 failed, 0 skipped**.
+- Release publish: **PASS**.
+- `git diff --check`: **PASS** after conflict resolution.
+
+No shared SQL data/schema, deployment, credential, push-provider configuration or generated scaffold was changed. The implementation uses the existing V6 `TaskEvidence` table and `Task.rejection_count`. SQL/API acceptance with the deployed database and real Cloudinary credentials remains a pre-deployment smoke check; StaffReport and independent Incident closure remain outside this increment.
+## SWAP/COVER specialty eligibility — 2026-11-06
+
+Implemented on existing `feature/after-review-backend-sync` at baseline `0aeceea`. The shared planner requires the requester and replacement to have the same non-null/non-empty primary specialty. This applies to Staff/Manager candidates, create, peer acceptance, approval, assisted cover and Manager direct changes. Account specialty changes are rechecked before transfer. Candidate mismatches are hidden; mutations return `SWAP_NOT_ALLOWED`; Manager detail includes `SPECIALTY_COMPATIBLE`. The schema readiness check now requires existing `UserAccount.specialty_id`. No schema, DTO or endpoint changes.
+
+- Focused scheduling/SWAP suite: **34 passed, 0 failed, 0 skipped**.
+- Full `dotnet test Supermarket.sln --no-restore -m:1 --filter "Category!=SqlIntegration" --verbosity minimal`: **482 passed, 0 failed, 0 skipped**; build completed successfully.
+- Added 12 regression cases covering SWAP/COVER mismatch/missing specialty, stale eligibility at peer/Manager decisions, Manager-assisted candidates and stale assignment, Manager-direct rejection without cancelling pending requests, and two missing specialties. Existing matching-specialty happy paths remain covered. Test fixtures now seed Staff specialties.
+- Tests run outside the Windows sandbox to avoid its previously observed build/testhost hangs. SQL integration and Web/Mobile staging acceptance were not run. No shared Staff data was backfilled.
+
+## Operational SLA cutover V11 — 2026-11-06
+
+Branches: `feature/operational-sla-cutover` in Backend and Database; no worktree, commit, push or merge.
+
+- Baseline focused suite: **48 passed** before changes. Final `dotnet test Supermarket.sln -c Release --no-restore --filter "Category!=SqlIntegration" --verbosity quiet`: **467 passed, 0 failed, 0 skipped**.
+- Release build and API publish: **PASS**. Runtime/EF dependency scan: no legacy policy/action table reads or readiness checks; scaffold regenerated with SLA-only table selection. Existing API route names remain for compatibility.
+- Tests exercise WARNING notification deduplication, WARNING → CRITICAL one-task transition, missing/ambiguous/invalid policy/action exception routing, explicit task types, immutable offer timeout/deadlines, specialty eligibility/retry/acceptance and SLA mapper round trips. An independent review found oversized task instructions could fail SQL persistence; a failing regression test was added, then fixed with fail-closed parameter validation.
+- Live SQL Server: V11 default preview **PASS/ROLLED_BACK**. After user-confirmed backup and stopped backend, apply/drop **COMMITTED**. Both legacy table object IDs are NULL; four enabled operational policies and eight enabled actions persisted. Existing codes retained: LONG_QUEUE HIGH/TT-01, EXCESSIVE_WAIT MEDIUM/TT-02, CONGESTION CRITICAL/TT-03, CHECKOUT_CAPACITY MEDIUM/TT-05.
+- Preserved row counts before/after: **OperationalEvent 863, Incident 0, TaskAssignmentHistory 11**. New operational unique index has only `event_type_id` as its key. Incident unique indexes remain intact.
+- Post-drop V11 rollback rerun: **PASS**, same policy/action IDs and policy version 1, four/eight persisted rows, no static binding errors for dropped objects.
+
+The SQL-backed historical integration suite was not used: it requires an absent old schema file and creates temporary databases, contrary to this task's constraints. No temporary database or committed synthetic measurements were created. HTTP/camera/AI end-to-end acceptance and SLA warning/breach escalation workers are not claimed by this verification.
+
+## Response-policy TaskType catalog — 2026-11-06
+
+- Added read-only `GET /api/task-types`, restricted to ADMIN at HTTP and application boundaries, using the existing TaskType store. Returns code, name, description and required specialty ID for the web selector.
+- Non-SQL backend suite: **486 passed** after adding catalog use-case/authorization tests. After adding five HTTP role/response cases, the focused ResponsePolicyTests suite: **42 passed**.
+- Frontend ResponsePolicies tests: **9 passed**; production build passed. Covers code/name selection, selected description, catalog load failure/retry, retained drafts and the unchanged versioned save contract.
+- Edge visual check used mocked API catalog/policy data at 1440×1000: select displays code/name and description, stacked layout has no horizontal overflow. This is not live database or deployed end-to-end acceptance.
+- No schema, seed data, shared database or deployment changes. OpenAPI snapshot and API documentation updated for the additive endpoint.
+
+## Manager analytics API and KPI definitions — 2026-11-06
+
+- Added MANAGER-only read endpoints `/api/manager/analytics/overview`, `/trends`, `/zones`, with inclusive local-date and optional Zone filters; default seven days, maximum 93 days. Cohort/current-status semantics and KPI denominators are defined in [MANAGER_ANALYTICS_API.md](MANAGER_ANALYTICS_API.md).
+- EF SQL Server queries aggregate Events, Incidents and Tasks in SQL. No raw-feed cap or manually fabricated historical measurements. SLA reporting uses persisted Task deadlines; dismissed Incidents are excluded from incident totals; absent duration/rate samples are null.
+- Focused analytics suite: **19 passed**. Includes default/range/zone validation, empty cohorts, weighted durations, dismissed reconciliation, SLA denominator counts, zero-filled trends, empty zones, DST boundaries, all endpoint roles/no-store, unavailable-data HTTP error, EF SQL translation, 93-day SQL CASE nesting and generated Swagger contracts.
+- Full non-SQL backend suite: **510 passed, 0 failed, 0 skipped**. Release publish: **PASS**. `git diff --check`: PASS. OpenAPI additions were captured from the compiled API test host and merged into the existing snapshot, preserving unrelated paths.
+- No schema, seed, generated-scaffold or shared-data change; no commit/push/deployment performed. SQL translation was verified without executing against a live SQL Server. Staging SQL result correctness, representative latency/NFR-02, Manager frontend, export and recommendations remain unverified or out of this increment's scope. The complete WF-05 E2E/commitment is not claimed finished.
+
+## Operational Event history and drill-down — 2026-11-06
+
+- Added read-only Event list, Zone catalog and detail endpoints for ADMIN, OPERATOR and MANAGER. List queries support All/status/priority/Zone/inclusive store-local date filters and bounded SQL paging; detail returns up to 100 recent linked Tasks without coupling Event clear state to Task verification.
+- Focused backend Event history suite: **16 passed, 0 failed, 0 skipped**. Full non-SQL backend suite from the completed implementation run: **526 passed, 0 failed, 0 skipped**; backend build passed. SQL translation and bounded projection were verified without executing against a live SQL Server.
+- Frontend adds Operator/Manager Event history and detail, Analytics drill-down preserving date/Zone filters, and an **All tasks** option covering all six Task statuses. Focused Event/Task/Analytics suite: **21 passed, 0 failed**; production build passed. Edge interaction checks used mocked API responses.
+- `git diff --check`: **PASS** for both repositories. No schema, seed, generated scaffold, shared-data write, deployment, live SQL result check or staging end-to-end acceptance was performed.
+
+## D1 five-ring Task dispatch — 2026-11-09
+
+- Automatic TaskOffer dispatch now advances through `SAME_ZONE`, `ADJACENT_SAME_FLOOR`, `REMAINING_SAME_FLOOR`, `ADJACENT_FLOOR`, then `OTHER_FLOOR`. Same-Floor adjacency uses the Administrator-managed `ZoneAdjacency` links; the adjacent-Floor ring selects the nearest existing `Floor.floor_number` in the same Supermarket.
+- A non-empty ring waits one immutable Task `offer_timeout_sec`; empty rings advance immediately. A Staff member is not offered the same Task twice, legacy `task_offer.max_retry_count` no longer controls dispatch, and exhaustion creates one Operator exception without duplicating the Task or resetting its SLA snapshot/deadlines.
+- Focused Staff/dispatch/ZoneAdjacency suite: **44 passed, 0 failed, 0 skipped**. Full non-SQL backend regression: **542 passed, 0 failed, 0 skipped**. `git diff --check`: **PASS**.
+- No schema, seed, generated scaffold, shared database, deployment or live device acceptance was changed or executed. L5 ZoneAdjacency was integrated from the existing team commit before D1.
+
+## D4 rejection reassignment — 2026-11-09
+
+- The first rejected submission returns to the same Staff member for rework. Rejection two ends that assignment and immediately continues the D1 topology rings while excluding the prior performer. A rejected replacement submission stops automatic dispatch and notifies Operator; rejected performers remain excluded from automatic and manual candidates.
+- Acceptance now rechecks the Staff member against the Zone set represented by the offer's `dispatchScope`, allowing valid adjacent-Zone/Floor offers while still failing closed after a Zone assignment changes.
+- Focused Task evidence/dispatch suite: **39 passed, 0 failed, 0 skipped**. The regression verifies no repeated performer, no duplicate Task, immutable SLA snapshot/deadlines and one Operator escalation path.
+
+## D2 AUTO/MANUAL Task verification — 2026-11-10
+
+- Uses the existing V9 `Task.verification_mode` and `verification_method` columns; no schema or seed change. Operational Event TT-01–TT-05 select AUTO metric verification only when their snapshotted SLA Response Priority is not `CRITICAL`. Incident, SLA-`CRITICAL`, TT-07, TT-12–TT-15, missing/invalid SLA snapshots and unconfigured TaskTypes select MANUAL. The OperationalEvent `WARNING`/`CRITICAL` Alert Level is independent of this decision.
+- AUTO remains SUBMITTED while the Event is active. It verifies only after a CLEARED observation with a current, internally consistent metric contract and a recovery metric below the warning threshold. Missing source/metadata, inconsistent metric or invalid recovery fails safe to `MANUAL/OPERATOR_METRIC_EXCEPTION` and notifies Operator.
+- Task, offer and evidence contracts expose the selected verification mode/method. Focused rule/runtime/persistence/dispatch suite: **71 passed, 0 failed, 0 skipped**.
+
+## D7(a) SQL dispatch and D12 Event-cleared branches — 2026-11-10
+
+- The SQL fixture can now build a random, fixture-owned `FA26SE103_MF01_Test_<guid>` database from the canonical 18/10 snapshot plus Database V2→V10 when the current sibling Database repository is available. Historical operational rows are removed only inside that disposable database before bootstrap; `FA26SE103_Dev` is never selected or mutated. Fixture database names are regex-guarded before cleanup.
+- Added one rollback-isolated production EF/application test for the complete dispatch topology: `SAME_ZONE` → `ADJACENT_SAME_FLOOR` → `REMAINING_SAME_FLOOR` → `ADJACENT_FLOOR` → `OTHER_FLOOR`. Every wave persists a real `TaskOffer`; expired offers store `NO_RESPONSE`, a Staff member is not repeated, and the Task SLA snapshot/deadlines remain unchanged.
+- The same SQL test proves both D12 branches. Event clear before acceptance cancels the pending offer with `EVENT_CLEARED`, cancels the Task and writes `TASK_OFFER_WITHDRAWN`. Event clear after `HANDLE_LATER` keeps the Task `ACCEPTED`, preserves its assignee and SLA, writes `EVENT_CLEARED`, and does not auto-verify it.
+- Focused SQL test: **1 passed, 0 failed**. Full non-SQL regression: **552 passed, 0 failed, 0 skipped**. Release build: **PASS**, 0 warnings/errors.
+- The complete historical SQL category was also run against the current V9/V10 fixture: **13 passed, 8 failed**. The remaining tests are older monitoring/API assertions that conflict with current constraints/contracts (direct AI Incident rows without required provenance, Incident runtime without an exact SLA policy, dropping Event/Incident tables now referenced by V9 foreign keys, old catalog-count and camera-username response expectations). They are not counted as D7(a)/D12 acceptance and remain explicit follow-up work. D7(b)–(e), staging, live camera/AI, mobile and shared-database acceptance are not claimed.

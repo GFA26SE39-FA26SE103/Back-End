@@ -1,0 +1,58 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Supermarket.Application;
+using Supermarket.Domain;
+namespace Supermarket.Api.Controllers;
+
+[ApiController, Authorize, Route("api/cameras")]
+public sealed class CamerasController(CameraSetup setup, CameraPlayback playback) : ControllerBase
+{
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet("/api/floors/{id:guid}/cameras")] public Task<List<Camera>> List(Guid id, CancellationToken ct) => setup.List(id, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpPost("/api/floors/{id:guid}/cameras")]
+    public async Task<IActionResult> Create(Guid id, CameraRequest r, CancellationToken ct)
+    {
+        var x = await setup.Save(null, id, r, ct);
+        return Created($"/api/cameras/{x.CameraId}", x);
+    }
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet("{id:guid}")] public Task<Camera> Get(Guid id, CancellationToken ct) => setup.Get(id, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpPatch("{id:guid}")] public Task<Camera> Update(Guid id, CameraRequest r, CancellationToken ct) => setup.Save(id, null, r, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpGet("{id:guid}/connection")] public async Task<ConnectionView> Connection(Guid id, CancellationToken ct) => Public(await setup.Connection(id, ct));
+    [Authorize(Roles = AccessRoles.Admin), HttpPut("{id:guid}/connection")] public async Task<ConnectionView> Configure(Guid id, ConnectionRequest r, CancellationToken ct) => Public(await setup.Configure(id, r, ct));
+    [Authorize(Roles = AccessRoles.Admin), HttpPost("{id:guid}/connection/test")] public async Task<ConnectionView> Test(Guid id, CancellationToken ct) => Public(await setup.Test(id, ct));
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet("{id:guid}/preview")]
+    public async Task<IActionResult> Preview(Guid id, CancellationToken ct)
+    {
+        var frame = await setup.Preview(id, ct);
+        Response.Headers.CacheControl = "no-store";
+        return File(frame.Bytes, frame.ContentType);
+    }
+    [Authorize(Roles = AccessRoles.Viewer), HttpPost("{id:guid}/playback")]
+    public Task<CameraPlaybackView> Playback(Guid id, CancellationToken ct) => playback.Prepare(id, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpPost("{id:guid}/connection/enable")] public async Task<ConnectionView> Enable(Guid id, CancellationToken ct) => Public(await setup.Enable(id, true, ct));
+    [Authorize(Roles = AccessRoles.Admin), HttpPost("{id:guid}/connection/disable")] public async Task<ConnectionView> Disable(Guid id, CancellationToken ct) => Public(await setup.Enable(id, false, ct));
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet("{id:guid}/zones")] public Task<List<MappingView>> Zones(Guid id, CancellationToken ct) => setup.Mappings(id, ct);
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet("{id:guid}/zone-rois/{mappingId:guid}")]
+    public Task<MappingView> Roi(Guid id, Guid mappingId, CancellationToken ct) => setup.Roi(id, mappingId, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpPost("{id:guid}/zones/{zoneId:guid}/rois")]
+    public async Task<IActionResult> CreateRoi(Guid id, Guid zoneId, MappingRequest r, CancellationToken ct)
+    {
+        var saved = await setup.CreateRoi(id, zoneId, r, ct);
+        return Created($"/api/cameras/{id}/zone-rois/{saved.CameraZoneId}", saved);
+    }
+    [Authorize(Roles = AccessRoles.Admin), HttpPut("{id:guid}/zone-rois/{mappingId:guid}")]
+    public Task<MappingView> UpdateRoi(Guid id, Guid mappingId, MappingRequest r, CancellationToken ct) => setup.UpdateRoi(id, mappingId, r, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpDelete("{id:guid}/zone-rois/{mappingId:guid}")]
+    public async Task<IActionResult> RemoveRoi(Guid id, Guid mappingId, CancellationToken ct)
+    {
+        await setup.RemoveRoi(id, mappingId, ct);
+        return NoContent();
+    }
+    [Authorize(Roles = AccessRoles.Admin), HttpPut("{id:guid}/zones/{zoneId:guid}")] public Task<MappingView> Map(Guid id, Guid zoneId, MappingRequest r, CancellationToken ct) => setup.Map(id, zoneId, r, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpDelete("{id:guid}/zones/{zoneId:guid}")]
+    public async Task<IActionResult> Unmap(Guid id, Guid zoneId, CancellationToken ct)
+    {
+        await setup.Unmap(id, zoneId, ct);
+        return NoContent();
+    }
+    private static ConnectionView Public(ConnectionView view) => view with { Username = null };
+}
