@@ -157,6 +157,7 @@ builder.Services.AddScoped<TaskViews>();
 builder.Services.AddScoped<StaffTasks>();
 builder.Services.AddScoped<OperatorTasks>();
 builder.Services.AddScoped<IncidentTypeCatalog>();
+builder.Services.AddScoped<OperationalEventTypeCatalog>();
 builder.Services.AddScoped<StaffReportWork>();
 builder.Services.AddScoped<SlaMonitor>();
 builder.Services.Configure<StaffReportMediaOptions>(builder.Configuration.GetSection("StaffReportMedia"));

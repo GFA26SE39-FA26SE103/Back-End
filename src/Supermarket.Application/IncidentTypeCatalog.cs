@@ -36,6 +36,15 @@ public sealed class IncidentTypeCatalog(ISetupStore store, ICurrentUser current)
         await store.Update(entity, ct);
         return View(entity);
     }
+
+    // Preserve references from reports, policies and incidents; deletion means deactivation.
+    public async Task Delete(Guid id, CancellationToken ct)
+    {
+        UseCase.Admin(current);
+        var entity = UseCase.Found(await store.Find<IncidentType>(id, ct));
+        await Update(id, new(entity.Name, entity.Description, entity.RequiresBeforePhoto, "INACTIVE"), ct);
+    }
+
     private static IncidentTypeAdminView View(IncidentType entity) => new(entity.IncidentTypeId, entity.Code, entity.Name,
         entity.Description, entity.RequiresBeforePhoto, entity.Status);
 }
