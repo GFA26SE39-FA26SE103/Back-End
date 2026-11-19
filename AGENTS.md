@@ -1,17 +1,17 @@
 # AGENTS.md — FA26SE103 Backend
 
-> Updated planning baseline: **2026-11-11**. Target repository: `GFA26SE39-FA26SE103/Back-End`, normally `dev`. This document guides coding agents; **it does not assert that planned features are implemented**. Read current branch/source and dated evidence before editing.
+> Requirements baseline: **2026-11-19**, Report 3 SRS BR-01–BR-165. Target repository: `GFA26SE39-FA26SE103/Back-End`. This document guides coding agents; **it does not assert that planned features are implemented**. Read current branch/source and dated evidence before editing.
 
 ## Read first and establish scope
 
 1. Read this file and any workspace-root `AGENTS.md` that applies.
 2. Read [README.md](README.md), relevant current source/tests and [docs/API.md](docs/API.md).
-3. Review [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for historical decisions; **newest dated sections supersede older snapshots**.
+3. Review [docs/PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for the current SRS target and separately dated implementation history; do not treat historical snapshots as current requirements.
 4. Use [docs/VALIDATION.md](docs/VALIDATION.md) as **dated evidence only**, not proof of the current commit or environment.
 5. If changing persistence, inspect the **canonical Database repository SQL scripts**, approved ERD and the target environment before editing.
 6. For deployments, follow [docs/DEPLOY_DEV.md](docs/DEPLOY_DEV.md).
 
-Decision priority: latest explicit approved user/team decision and applicable BM-04 commitment → official current business requirements → approved database/schema → current source/code contracts → historical notes. If these conflict, report the discrepancy and ask for a decision rather than silently inventing a rule. BM-04 mainly commits scope, test coverage and outcomes; it does not mandate a particular checkout table layout.
+Decision priority: latest explicit approved user/team decision and current Report 3 SRS (BR-01–BR-165) → applicable frozen BM-04 commitment → approved database/schema → current source/code contracts → historical notes. If these conflict, report the discrepancy and ask for a decision rather than silently inventing a rule. BM-04 mainly commits scope, test coverage and outcomes; it does not mandate a particular checkout table layout.
 
 **Do not equate:** approved design, feature branch, merged `dev` implementation, deployed SQL schema, successful automated tests, and end-to-end staging acceptance.
 
@@ -27,13 +27,14 @@ Avoid obsolete four-mainflow labels as the current business workflow model; olde
 
 ### Operational monitoring versus Incident qualification
 
-- Valid AI measurements are evaluated through `MonitoringRule` and create/update **OperationalEvents**, not Incidents directly.
+- Valid AI measurements are evaluated through `MonitoringRule` and create/update **OperationalEvents only**, not Incidents directly. A rule must not target an IncidentType.
 - Event alert level (`WARNING`/`CRITICAL`) is **not** SLA response priority (`CRITICAL`/`HIGH`/`MEDIUM`/`LOW`). Never map these by matching strings.
 - Event episodes update/clear under the configured lifecycle; no silent Event-to-Incident conversion.
 - Current post-cutover response policy persistence is **`SLAPolicy` and `SLAPolicyAction`**. Legacy `/response-policies` endpoints may remain as compatibility facades; **do not recreate the removed legacy response-policy tables**.
 - WARNING may notify without Task creation; CRITICAL may create an operational Task only when the approved enabled policy/action applies. No arbitrary fallback if missing, ambiguous or invalid.
 - Camera/service health events remain technical health records, not automatically operational Incidents.
 - Staff Reports require Staff confirmation and appropriate report type/duplicate/qualification handling before Incident/Task actions. AI draft suggestions do not create a persisted Incident or Task by themselves.
+- **Sole approved direct AI Incident exception:** validated, evidence-backed Fallen Person detection may create a deduplicated `FALLEN_PERSON` Incident and dispatch TT-16 without a fabricated StaffReport or OperationalEvent intermediary. This is an approved target, not proof of implementation. Do not generalize it to other safety scenarios or reuse obsolete `MonitoringRule → Incident` behavior; reconcile provenance and SQL constraints through Database-first review.
 
 ### Dispatch, SLA, task verification
 
@@ -78,7 +79,7 @@ tests/Supermarket.Tests/        Domain, application, API and integration checks
 Approved design/ERD → reviewed **versioned SQL script in Database repository** → approved environment preflight/backup/application → regenerate EF scaffold → inspect generated diff → update custom mappings/contracts/use cases/tests/docs.
 
 - No business logic inside generated scaffold files; don't hand-edit them to simulate a deployed schema.
-- Do not infer the database's applied version from docs or `dev` alone. Distinguish ERD V7 from later V9–V15 SQL versions and actual per-environment state.
+- Do not infer the database's applied version from docs or a branch alone. ERD V7 and later SQL versions are dated design artifacts; inspect the actual target environment and reconcile it with the current SRS before schema work.
 - Preserve independent OperationalEvent/Incident/StaffReport provenance and exclusive Task origin references.
 - Coordinate all new tables/FKs/constraints with the Database repo and other services.
 - Never apply SQL to a shared or production database without an explicit instruction identifying the target and an agreed safety plan.
