@@ -16,7 +16,7 @@ public sealed class MonitoringRuntimeApiFlowTests
         var secondZone=await MonitoringRuntimeTestSupport.Read<ZoneView>(await h.Client.PostAsJsonAsync($"/api/floors/{camera.FloorId}/zones",new ZoneRequest(Guid.NewGuid().ToString("N"),"Second ROI","QUEUE",MonitoringRuntimeTestSupport.Roi)));
         await MonitoringRuntimeTestSupport.Read<MappingView>(await h.Client.PutAsJsonAsync($"/api/cameras/{camera.CameraId}/zones/{secondZone.ZoneId}",new MappingRequest(MonitoringRuntimeTestSupport.Roi)));
         var queue=(await h.Client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!.Single(t=>t.Code=="LONG_QUEUE");
-        var second=await MonitoringRuntimeTestSupport.Read<MonitoringConfigurationView>(await h.Client.PutAsJsonAsync($"/api/zones/{secondZone.ZoneId}/monitoring",new MonitoringRequest("Second zone",.8m,[new(queue.IncidentTypeId,1,2,"PEOPLE",1,30)])));
+        var second=await MonitoringRuntimeTestSupport.Read<MonitoringConfigurationView>(await h.Client.PutAsJsonAsync($"/api/zones/{secondZone.ZoneId}/monitoring",new MonitoringRequest("Second zone",.8m,[new(queue.IncidentTypeId,2,4,"PEOPLE",1,30,WarningExitThreshold:1,CriticalExitThreshold:3)])));
         first=await h.Activate(zone.ZoneId,first); await h.Worker.Tick(default); h.Ai.Add(0,3); await h.Worker.Tick(default);
         var session=h.Worker.Get(camera.CameraId)!.SessionId;
         second=await h.Activate(secondZone.ZoneId,second); await h.Worker.Tick(default);
@@ -32,12 +32,12 @@ public sealed class MonitoringRuntimeApiFlowTests
     {
         await using var h=new MonitoringRuntimeTestSupport(); await h.Initialize();
         var (camera,zone,draft)=await h.Configure(clearDurationSec:1); var active=await h.Activate(zone.ZoneId,draft);
-        await h.Worker.Tick(default); h.Ai.Add(0,1); h.Ai.Add(1000,1); await h.Worker.Tick(default);
+        await h.Worker.Tick(default); h.Ai.Add(0,2); h.Ai.Add(1000,2); await h.Worker.Tick(default);
         var operationalEvent=Assert.Single(await h.Rows<OperationalEvent>()); Assert.Equal("WARNING",operationalEvent.Priority); Assert.Equal("ACTIVE",operationalEvent.Status);
         var url=$"/api/cameras/{camera.CameraId}";
         var attached=await MonitoringRuntimeTestSupport.Read<AiPreviewStatusView>(await h.Client.PostAsync(url+"/ai-preview/start",null)); Assert.Equal("MONITORING",attached.Purpose);
         await MonitoringRuntimeTestSupport.Read<AiPreviewStatusView>(await h.Client.PostAsJsonAsync(url+"/ai-preview/stop",new { viewerLeaseId=attached.ViewerLeaseId })); Assert.Equal(1,h.Ai.ViewerStarts); Assert.Equal(1,h.Ai.ViewerStops); Assert.Equal(0,h.Ai.Stops);
-        h.Ai.Add(2000,3); h.Ai.Add(3000,3); await h.Worker.Tick(default);
+        h.Ai.Add(2000,4); h.Ai.Add(3000,4); await h.Worker.Tick(default);
         operationalEvent=Assert.Single(await h.Rows<OperationalEvent>()); Assert.Equal("CRITICAL",operationalEvent.Priority);
         h.Ai.Add(4000,0); h.Ai.Add(5000,0); h.Ai.State="COMPLETED"; await h.Worker.Tick(default); await h.Worker.Tick(default);
         Assert.Single(await h.Rows<OperationalEvent>()); Assert.Equal(1,h.Ai.Starts);

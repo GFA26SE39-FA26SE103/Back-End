@@ -85,7 +85,7 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
                     ThresholdUnit = r.ThresholdUnit, SustainSec = r.SustainSec, CooldownSec = r.CooldownSec,
                     ClearDurationSec = r.ClearDurationSec,
                     Enabled = r.Enabled, ParametersJson = RuleHysteresis.Merge(r.ParametersJson, r.WarningExitThreshold, r.CriticalExitThreshold), CreatedAt = old?.CreatedAt ?? default, UpdatedAt = old?.UpdatedAt ?? default };
-                MonitoringPolicy.Validate(rule, eventType);
+                MonitoringPolicy.Validate(rule, eventType, requireDualThresholds: true);
                 if (old is not null && MonitoringPolicy.SupportsCongestion(eventType) && old.ThresholdUnit != rule.ThresholdUnit
                     && (await store.List<OperationalEvent>(e => e.RuleId == old.RuleId && e.ClearedAt == null, ct)).Count > 0)
                     throw new ApplicationException("OPEN_CONGESTION_EVENT", "Resolve the open congestion event before changing the measurement unit.");

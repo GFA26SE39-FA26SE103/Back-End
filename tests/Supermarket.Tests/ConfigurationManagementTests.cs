@@ -94,7 +94,7 @@ public sealed class ConfigurationManagementTests
         var oldRequest = new MonitoringDeleteRequest(h.Configuration.ConfigId, h.Configuration.UpdatedAt);
         var type = h.Store.Values.OfType<IncidentType>().Single();
         await h.Setup.Delete(h.Zone.ZoneId, oldRequest, default);
-        var saved = await h.Setup.Save(h.Zone.ZoneId, new("Replacement", Rules: [new(type.IncidentTypeId, 3, 5, "PEOPLE")]), default);
+        var saved = await h.Setup.Save(h.Zone.ZoneId, new("Replacement", Rules: [new(type.IncidentTypeId, 3, 5, "PEOPLE", WarningExitThreshold: 2, CriticalExitThreshold: 4)]), default);
         Assert.NotEqual(oldRequest.ConfigId, saved.ConfigId);
         Assert.Equal("CONFIGURATION_CHANGED", (await Assert.ThrowsAsync<AppError>(() => h.Setup.Delete(h.Zone.ZoneId, oldRequest, default))).Code);
         Assert.Equal(saved.ConfigId, (await h.Setup.Get(h.Zone.ZoneId, default)).ConfigId);

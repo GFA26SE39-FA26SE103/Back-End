@@ -17,6 +17,7 @@ public sealed class MonitoringWorkerTests
         var rule = Assert.Single(h.Store.Values.OfType<MonitoringRule>());
         rule.WarningThreshold = .60m;
         rule.CriticalThreshold = 1m;
+        rule.ParametersJson = RuleHysteresis.Merge(rule.ParametersJson, .50m, .90m);
         rule.SustainSec = 1;
         rule.ClearDurationSec = 1;
         var clock = new Clock();
@@ -172,8 +173,10 @@ public sealed class MonitoringWorkerTests
         var rules=h.Store.Values.OfType<MonitoringRule>().ToArray();
         rules[0].RuleId=Guid.Parse("00000000-0000-0000-0000-000000000001");
         rules[1].RuleId=Guid.Parse("00000000-0000-0000-0000-000000000002");
-        foreach(var rule in rules) { rule.SustainSec=1; rule.WarningThreshold=1; rule.CriticalThreshold=4; }
-        rules[1].ParametersJson="{\"measurementMode\":\"PEOPLE_COUNT\"}"; h.Configuration.Status="ACTIVE";
+        foreach(var rule in rules) { rule.SustainSec=1; rule.WarningThreshold=2; rule.CriticalThreshold=4; }
+        rules[0].ParametersJson=RuleHysteresis.Merge(null,1,3);
+        rules[1].ParametersJson=RuleHysteresis.Merge("{\"measurementMode\":\"PEOPLE_COUNT\"}",1,3);
+        h.Configuration.Status="ACTIVE";
         var clock=new Clock(); var ai=new AiFake(); var failing=new FailingEventStore(h.Store,rules[1].EventTypeId!.Value);
         using var provider=Services(failing,clock,ai,new Queries()).BuildServiceProvider();
         var coordinator=new MonitoringCameraCoordinator(provider.GetRequiredService<IServiceScopeFactory>(),Options.Create(new MonitoringWorkerOptions()),clock);

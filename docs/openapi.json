@@ -10254,7 +10254,21 @@
       },
       "MonitoringRuleRequest": {
         "type": "object",
+        "required": [
+          "warningExitThreshold",
+          "criticalExitThreshold"
+        ],
         "properties": {
+          "warningExitThreshold": {
+            "type": "number",
+            "format": "double",
+            "description": "Below the Warning entry threshold. Must be positive for an enabled rule."
+          },
+          "criticalExitThreshold": {
+            "type": "number",
+            "format": "double",
+            "description": "Above the Warning entry threshold and below the Critical entry threshold."
+          },
           "incidentTypeId": {
             "type": "string",
             "format": "uuid"
@@ -10296,6 +10310,16 @@
       "MonitoringRuleRuntimeView": {
         "type": "object",
         "properties": {
+          "warningExitThreshold": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "criticalExitThreshold": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
           "ruleId": {
             "type": "string",
             "format": "uuid"
@@ -10377,6 +10401,16 @@
       "MonitoringRuleView": {
         "type": "object",
         "properties": {
+          "warningExitThreshold": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
+          "criticalExitThreshold": {
+            "type": "number",
+            "format": "double",
+            "nullable": true
+          },
           "ruleId": {
             "type": "string",
             "format": "uuid"

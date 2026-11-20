@@ -36,7 +36,7 @@ public sealed partial class MonitoringSetup
         foreach (var rule in checkoutRules.OrderBy(r => r.RuleId))
         {
             var type = eventTypes[rule.EventTypeId!.Value];
-            try { MonitoringPolicy.ValidateForActivation(rule, type); }
+            try { MonitoringPolicy.ValidateForActivation(rule, type, requireDualThresholds: configuration.Status != "ACTIVE"); }
             catch (DomainException e) { issues.Add(new(e.Code, $"{type.Name}: {e.Message}")); }
             var definition = MonitoringPolicy.RuntimeDefinition(rule, type);
             snapshots.Add(new(rule.RuleId, null, type.Code, type.Name, definition.Mode, definition.Unit,
@@ -87,7 +87,7 @@ public sealed partial class MonitoringSetup
             if (type is null) { issues.Add(new("OPERATIONAL_EVENT_TYPE_MISSING", "A rule's operational event type no longer exists.")); continue; }
             if (type.Code == "EXCESSIVE_WAIT" && zone.ZoneType != "CHECKOUT")
                 issues.Add(new("CHECKOUT_ZONE_REQUIRED", "Waiting-time monitoring requires a checkout zone and Service ROI."));
-            try { MonitoringPolicy.ValidateForActivation(rule, type); }
+            try { MonitoringPolicy.ValidateForActivation(rule, type, requireDualThresholds: configuration.Status != "ACTIVE"); }
             catch (DomainException e) { issues.Add(new(e.Code, $"{type.Name}: {e.Message}")); }
             densityEnabled |= MonitoringPolicy.RuntimeDefinition(rule, type).Mode == MonitoringPolicy.DensityMode;
         }

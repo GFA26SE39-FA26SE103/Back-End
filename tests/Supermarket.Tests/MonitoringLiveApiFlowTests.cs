@@ -42,7 +42,7 @@ public sealed partial class ApiFlowTests
             var floor=await Floor(client); var camera=await Camera(client,floor); var zone=await Zone(client,floor);
             var queue=(await client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!.Single(t=>t.Code=="LONG_QUEUE");
             var route=$"/api/zones/{zone.ZoneId}/monitoring";
-            var draft=await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(route,new MonitoringRequest("Before schema missing",Rules:[new(queue.IncidentTypeId,1,2,"PEOPLE")])));
+            var draft=await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(route,new MonitoringRequest("Before schema missing",Rules:[new(queue.IncidentTypeId,2,4,"PEOPLE",WarningExitThreshold:1,CriticalExitThreshold:3)])));
             await using(var connection=new SqlConnection(isolated.ConnectionString)) {
                 await connection.OpenAsync();
                 // This fixture belongs exclusively to this test, never shared Dev.
