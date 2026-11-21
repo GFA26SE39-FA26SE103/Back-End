@@ -122,28 +122,74 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
             return View(x);
         }, ct);
     }
+    public async Task<ZoneUsageView> ZoneUsage(Guid id, CancellationToken ct)
+    {
+        UseCase.Admin(current);
+        UseCase.Found(await store.Find<Zone>(id, ct));
+        var dependencies = await ZoneDependencies(id, ct);
+        ZoneMonitoringUsageView? monitoring = null;
+        if (dependencies.Any(x => x.Kind == "MONITORING"))
+        {
+            var config = (await store.List<MonitoringConfiguration>(x => x.ZoneId == id, ct)).SingleOrDefault();
+            if (config is not null)
+            {
+                var rules = (await store.List<MonitoringRule>(x => x.ConfigId == config.ConfigId, ct)).ToArray();
+                var incidentTypes = (await store.List<IncidentType>(ct: ct)).ToDictionary(x => x.IncidentTypeId);
+                var eventTypes = (await store.List<OperationalEventType>(ct: ct)).ToDictionary(x => x.EventTypeId);
+                var view = MonitoringSetup.ConfigurationView(config, rules, incidentTypes, eventTypes);
+                monitoring = new(view.Name, view.Status,
+                    view.Rules.Select(x => new ZoneRuleUsageView(x.RuleId,
+                        x.IncidentCode == "CONGESTION" && x.ThresholdUnit == MonitoringPolicy.DensityUnit ? "Crowd Density" : x.IncidentName,
+                        x.Enabled)).ToArray());
+            }
+        }
+        string[] staffNames = [];
+        if (dependencies.Any(x => x.Kind == "SHIFT"))
+        {
+            var assignments = await store.List<StaffZoneAssignment>(x => x.ZoneId == id, ct);
+            var recentIds = assignments.OrderByDescending(x => x.AssignedAt).Select(x => x.ShiftAssignmentId).Distinct().Take(10).ToArray();
+            var shifts = await store.List<ShiftAssignment>(x => recentIds.Contains(x.ShiftAssignmentId), ct);
+            var staffIds = shifts.Select(x => x.UserId).Distinct().ToArray();
+            var staff = await store.List<UserAccount>(x => staffIds.Contains(x.UserId), ct);
+            staffNames = staff.Select(x => x.FullName).Distinct().Order().Take(3).ToArray();
+        }
+        return new(dependencies, monitoring, staffNames);
+    }
+
     public Task DeleteZone(Guid id, CancellationToken ct)
     {
         UseCase.Admin(current);
         return store.Transaction(async () =>
         {
             var zone = UseCase.Found(await store.Find<Zone>(id, ct));
-            var inUse = (await store.List<CameraZoneMapping>(x => x.ZoneId == id, ct)).Count > 0
-                || (await store.List<MonitoringConfiguration>(x => x.ZoneId == id, ct)).Count > 0
-                || (await store.List<CheckoutCounter>(x => x.ZoneId == id, ct)).Count > 0
-                || (await store.List<OperationalEvent>(x => x.ZoneId == id, ct)).Count > 0
-                || (await store.List<Incident>(x => x.ZoneId == id, ct)).Count > 0
-                || (await store.List<StaffReport>(x => x.ZoneId == id, ct)).Count > 0
-                || (await store.List<WorkTask>(x => x.ZoneId == id, ct)).Count > 0
-                || (await store.List<StaffZoneAssignment>(x => x.ZoneId == id, ct)).Count > 0
-                || (await store.List<Recommendation>(x => x.ZoneId == id, ct)).Count > 0;
-            if (inUse)
-                throw new ApplicationException("ZONE_IN_USE", "Remove this zone's monitoring, camera coverage, checkout configuration and operational references before deleting it.");
+            var dependencies = await ZoneDependencies(id, ct);
+            if (dependencies.Length > 0)
+            {
+                var usage = string.Join(", ", dependencies.Select(x => $"{x.Label.ToLowerInvariant()} ({x.Count})"));
+                throw new ApplicationException("ZONE_IN_USE",
+                    $"Cannot delete {zone.Name}. Still used by {usage}. You can still edit and save the zone.");
+            }
             foreach (var adjacency in await store.List<ZoneAdjacency>(x => x.ZoneId == id || x.AdjacentZoneId == id, ct))
                 await store.Remove(adjacency, ct);
             await store.Remove(zone, ct);
             return true;
         }, ct);
+    }
+    private async Task<ZoneDependencyView[]> ZoneDependencies(Guid id, CancellationToken ct)
+    {
+        ZoneDependencyView[] references =
+        [
+            new("MONITORING", "Monitoring configurations", await store.Count<MonitoringConfiguration>(x => x.ZoneId == id, ct)),
+            new("SHIFT", "Staff zone assignments", await store.Count<StaffZoneAssignment>(x => x.ZoneId == id, ct)),
+            new("CAMERA", "Camera coverage mappings", await store.Count<CameraZoneMapping>(x => x.ZoneId == id, ct)),
+            new("CHECKOUT", "Checkout counters", await store.Count<CheckoutCounter>(x => x.ZoneId == id, ct)),
+            new("EVENT", "Operational events", await store.Count<OperationalEvent>(x => x.ZoneId == id, ct)),
+            new("INCIDENT", "Incidents", await store.Count<Incident>(x => x.ZoneId == id, ct)),
+            new("REPORT", "Staff reports", await store.Count<StaffReport>(x => x.ZoneId == id, ct)),
+            new("TASK", "Tasks", await store.Count<WorkTask>(x => x.ZoneId == id, ct)),
+            new("RECOMMENDATION", "Recommendations", await store.Count<Recommendation>(x => x.ZoneId == id, ct))
+        ];
+        return references.Where(x => x.Count > 0).ToArray();
     }
     public static ZoneView View(Zone x) => new(x.ZoneId, x.FloorId, x.Code, x.Name, x.ZoneType, JsonSerializer.Deserialize<Point[]>(x.MapPolygon)!, x.ColorHex, x.MinStaff, x.Status, x.UpdatedAt, x.AreaM2);
     private Task Save<T>(T x, Guid? id, CancellationToken ct) where T : Entity, new() => id is null ? store.Add(x, ct) : store.Update(x, ct);

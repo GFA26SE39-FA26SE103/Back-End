@@ -36,6 +36,10 @@ public sealed record CameraPlaybackView(Guid CameraId, string Transport, string 
 public sealed record MappingRequest([Required] Point[] RoiPolygon, string Status = "ACTIVE");
 public sealed record MappingView(Guid CameraZoneId, Guid CameraId, Guid ZoneId, Point[] RoiPolygon, string Status);
 public sealed record ZoneView(Guid ZoneId, Guid FloorId, string Code, string Name, string? ZoneType, Point[] MapPolygon, string? ColorHex, int MinStaff, string Status, DateTime UpdatedAt, decimal? AreaM2 = null);
+public sealed record ZoneDependencyView(string Kind, string Label, int Count);
+public sealed record ZoneRuleUsageView(Guid RuleId, string Name, bool Enabled);
+public sealed record ZoneMonitoringUsageView(string Name, string Status, ZoneRuleUsageView[] Rules);
+public sealed record ZoneUsageView(ZoneDependencyView[] Dependencies, ZoneMonitoringUsageView? Monitoring, string[] RecentStaffNames);
 public sealed record MonitoringRequest([Required, MaxLength(100)] string Name, decimal ConfidenceThreshold = .5m,
     [Required] MonitoringRuleRequest[]? Rules = null, DateTime? ExpectedUpdatedAt = null);
 public sealed record ResolveRequest([Required, MaxLength(1000)] string ResolutionNote);

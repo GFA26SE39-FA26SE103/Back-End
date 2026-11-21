@@ -175,7 +175,37 @@ public sealed class ConfigurationManagementTests
             new StoreSetup(h.Store, new MonitoringSetupTests.User("ADMIN")).DeleteZone(h.Zone.ZoneId, default));
 
         Assert.Equal("ZONE_IN_USE", error.Code);
+        Assert.Contains("monitoring configurations (1)", error.Message);
+        Assert.Contains("camera coverage mappings (1)", error.Message);
+        Assert.DoesNotContain("checkout counters", error.Message);
         Assert.Equal(before, JsonSerializer.Serialize(h.Store.Values));
+    }
+
+    [Theory, InlineData(null, 401), InlineData("OPERATOR", 403), InlineData("MANAGER", 403), InlineData("STAFF", 403), InlineData("ADMIN", 200)]
+    public async Task ZoneUsageRequiresAdminAndReportsDraftRulesAndAssignments(string? role, int expected)
+    {
+        var (h, _, _) = World();
+        h.Configuration.Status = "DRAFT";
+        h.AddRule("OVERCROWDING_CONGESTION", "CROWD_DENSITY", MonitoringPolicy.DensityUnit);
+        var staff = new UserAccount { UserId = Guid.NewGuid(), FullName = "Floor Staff A" };
+        var shift = new ShiftAssignment { ShiftAssignmentId = Guid.NewGuid(), UserId = staff.UserId };
+        h.Store.Values.AddRange([staff, shift, new StaffZoneAssignment { ZoneId = h.Zone.ZoneId, ShiftAssignmentId = shift.ShiftAssignmentId }]);
+
+        await using var factory = new SetupOverviewTests.Factory(h.Store);
+        using var client = factory.CreateClient();
+        if (role is not null) client.DefaultRequestHeaders.Add("X-Test-Role", role);
+
+        var response = await client.GetAsync($"/api/zones/{h.Zone.ZoneId}/usage");
+        Assert.Equal((HttpStatusCode)expected, response.StatusCode);
+        if (expected != 200) return;
+
+        var usage = Assert.IsType<ZoneUsageView>(await response.Content.ReadFromJsonAsync<ZoneUsageView>());
+        var monitoring = Assert.IsType<ZoneMonitoringUsageView>(usage.Monitoring);
+        Assert.Equal("DRAFT", monitoring.Status);
+        Assert.Contains(monitoring.Rules, rule => rule.Name == "Crowd Density" && rule.Enabled);
+        Assert.Equal("Floor Staff A", Assert.Single(usage.RecentStaffNames));
+        Assert.Equal(1, Assert.Single(usage.Dependencies, dependency => dependency.Kind == "SHIFT").Count);
+        Assert.DoesNotContain(usage.Dependencies, dependency => dependency.Kind == "CHECKOUT");
     }
 
     [Theory, InlineData("OPERATOR"), InlineData("MANAGER"), InlineData("STAFF")]

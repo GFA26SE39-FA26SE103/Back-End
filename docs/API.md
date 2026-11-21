@@ -110,6 +110,10 @@ Ví dụ mapping:
 
 Mỗi quan hệ được lưu hai chiều. API xóa cả hai chiều của liên kết cũ trước khi tạo tập mới, nhưng không chạm vào quan hệ giữa các Zone khác. Zone nguồn/đích phải tồn tại, khác nhau và cùng Floor; ID lặp trả 422 `ZONE_ADJACENCY_DUPLICATE`, tự nối trả 422 `ZONE_ADJACENCY_SELF`, khác Floor trả 422 `ZONE_ADJACENCY_CROSS_FLOOR`. Quan hệ này chỉ là dữ liệu không gian được Admin xác nhận cho dispatch; API không tự suy ra từ polygon hoặc vị trí trên bản đồ.
 
+### Zone usage and deletion
+
+`GET /api/zones/{zoneId}/usage` chỉ dành cho Admin. Trả `dependencies` gồm `kind`, `label` và `count` của các liên kết đang chặn xóa; `monitoring` gồm tên, trạng thái cấu hình và danh sách rule đã lưu; `recentStaffNames` gồm tối đa ba tên từ các phân công gần đây. Khi xóa, API kiểm tra lại các liên kết trong transaction và trả `409 ZONE_IN_USE` với số bản ghi theo nhóm nếu zone còn được dùng.
+
 ### Measured Zone area
 
 `POST /api/floors/{floorId}/zones` và `PATCH /api/zones/{zoneId}` nhận `areaM2` tùy chọn. Nhập diện tích đã đo, từ 0.01 đến 9999999999.99 m², tối đa hai chữ số thập phân. Bỏ field khi PATCH để giữ giá trị cũ. Gửi `null` để xóa giá trị. Zone response trả `areaM2`. Khi Crowd Density đang active, việc đổi diện tích trả `MONITORING_ACTIVE` cho tới khi Admin deactivate.
