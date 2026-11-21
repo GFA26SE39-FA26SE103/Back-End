@@ -17,6 +17,7 @@ public static class Rules
         Require(!string.IsNullOrWhiteSpace(value) && value.Trim().Length <= max, "INVALID_FIELD", $"{field} is required and must not exceed {max} characters.");
         return value!.Trim();
     }
+    public static void Password(string? value) => Require(value is { Length: >= 5 and <= 128 } && value.Any(c => !char.IsLetterOrDigit(c) && !char.IsWhiteSpace(c)), "INVALID_PASSWORD", "Password must be at least 5 characters and contain at least 1 special character.");
     public static void Optional(string? value, int max, string field) => Require(value is null || value.Length <= max, "INVALID_FIELD", $"{field} must not exceed {max} characters.");
     public static void Status(string value, params string[] allowed) => Require(allowed.Contains(value), "INVALID_STATUS", "The requested status is not supported.");
     public static void Coordinate(decimal? value) => Require(value is null or >= 0 and <= 1, "INVALID_COORDINATE", "Coordinates must be normalized to [0,1].");
