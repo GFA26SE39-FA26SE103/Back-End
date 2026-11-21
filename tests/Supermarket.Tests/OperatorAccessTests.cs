@@ -32,7 +32,8 @@ public sealed class OperatorAccessTests
             var isRead = verbs.All(v => v == "GET");
             // Playback is an idempotent runtime preparation call. It does not mutate setup data,
             // but uses POST because it can provision a transient MediaMTX path.
-            var isViewerOperation = isRead && action.Name != nameof(CamerasController.Connection)
+            // Zone usage exposes staff references for administrative deletion checks.
+            var isViewerOperation = isRead && action.Name is not (nameof(CamerasController.Connection) or nameof(StoreController.ZoneUsage))
                 || controller == typeof(CamerasController) && action.Name == nameof(CamerasController.Playback);
             var expected = isViewerOperation ? AccessRoles.Viewer : AccessRoles.Admin;
             Assert.True(roles == expected, $"{controller.Name}.{action.Name} ({string.Join(',', verbs)}) has roles '{roles}', expected '{expected}'.");

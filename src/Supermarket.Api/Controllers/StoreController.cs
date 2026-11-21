@@ -53,6 +53,7 @@ public sealed class StoreController(StoreSetup setup, FloorPlanUpload floorPlans
         return Created($"/api/zones/{x.ZoneId}", x);
     }
     [Authorize(Roles = AccessRoles.Viewer), HttpGet("/api/zones/{id:guid}")] public Task<ZoneView> Zone(Guid id, CancellationToken ct) => setup.Zone(id, ct);
+    [Authorize(Roles = AccessRoles.Admin), HttpGet("/api/zones/{id:guid}/usage")] public Task<ZoneUsageView> ZoneUsage(Guid id, CancellationToken ct) => setup.ZoneUsage(id, ct);
     [Authorize(Roles = AccessRoles.Admin), HttpPatch("/api/zones/{id:guid}")] public Task<ZoneView> UpdateZone(Guid id, ZoneRequest r, CancellationToken ct) => setup.SaveZone(id, null, r, ct);
     [Authorize(Roles = AccessRoles.Admin), HttpDelete("/api/zones/{id:guid}")]
     public async Task<IActionResult> DeleteZone(Guid id, CancellationToken ct)

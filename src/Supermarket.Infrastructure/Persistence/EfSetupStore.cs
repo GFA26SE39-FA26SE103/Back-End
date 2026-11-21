@@ -25,6 +25,7 @@ public sealed class EfSetupStore(AppDbContext db, IClock clock) : ISetupStore
         : type.Name;
     public Task<T?> Find<T>(Guid id, CancellationToken ct = default) where T : Entity, new() => Set<T>().Find(id, ct);
     public Task<List<T>> List<T>(Expression<Func<T, bool>>? filter = null, CancellationToken ct = default) where T : Entity, new() => Set<T>().List(filter, ct);
+    public Task<int> Count<T>(Expression<Func<T, bool>> filter, CancellationToken ct = default) where T : Entity, new() => Set<T>().Count(filter, ct);
     public Task Add<T>(T entity, CancellationToken ct = default) where T : Entity, new() => Set<T>().Add(entity, ct);
     public Task Update<T>(T entity, CancellationToken ct = default) where T : Entity, new() => Set<T>().Update(entity, false, ct);
     public Task Remove<T>(T entity, CancellationToken ct = default) where T : Entity, new() => Set<T>().Update(entity, true, ct);
@@ -58,6 +59,7 @@ public sealed class EfSetupStore(AppDbContext db, IClock clock) : ISetupStore
     {
         Task<T?> Find(Guid id, CancellationToken ct);
         Task<List<T>> List(Expression<Func<T, bool>>? filter, CancellationToken ct);
+        Task<int> Count(Expression<Func<T, bool>> filter, CancellationToken ct);
         Task Add(T entity, CancellationToken ct);
         Task Update(T entity, bool remove, CancellationToken ct);
     }
@@ -94,7 +96,7 @@ public sealed class EfSetupStore(AppDbContext db, IClock clock) : ISetupStore
             var entity = await db.Set<TDb>().FindAsync([id], ct);
             return entity is null ? null : ToDomain(entity);
         }
-        public async Task<List<TDomain>> List(Expression<Func<TDomain, bool>>? filter, CancellationToken ct)
+        private IQueryable<TDb> Query(Expression<Func<TDomain, bool>>? filter)
         {
             IQueryable<TDb> query = db.Set<TDb>().AsNoTracking();
             if (filter is not null)
@@ -103,8 +105,12 @@ public sealed class EfSetupStore(AppDbContext db, IClock clock) : ISetupStore
                 var body = new PredicateMapper(filter.Parameters[0], parameter).Visit(filter.Body)!;
                 query = query.Where(Expression.Lambda<Func<TDb, bool>>(body, parameter));
             }
-            return (await query.ToListAsync(ct)).Select(ToDomain).ToList();
+            return query;
         }
+        public async Task<List<TDomain>> List(Expression<Func<TDomain, bool>>? filter, CancellationToken ct)
+            => (await Query(filter).ToListAsync(ct)).Select(ToDomain).ToList();
+        public Task<int> Count(Expression<Func<TDomain, bool>> filter, CancellationToken ct)
+            => Query(filter).CountAsync(ct);
         public async Task Add(TDomain entity, CancellationToken ct)
         {
             if (entity is TrackedEntity tracked)

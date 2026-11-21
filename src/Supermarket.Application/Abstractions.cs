@@ -6,6 +6,8 @@ public interface ISetupStore
 {
     Task<T?> Find<T>(Guid id, CancellationToken ct = default) where T : Entity, new();
     Task<List<T>> List<T>(Expression<Func<T, bool>>? filter = null, CancellationToken ct = default) where T : Entity, new();
+    async Task<int> Count<T>(Expression<Func<T, bool>> filter, CancellationToken ct = default) where T : Entity, new()
+        => (await List(filter, ct)).Count;
     Task Add<T>(T entity, CancellationToken ct = default) where T : Entity, new();
     Task Update<T>(T entity, CancellationToken ct = default) where T : Entity, new();
     Task Remove<T>(T entity, CancellationToken ct = default) where T : Entity, new();
