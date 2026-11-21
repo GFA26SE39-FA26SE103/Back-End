@@ -13,7 +13,7 @@ public static class Bootstrap
         var email = app.Configuration["Bootstrap:Email"] ?? throw new InvalidOperationException("Set Bootstrap:Email.");
         var password = app.Configuration["Bootstrap:Password"] ?? throw new InvalidOperationException("Set Bootstrap:Password.");
         Rules.Require(new System.ComponentModel.DataAnnotations.EmailAddressAttribute().IsValid(email), "INVALID_EMAIL", "Bootstrap email is invalid.");
-        Rules.Require(password.Length is >= 12 and <= 128, "INVALID_PASSWORD", "Bootstrap password must be 12 to 128 characters.");
+        Rules.Password(password);
         await store.Transaction(async () =>
         {
             if ((await store.List<UserAccount>()).Count > 0)

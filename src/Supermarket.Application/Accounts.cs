@@ -37,7 +37,7 @@ public sealed class Accounts(ISetupStore store, ICurrentUser current, IPasswordS
         {
             var email = Rules.Text(request.Email, 255, "Email").ToLowerInvariant();
             Rules.Require(new System.ComponentModel.DataAnnotations.EmailAddressAttribute().IsValid(email), "INVALID_EMAIL", "Email is invalid.");
-            Rules.Require(request.Password.Length is >= 12 and <= 128, "INVALID_PASSWORD", "Password must contain 12 to 128 characters.");
+            Rules.Password(request.Password);
             UseCase.Unique((await store.List<UserAccount>(u => u.Email == email, ct)).Count > 0);
             var role = UseCase.Found(await store.Find<Role>(request.RoleId, ct));
             var specialty = await Specialty(role, request.SpecialtyId, ct);
