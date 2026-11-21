@@ -116,7 +116,7 @@ Mỗi quan hệ được lưu hai chiều. API xóa cả hai chiều của liên
 
 ### Monitoring Draft / Review / Activate / Delete
 
-`GET /api/incident-types` tạm giữ contract frontend cũ nhưng dữ liệu measurement/default được lấy từ `OperationalEventType`; `incidentTypeId` chỉ dùng để map catalog cũ sang event type tương ứng khi lưu. Rule `OPERATIONAL_EVENT` chỉ persist `event_type_id`, không persist `incident_type_id`. Catalog read-only, không gồm staff-reported-only types. Checkout Capacity chưa supported vì counter/composite measurement chưa được chốt.
+`GET /api/incident-types` giữ contract frontend cũ nhưng dữ liệu measurement và giá trị mặc định lấy từ `OperationalEventType`. `incidentTypeId` ánh xạ sang event type tương ứng khi lưu. Rule `OPERATIONAL_EVENT` chỉ persist `event_type_id`. Checkout Capacity và Excessive Waiting Time trả khả năng cấu hình theo `Checkout:Monitoring:AiContractEnabled` và trạng thái catalog. Review vẫn kiểm tra counter, nguồn và ROI trước khi cho Activate.
 
 `PUT /zones/{zoneId}/monitoring` tạo hoặc thay toàn bộ Draft + rules trong transaction. `rules` bắt buộc và phải có ít nhất một incident rule; `[]` trả 422 `RULES_REQUIRED`, không tạo hoặc thay cấu hình đã lưu. Omit rule khỏi array để xóa nhưng phải giữ ít nhất một rule. Mỗi type tối đa một rule/config. Khi cấu hình đã tồn tại, gửi `expectedUpdatedAt` từ GET/Save gần nhất; thiếu/stale trả 409 `CONFIGURATION_CHANGED`. ACTIVE trả 409 `MONITORING_ACTIVE`, không tự deactivate khi Save. Disabled Draft rules vẫn được lưu; Activate cần ít nhất một enabled supported rule và readiness hợp lệ.
 

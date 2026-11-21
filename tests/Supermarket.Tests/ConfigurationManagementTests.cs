@@ -10,6 +10,27 @@ namespace Supermarket.Tests;
 
 public sealed class ConfigurationManagementTests
 {
+    [Theory, InlineData(false), InlineData(true)]
+    public async Task CheckoutRuleCatalogReportsTheEnvironmentCapability(bool enabled)
+    {
+        var (h, _, _) = World();
+        h.AddRule("EXCESSIVE_WAITING_TIME", "WAITING_TIME", "MINUTES");
+        h.AddRule("CHECKOUT_CAPACITY_ISSUE", "CHECKOUT_CAPACITY", "PEOPLE_PER_STAFFED_COUNTER");
+        var setup = new MonitoringSetup(h.Store, new MonitoringSetupTests.User("ADMIN"),
+            checkoutOptions: new CheckoutMonitoringOptions { AiContractEnabled = enabled });
+
+        var catalog = await setup.IncidentTypes(default);
+        var wait = Assert.Single(catalog, item => item.Code == "EXCESSIVE_WAITING_TIME");
+        var capacity = Assert.Single(catalog, item => item.Code == "CHECKOUT_CAPACITY_ISSUE");
+        Assert.Equal("MINUTES", wait.ThresholdUnit);
+        Assert.Equal(4m, wait.DefaultWarningThreshold);
+        Assert.Equal(8m, wait.DefaultCriticalThreshold);
+        Assert.Equal(enabled, wait.Supported);
+        Assert.Equal(enabled, capacity.Supported);
+        Assert.Equal(enabled, Assert.Single(wait.MeasurementOptions!).Supported);
+        Assert.Equal(enabled ? null : "Checkout AI is disabled in this environment.", wait.UnsupportedReason);
+    }
+
     [Fact]
     public async Task ZonePatchPreservesOmittedAreaAndCanSetOrClearMeasuredArea()
     {
