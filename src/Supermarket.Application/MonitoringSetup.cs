@@ -14,14 +14,20 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
             .Select(x =>
         {
             var t=x.Type;
-            if(t.Code=="CHECKOUT_CAPACITY_ISSUE" || x.EventType?.Code=="CHECKOUT_CAPACITY")
+            var checkoutEvent = MonitoringPolicy.OperationalEventCode(t.Code);
+            if (checkoutEvent is "CHECKOUT_CAPACITY" or "EXCESSIVE_WAIT")
             {
-                var checkoutSupported=t.Status=="ACTIVE" && x.EventType?.Status=="ACTIVE" && checkout.AiContractEnabled;
-                var reason=checkoutSupported?null:x.EventType is null?"The checkout operational event catalog is unavailable."
-                    :"Checkout AI contract is disabled or the catalog is inactive; enable only after checkout observations have been validated.";
-                return new IncidentTypeView(t.IncidentTypeId,t.Code,t.Name,t.Description,"AI_DETECTED",x.EventType?.MeasurementType??"CHECKOUT_CAPACITY",t.Status,
-                    checkoutSupported,"PEOPLE_PER_STAFFED_COUNTER",null,null,reason,
-                    [new("CHECKOUT_CAPACITY","PEOPLE_PER_STAFFED_COUNTER",checkoutSupported,reason)],t.RequiresBeforePhoto);
+                var capacity = checkoutEvent == "CHECKOUT_CAPACITY";
+                var mode = capacity ? "CHECKOUT_CAPACITY" : "WAITING_TIME";
+                var unit = capacity ? "PEOPLE_PER_STAFFED_COUNTER" : "MINUTES";
+                var definition = x.EventType is null ? null : MonitoringPolicy.Definition(x.EventType);
+                var reason = x.EventType is null || t.Status != "ACTIVE" || x.EventType.Status != "ACTIVE" || x.EventType.MeasurementType != mode
+                    ? "The checkout operational event catalog is unavailable."
+                    : !checkout.AiContractEnabled ? "Checkout AI is disabled in this environment." : null;
+                var checkoutSupported = reason is null;
+                return new IncidentTypeView(t.IncidentTypeId, t.Code, t.Name, t.Description, "AI_DETECTED", mode, t.Status,
+                    checkoutSupported, unit, definition?.Warning, definition?.Critical, reason,
+                    [new(mode, unit, checkoutSupported, reason, definition?.Warning, definition?.Critical)], t.RequiresBeforePhoto);
             }
             if (x.EventType is null)
                 return new IncidentTypeView(t.IncidentTypeId,t.Code,t.Name,t.Description,"STAFF_REPORTED",null,t.Status,
