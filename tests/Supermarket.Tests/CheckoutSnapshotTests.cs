@@ -377,7 +377,7 @@ internal sealed class CheckoutFixture
         Store.Values.Remove(GenericMapping);
         H.AddRule("CHECKOUT_CAPACITY_ISSUE", "CHECKOUT_CAPACITY", "PEOPLE_PER_STAFFED_COUNTER");
         Rule = Store.Values.OfType<MonitoringRule>().Single();
-        Rule.ParametersJson = "{\"minQueue\":3,\"noStaffedAlertLevel\":\"CRITICAL\"}";
+        Rule.ParametersJson = RuleHysteresis.Merge("{\"minQueue\":3,\"noStaffedAlertLevel\":\"CRITICAL\"}", 2, 4);
         Counter = new() { CheckoutCounterId = Guid.NewGuid(), ZoneId = H.Zone.ZoneId, Code = "LANE-1", Name = "Lane one", IsEnabled = true };
         Mapping = NewMapping(H.Camera.CameraId, true);
         Store.Values.AddRange([Counter, Mapping]);

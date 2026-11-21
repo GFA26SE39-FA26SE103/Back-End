@@ -100,4 +100,40 @@ public sealed class RuleHysteresisTests
         var invalid = input with { WarningExitThreshold = 12 };
         await Assert.ThrowsAnyAsync<Exception>(() => h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Bad", .6m, [invalid], saved.UpdatedAt), default));
     }
+
+    [Theory]
+    [InlineData(null, 18)]
+    [InlineData(8, null)]
+    [InlineData(10, 18)]
+    [InlineData(8, 20)]
+    public async Task SaveRejectsMissingOrEqualExits(int? warningExit, int? criticalExit)
+    {
+        var h = new MonitoringSetupTests.Harness();
+        var type = h.AddRule();
+        var input = new MonitoringRuleRequest(type.IncidentTypeId, 10, 20, "PEOPLE", WarningExitThreshold: warningExit, CriticalExitThreshold: criticalExit);
+
+        var error = await Assert.ThrowsAsync<DomainException>(() =>
+            h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Invalid", Rules: [input], ExpectedUpdatedAt: h.Configuration.UpdatedAt), default));
+        Assert.Equal("DUAL_THRESHOLDS_REQUIRED", error.Code);
+        Assert.Equal("Original", h.Configuration.Name);
+    }
+
+    [Fact]
+    public async Task SavedSingleThresholdRuleRequiresAnUpdateBeforeActivation()
+    {
+        var h = new MonitoringSetupTests.Harness();
+        var type = h.AddRule();
+        var rule = Assert.Single(h.Store.Values.OfType<MonitoringRule>());
+        rule.ParametersJson = null;
+
+        var review = await h.Setup.Review(h.Zone.ZoneId, default);
+        Assert.False(review.CanActivate);
+        Assert.Contains(review.Issues, issue => issue.Code == "DUAL_THRESHOLDS_REQUIRED");
+        await Assert.ThrowsAsync<Supermarket.Application.ApplicationException>(() => h.Setup.Activate(h.Zone.ZoneId, true, h.Configuration.UpdatedAt, default));
+
+        var input = new MonitoringRuleRequest(type.IncidentTypeId, 3, 5, "PEOPLE", WarningExitThreshold: 2, CriticalExitThreshold: 4);
+        var saved = await h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Updated", Rules: [input], ExpectedUpdatedAt: h.Configuration.UpdatedAt), default);
+        Assert.Equal(rule.RuleId, Assert.Single(saved.Rules).RuleId);
+        Assert.Equal("ACTIVE", (await h.Setup.Activate(h.Zone.ZoneId, true, saved.UpdatedAt, default)).Status);
+    }
 }

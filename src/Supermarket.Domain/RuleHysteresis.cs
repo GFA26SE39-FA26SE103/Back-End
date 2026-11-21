@@ -48,7 +48,7 @@ public static class RuleHysteresis
     }
 
     /// <summary>0 ≤ warningExit ≤ warning; warning &lt; criticalExit ≤ critical; four decimals; whole numbers for people counts.</summary>
-    public static void Validate(MonitoringRule rule)
+    public static void Validate(MonitoringRule rule, bool requireDualThresholds = false)
     {
         var (warningExit, criticalExit) = Strict(rule.ParametersJson);
         var whole = rule.ThresholdUnit == "PEOPLE";
@@ -59,6 +59,14 @@ public static class RuleHysteresis
             Rules.Require(c > rule.WarningThreshold && c <= rule.CriticalThreshold && decimal.Round(c, 4) == c && (!whole || decimal.Truncate(c) == c),
                 "INVALID_EXIT_THRESHOLDS", "Critical exit threshold must be above the warning threshold and not above the critical threshold"
                     + (whole ? ", as a whole people count." : "."));
+
+        if (requireDualThresholds)
+        {
+            Rules.Require(warningExit < rule.WarningThreshold && criticalExit < rule.CriticalThreshold,
+                "DUAL_THRESHOLDS_REQUIRED", "Set Warning and Critical exit thresholds below their respective entry thresholds.");
+            Rules.Require(!rule.Enabled || warningExit > 0,
+                "INVALID_EXIT_THRESHOLDS", "Use a Warning exit threshold above zero so the event can clear.");
+        }
     }
 
     private static decimal? Number(JsonElement root, string key)

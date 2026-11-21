@@ -413,12 +413,12 @@ Team decision 11/11/2026: SLA priority stays `LOW` / `MEDIUM` / `HIGH` / `CRITIC
 
 API chỉ đọc. Audit log là append-only: không có route sửa hoặc xoá.
 
-# Monitoring rule dual threshold (hysteresis, 2026-11-14)
+# Monitoring rule dual thresholds (hysteresis)
 
-`MonitoringRuleRequest` (lưu cấu hình monitoring của Zone) nhận thêm hai trường tuỳ chọn: `warningExitThreshold` và `criticalExitThreshold`. `MonitoringRuleView` và runtime view của rule (`GET /api/cameras/{id}/monitoring-runtime`) trả lại hai trường này. Runtime view luôn trả giá trị đang có hiệu lực.
+`PUT /api/zones/{zoneId}/monitoring` yêu cầu `warningExitThreshold` và `criticalExitThreshold` cho từng rule. `MonitoringRuleView` và runtime view của rule (`GET /api/cameras/{id}/monitoring-runtime`) trả lại hai trường này. Runtime view trả giá trị đang có hiệu lực.
 
 - Một mức được **vào** khi giá trị ≥ ngưỡng của mức đó (`warningThreshold` / `criticalThreshold`), và được **giữ** cho tới khi giá trị < ngưỡng ra. Vùng giữa ngưỡng ra và ngưỡng vào là vùng đệm: ở trong đó thì giữ nguyên mức hiện tại.
 - Thời gian clear event chỉ bắt đầu tính khi giá trị < `warningExitThreshold`.
-- Ràng buộc: `0 ≤ warningExit ≤ warning`, `warning < criticalExit ≤ critical`, tối đa 4 chữ số thập phân, đơn vị `PEOPLE` phải là số nguyên. Sai ràng buộc trả `INVALID_EXIT_THRESHOLDS`.
-- Không gửi (null) = ngưỡng ra bằng ngưỡng vào, tức là chạy đúng như trước. Giá trị được lưu trong `parameters_json` (khoá `warningExitThreshold`, `criticalExitThreshold`), không đổi schema DB. Các khoá khác trong `parameters_json` (ví dụ của checkout) được giữ nguyên.
+- Khi lưu, dùng `0 ≤ warningExit < warning < criticalExit < critical`. Rule đang bật cần `warningExit > 0` để event có thể clear. Ngưỡng dùng tối đa 4 chữ số thập phân. Đơn vị `PEOPLE` dùng số nguyên. Thiếu ngưỡng thoát hoặc ngưỡng thoát bằng ngưỡng vào trả 422 `DUAL_THRESHOLDS_REQUIRED`. Các giá trị thoát ngoài phạm vi hợp lệ trả 422 `INVALID_EXIT_THRESHOLDS`.
+- Rule cũ đang hoạt động dùng các giá trị đã lưu. Review của cấu hình chưa kích hoạt sẽ báo `DUAL_THRESHOLDS_REQUIRED` cho rule đang bật nếu thiếu ngưỡng đôi. Admin lưu lại đủ ngưỡng rồi mới activate. Hai ngưỡng thoát lưu trong `parameters_json` cùng với các khoá cấu hình hiện có.
 - Priority của OperationalEvent vẫn chỉ tăng trong một episode, không bao giờ hạ (phương án A).

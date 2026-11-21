@@ -5,7 +5,7 @@ namespace Supermarket.Application;
 public sealed record MonitoringRuleRequest(Guid IncidentTypeId, decimal WarningThreshold, decimal CriticalThreshold,
     [Required, MaxLength(30)] string ThresholdUnit, int SustainSec = 30, int CooldownSec = 300, int ClearDurationSec = 60, bool Enabled = true,
     [MaxLength(16000)] string? ParametersJson = null,
-    // Dual threshold: hold the level until the value drops below these (null = same as the enter threshold).
+    // Saving requires both exits below their entries. Nullable so validation can report missing values.
     decimal? WarningExitThreshold = null, decimal? CriticalExitThreshold = null);
 public sealed record MonitoringActivationRequest(DateTime ExpectedUpdatedAt);
 public sealed record MonitoringDeleteRequest(Guid ConfigId, DateTime ExpectedUpdatedAt);

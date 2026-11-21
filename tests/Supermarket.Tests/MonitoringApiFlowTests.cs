@@ -37,8 +37,8 @@ public sealed partial class ApiFlowTests
         var checkout = aiCatalog.Single(t => t.Code == "CHECKOUT_CAPACITY_ISSUE");
         Assert.False(checkout.Supported);
         var input = new[] {
-            new MonitoringRuleRequest(queue.IncidentTypeId, 3, 5, "PEOPLE", 0, 0),
-            new MonitoringRuleRequest(checkout.IncidentTypeId, 0, 1, "PENDING", Enabled: false)
+            new MonitoringRuleRequest(queue.IncidentTypeId, 3, 5, "PEOPLE", 0, 0, WarningExitThreshold: 2, CriticalExitThreshold: 4),
+            new MonitoringRuleRequest(checkout.IncidentTypeId, 0.5m, 1, "PENDING", Enabled: false, WarningExitThreshold: 0.25m, CriticalExitThreshold: 0.75m)
         };
         var route = $"/api/zones/{zone.ZoneId}/monitoring";
         var emptyCreate = await client.PutAsJsonAsync(route, new MonitoringRequest("Missing incidents", Rules: []));
@@ -89,7 +89,7 @@ public sealed partial class ApiFlowTests
         Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(mapping, new MappingRequest([new(0,0),new(.5m,0),new(0,.5m)]))).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await client.PutAsJsonAsync(connection, new ConnectionRequest("LIVE", "HTTP", "http://changed.example.test/video"))).StatusCode);
         var inactive = await Read<MonitoringConfigurationView>(await client.PostAsJsonAsync(route + "/deactivate", new MonitoringActivationRequest(active.UpdatedAt)));
-        var replaced = await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(route, new MonitoringRequest("Only queue", 0, [input[0] with { WarningThreshold = 4, CriticalThreshold = 7 }], inactive.UpdatedAt)));
+        var replaced = await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(route, new MonitoringRequest("Only queue", 0, [input[0] with { WarningThreshold = 4, CriticalThreshold = 7, CriticalExitThreshold = 6 }], inactive.UpdatedAt)));
         Assert.Single(replaced.Rules);
         var reloaded = (await client.GetFromJsonAsync<MonitoringConfigurationView>(route))!;
         Assert.Single(reloaded.Rules);
@@ -105,7 +105,7 @@ public sealed partial class ApiFlowTests
         var zone = await Zone(client, await Floor(client));
         var route = $"/api/zones/{zone.ZoneId}/monitoring";
         var type = (await client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!.Single(t => t.Code == "LONG_QUEUE");
-        var rule = new MonitoringRuleRequest(type.IncidentTypeId, 3, 5, "PEOPLE");
+        var rule = new MonitoringRuleRequest(type.IncidentTypeId, 3, 5, "PEOPLE", WarningExitThreshold: 2, CriticalExitThreshold: 4);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(route, new { name = "Missing rules" })).StatusCode);
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, (await client.PostAsync(route + "/activate", null)).StatusCode);
         foreach (var invalid in new[] { rule with { CriticalThreshold = 3 }, rule with { ThresholdUnit = "MINUTES" }, rule with { SustainSec = -1 }, rule with { ParametersJson = "{invalid" }, rule with { WarningThreshold = 3.5m } })

@@ -70,9 +70,9 @@ public static class MonitoringPolicy
             };
         return new(type.MeasurementType??"UNSUPPORTED",rule.ThresholdUnit,false,"This measurement has no runtime yet; keep its rule disabled in Draft.");
     }
-    public static void ValidateForActivation(MonitoringRule rule, OperationalEventType type)
+    public static void ValidateForActivation(MonitoringRule rule, OperationalEventType type, bool requireDualThresholds = false)
     {
-        Validate(rule,type);
+        Validate(rule,type,requireDualThresholds);
         var runtime=RuntimeDefinition(rule,type);
         Rules.Require(!rule.Enabled || runtime.Supported,"RULE_RUNTIME_UNSUPPORTED",runtime.Reason??"Measurement runtime is unsupported.");
     }
@@ -90,7 +90,7 @@ public static class MonitoringPolicy
         Rules.Confidence(value);
         Rules.Require(decimal.Round(value, 4) == value, "INVALID_CONFIDENCE", "Confidence must use at most four decimal places.");
     }
-    public static void Validate(MonitoringRule rule, OperationalEventType type)
+    public static void Validate(MonitoringRule rule, OperationalEventType type, bool requireDualThresholds = false)
     {
         Rules.Require(rule.OutcomeType == "OPERATIONAL_EVENT" && rule.EventTypeId is not null && rule.IncidentTypeId is null,
             "INVALID_RULE_TARGET", "Operational-event rules require only an operational event type.");
@@ -118,10 +118,11 @@ public static class MonitoringPolicy
                 var runtime=RuntimeDefinition(rule,type);
                 var unit=runtime.Supported ? runtime.Unit : definition.Unit;
                 Rules.Require(rule.ThresholdUnit == unit, "INVALID_RULE_UNIT", $"The measurement requires {unit} and an explicit matching measurement mode.");
-                if (unit == "PEOPLE") Rules.Require(decimal.Truncate(rule.WarningThreshold) == rule.WarningThreshold && decimal.Truncate(rule.CriticalThreshold) == rule.CriticalThreshold,
-                    "INVALID_THRESHOLDS", "Thresholds must be whole people counts.");
             }
         }
+        if (rule.ThresholdUnit == "PEOPLE" && (rule.Enabled || requireDualThresholds))
+            Rules.Require(decimal.Truncate(rule.WarningThreshold) == rule.WarningThreshold && decimal.Truncate(rule.CriticalThreshold) == rule.CriticalThreshold,
+                "INVALID_THRESHOLDS", "Thresholds must be whole people counts.");
         Rules.Optional(rule.ParametersJson, 16000, "Rule parameters");
         if (rule.ParametersJson is not null && !(checkout && !rule.Enabled && string.IsNullOrWhiteSpace(rule.ParametersJson)))
         {
@@ -132,7 +133,7 @@ public static class MonitoringPolicy
             }
             catch (JsonException) { throw new DomainException("INVALID_RULE_PARAMETERS", "Rule parameters must be valid JSON."); }
         }
-        RuleHysteresis.Validate(rule);
+        RuleHysteresis.Validate(rule, requireDualThresholds);
         if (rule.Enabled && SupportsCongestion(type) && rule.ThresholdUnit == DensityUnit)
         {
             var (warningExit, _) = RuleHysteresis.Read(rule.ParametersJson);

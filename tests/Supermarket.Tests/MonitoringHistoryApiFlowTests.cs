@@ -12,7 +12,7 @@ public sealed partial class ApiFlowTests
         using var client=await Admin(); var floor=await Floor(client); var zone=await Zone(client,floor); var camera=await Camera(client,floor);
         var types=(await client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!;
         var queue=types.Single(t=>t.Code=="LONG_QUEUE"); var waiting=types.Single(t=>t.Code=="EXCESSIVE_WAITING_TIME");
-        var rules=new[] { new MonitoringRuleRequest(queue.IncidentTypeId,1,2,"PEOPLE"), new MonitoringRuleRequest(waiting.IncidentTypeId,1,2,"MINUTES",Enabled:false) };
+        var rules=new[] { new MonitoringRuleRequest(queue.IncidentTypeId,2,4,"PEOPLE",WarningExitThreshold:1,CriticalExitThreshold:3), new MonitoringRuleRequest(waiting.IncidentTypeId,1,2,"MINUTES",Enabled:false,WarningExitThreshold:.5m,CriticalExitThreshold:1.5m) };
         var url=$"/api/zones/{zone.ZoneId}/monitoring";
         var saved=await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(url,new MonitoringRequest("History",Rules:rules)));
         var removed=saved.Rules.Single(r=>r.IncidentTypeId==waiting.IncidentTypeId);
