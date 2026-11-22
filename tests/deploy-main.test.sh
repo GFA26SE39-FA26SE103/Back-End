@@ -19,10 +19,12 @@ case "$1" in
   login) cat >/dev/null; touch "$DOCKER_CONFIG/config.json" ;;
   run) exit "${MOCK_IMAGE_FAIL:-0}" ;;
   compose)
-    [[ "$2 $3 $4 $6" == '--project-name capstone-backend-main --env-file -f' ]]
-    case "$8" in
+    [[ "$2 $3 $4 $6 $8" == '--project-name capstone-backend-main --env-file -f --project-directory' ]]
+    [[ -s "$7" ]]
+    printf '%s\n' "$7" >> "$MOCK_COMPOSE_FILES"
+    case "${10}" in
       config)
-        [[ "${9} ${10}" == '--format json' ]]
+        [[ "${11} ${12}" == '--format json' ]]
         cat <<JSON
 {"services":{"api":{"container_name":"capstone-backend-main","ports":[{"host_ip":"192.168.1.206","published":"5081","target":8080}],"environment":{"ASPNETCORE_ENVIRONMENT":"Production","Bootstrap__Enabled":"false","ConnectionStrings__SqlServer":"Server=capstone-sqlserver,1433;Database=${MOCK_DB:-FA26SE103};Password=test-secret"}}}}
 JSON
@@ -54,18 +56,21 @@ previous_digest="ghcr.io/gfa26se39-fa26se103/back-end@sha256:$(printf 'c%.0s' {1
 prepare() {
   root="$scratch/$1"
   previous=$2
-  mkdir "$root"
-  sed "s|/opt/capstone/backend-main|$root|g" "$repo/deploy/main/deploy.sh" > "$root/deploy.sh"
+  release="$root/releases/101-1"
+  mkdir -p "$release"
+  sed "s|/opt/capstone/backend-main|$root|g" "$repo/deploy/main/deploy.sh" > "$release/deploy.sh"
   printf 'services: {}\n' > "$root/compose.yml"
+  cp "$root/compose.yml" "$root/original-compose.yml"
+  printf 'services: {next: {}}\n' > "$release/compose.yml"
   printf 'API_IMAGE=%s\nAPI_BIND_IP=192.168.1.206\nSQL_NETWORK=capstone_default\n' "$previous" > "$root/.env"
   cp "$root/.env" "$root/original.env"
   printf 'Jwt__Key=test-secret\n' > "$root/api.env"
-  export MOCK_CALLS="$root/calls" MOCK_UPS="$root/ups"
+  export MOCK_CALLS="$root/calls" MOCK_UPS="$root/ups" MOCK_COMPOSE_FILES="$root/compose-files"
   unset MOCK_RUNNING_ID MOCK_DB MOCK_PULL_FAIL MOCK_IMAGE_FAIL MOCK_NEW_FAIL MOCK_READY_FAIL MOCK_ROLLBACK_FAIL
 }
 
 deploy() {
-  printf 'fake-registry-token' | bash "$root/deploy.sh" "$NEXT_IMAGE" example > "$root/output" 2>&1
+  printf 'fake-registry-token' | bash "$release/deploy.sh" "$NEXT_IMAGE" example > "$root/output" 2>&1
 }
 
 expect_failure() {
@@ -74,10 +79,11 @@ expect_failure() {
     exit 1
   fi
   cmp "$root/.env" "$root/original.env"
+  cmp "$root/compose.yml" "$root/original-compose.yml"
 }
 
 check_cleanup() {
-  [[ -z $(find "$root" -maxdepth 1 \( -name '.registry.*' -o -name '.env.next.*' \) -print) ]]
+  [[ -z $(find "$root" -maxdepth 1 \( -name '.registry.*' -o -name '.env.next.*' -o -name '.compose.next.*' \) -print) ]]
   ! grep -Eq 'test-secret|fake-registry-token' "$root/output"
 }
 
@@ -87,15 +93,18 @@ deploy
 [[ $(cat "$MOCK_UPS") == "$NEXT_IMAGE" ]]
 grep -qx 'API_BIND_IP=192.168.1.206' "$root/.env"
 grep -qx 'SQL_NETWORK=capstone_default' "$root/.env"
+cmp "$root/compose.yml" "$release/compose.yml"
+[[ $(sort -u "$MOCK_COMPOSE_FILES") == "$release/compose.yml" ]]
 check_cleanup
-echo 'PASS: adopts the existing manual Main deployment and updates only the image'
+echo 'PASS: deploys with the release compose.yml and keeps it as the active configuration'
 
 prepare rollout-rollback "$manual_image"
 export MOCK_NEW_FAIL=1
 expect_failure
 [[ $(cat "$MOCK_UPS") == "$(printf '%s\n%s' "$NEXT_IMAGE" "$previous")" ]]
+[[ $(tail -n 1 "$MOCK_COMPOSE_FILES") == "$root/compose.yml" ]]
 check_cleanup
-echo 'PASS: restores the manual image when the new container is unhealthy'
+echo 'PASS: restores the previous image and compose when the new container is unhealthy'
 
 prepare public-binding-rollback "$previous_digest"
 export MOCK_READY_FAIL=1
@@ -140,3 +149,28 @@ expect_failure
 ! grep -q '^login ' "$MOCK_CALLS"
 check_cleanup
 echo 'PASS: refuses rollout if the active image differs from the rollback target'
+
+prepare outside-release "$previous_digest"
+cp "$release/deploy.sh" "$root/deploy.sh"
+if printf 'fake-registry-token' | bash "$root/deploy.sh" "$NEXT_IMAGE" example > "$root/output" 2>&1; then
+  echo 'Expected deploy outside a release to fail' >&2; exit 1
+fi
+cmp "$root/.env" "$root/original.env"
+[[ ! -f "$MOCK_CALLS" ]]
+echo 'PASS: refuses to run outside a numbered release directory'
+
+prepare missing-release-compose "$previous_digest"
+rm "$release/compose.yml"
+expect_failure
+[[ ! -f "$MOCK_CALLS" ]]
+echo 'PASS: refuses to deploy without the release compose.yml'
+
+prepare first-release "$previous_digest"
+rm "$root/compose.yml"
+export MOCK_NEW_FAIL=1
+if deploy; then echo 'Expected deploy to fail' >&2; exit 1; fi
+cmp "$root/.env" "$root/original.env"
+[[ ! -e "$root/compose.yml" ]]
+[[ $(tail -n 1 "$MOCK_COMPOSE_FILES") == "$release/compose.yml" ]]
+check_cleanup
+echo 'PASS: without an active compose, rollback reuses the release compose and records nothing'

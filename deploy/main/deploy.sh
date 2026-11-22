@@ -5,6 +5,8 @@ umask 077
 
 root='/opt/capstone/backend-main'
 container='capstone-backend-main'
+# Like Dev, CI copies deploy.sh and compose.yml into a numbered release directory.
+release=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 image=${1:?Pass a GHCR image digest}
 registry_user=${2:?Pass a GitHub username}
 registry_image='^ghcr\.io/gfa26se39-fa26se103/back-end@sha256:[a-f0-9]{64}$'
@@ -13,14 +15,24 @@ if [[ ! "$image" =~ $registry_image || ! "$registry_user" =~ ^[a-zA-Z0-9_-]+$ ]]
   exit 1
 fi
 
+relative_release=${release#"$root/"}
+if [[ "$release" != "$root/"* || ! "$relative_release" =~ ^releases/[0-9]+-[0-9]+$ ]]; then
+  echo 'Deploy script must run from a numbered release under /opt/capstone/backend-main/releases.' >&2
+  exit 1
+fi
 cd "$root"
 exec 9>.deploy.lock
 flock -w 300 9
-if [[ ! -s compose.yml || ! -s .env || ! -s api.env ]]; then
-  echo 'The Main deployment requires compose.yml, .env and api.env on the VM.' >&2
+if [[ ! -s "$release/compose.yml" || ! -s .env || ! -s api.env ]]; then
+  echo 'The Main deployment requires the release compose.yml plus .env and api.env on the VM.' >&2
   exit 1
 fi
 export API_ENV_FILE="$root/api.env"
+# $root/compose.yml is the last configuration that became ready; it is the rollback target.
+next_compose="$release/compose.yml"
+previous_compose="$root/compose.yml"
+[[ -s "$previous_compose" ]] || previous_compose="$next_compose"
+compose_file="$next_compose"
 
 mapfile -t image_entries < <(sed -n 's/^API_IMAGE=//p' .env)
 manual_image='^capstone-backend-main:[a-f0-9]{40}(-r[0-9]+)?$'
@@ -38,7 +50,7 @@ if running_id=$(docker container inspect --format '{{.Image}}' "$container" 2>/d
 fi
 
 compose() {
-  docker compose --project-name "$container" --env-file "$root/.env" -f "$root/compose.yml" "$@"
+  docker compose --project-name "$container" --env-file "$root/.env" -f "$compose_file" --project-directory "$root" "$@"
 }
 
 wait_for_api() {
@@ -75,14 +87,16 @@ if (
 registry_dir=$(mktemp -d "$root/.registry.XXXXXX")
 export DOCKER_CONFIG="$registry_dir"
 pending_env=''
+pending_compose=''
 rollback=0
 
 finish() {
   local result=$?
   trap - EXIT
   if (( rollback )); then
-    echo "Restoring previous Main image: $previous_image" >&2
+    echo "Restoring previous Main image and configuration: $previous_image" >&2
     export API_IMAGE="$previous_image"
+    compose_file="$previous_compose"
     if wait_for_api; then
       echo 'Previous Main image is ready.' >&2
     else
@@ -90,6 +104,7 @@ finish() {
     fi
   fi
   if [[ -n "$pending_env" ]]; then rm -f -- "$pending_env"; fi
+  if [[ -n "$pending_compose" ]]; then rm -f -- "$pending_compose"; fi
   rm -rf -- "$registry_dir"
   exit "$result"
 }
@@ -115,5 +130,8 @@ if ! wait_for_api; then
   exit 1
 fi
 mv -f -- "$pending_env" .env
+pending_compose=$(mktemp "$root/.compose.next.XXXXXX")
+cp -- "$next_compose" "$pending_compose"
+mv -f -- "$pending_compose" compose.yml
 rollback=0
 echo "Backend Main is ready: $image"

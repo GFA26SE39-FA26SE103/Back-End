@@ -34,6 +34,7 @@ jobs:
       - name: Test production rollout and rollback
         run: |
           bash -n deploy/main/deploy.sh
+          docker compose -f deploy/main/compose.yml config --no-interpolate --quiet
           bash tests/deploy-main.test.sh
       - id: registry
         name: Set registry image name
@@ -109,6 +110,6 @@ jobs:
           target="$SSH_USER@$SSH_HOST"
           root=/opt/capstone/backend-main
           release="$root/releases/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          ssh "${ssh_options[@]}" -p "$SSH_PORT" "$target" "test -s '$root/compose.yml' && test -s '$root/.env' && test -s '$root/api.env' && mkdir -p '$release'"
-          scp "${ssh_options[@]}" -P "$SSH_PORT" deploy/main/deploy.sh "$target:$release/deploy.sh"
+          ssh "${ssh_options[@]}" -p "$SSH_PORT" "$target" "test -s '$root/.env' && test -s '$root/api.env' && mkdir -p '$release'"
+          scp "${ssh_options[@]}" -P "$SSH_PORT" deploy/main/compose.yml deploy/main/deploy.sh "$target:$release/"
           printf '%s' "$REGISTRY_TOKEN" | ssh "${ssh_options[@]}" -p "$SSH_PORT" "$target" "bash '$release/deploy.sh' '$IMAGE' '$REGISTRY_USER'"

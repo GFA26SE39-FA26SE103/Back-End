@@ -1,0 +1,37 @@
+name: capstone-backend-main
+
+services:
+  api:
+    image: ${API_IMAGE:?Set API_IMAGE in .env}
+    container_name: capstone-backend-main
+    restart: unless-stopped
+    env_file:
+      - path: ${API_ENV_FILE:-./api.env}
+        format: raw
+    ports:
+      - "${API_BIND_IP:?Set API_BIND_IP in .env}:5081:8080"
+    networks:
+      - sql
+    volumes:
+      - state:/app/.local
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:8080/health/ready"]
+      interval: 15s
+      timeout: 6s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  sql:
+    external: true
+    name: ${SQL_NETWORK:?Set SQL_NETWORK in .env}
+
+volumes:
+  state:
+    name: capstone_backend_main_state
