@@ -81,6 +81,22 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
             return floor;
         }, ct);
     }
+    public Task<Floor> DeleteFloor(Guid id, CancellationToken ct)
+    {
+        UseCase.Admin(current);
+        return store.Transaction(async () =>
+        {
+            var floor = UseCase.Found(await store.Find<Floor>(id, ct));
+            var zones = await store.Count<Zone>(zone => zone.FloorId == id, ct);
+            var cameras = await store.Count<Camera>(camera => camera.FloorId == id, ct);
+            if (zones > 0 || cameras > 0)
+                throw new ApplicationException("FLOOR_IN_USE",
+                    $"Cannot delete {floor.Name}. This floor still has {zones} zone(s) and {cameras} camera(s).");
+
+            await store.Remove(floor, ct);
+            return floor;
+        }, ct);
+    }
     public async Task<ZoneView> Zone(Guid id, CancellationToken ct) => View(await Get<Zone>(id, ct));
     public Task<ZoneView> SaveZone(Guid? id, Guid? floorId, ZoneRequest r, CancellationToken ct)
     {

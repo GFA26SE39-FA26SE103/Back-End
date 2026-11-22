@@ -77,6 +77,12 @@ public sealed class FloorPlanUpload(ISetupStore store, ICurrentUser current, IFl
         return UseCase.Found(await files.Open(floorId, token, ct));
     }
 
+    public async Task DeleteStoredAsset(Floor floor)
+    {
+        if (Token(floor.MapAssetUrl) is { } token)
+            await files.Delete(floor.FloorId, token, CancellationToken.None);
+    }
+
     private static string? Token(string? url)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return null;

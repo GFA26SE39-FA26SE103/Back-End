@@ -17,7 +17,7 @@ Controller và use case cùng kiểm tra quyền; STAFF không đọc được d
 | Auth | POST /auth/login; GET /auth/me |
 | Accounts | GET/POST /users; PATCH /users/{id}; POST /users/{id}/enable hoặc disable; GET /roles; GET /staff-specialties |
 | Supermarket | GET/POST /supermarkets; GET/PATCH /supermarkets/{id} |
-| Floors | GET/POST /supermarkets/{id}/floors; GET/PATCH /floors/{id}; PATCH /floors/{id}/details; POST/GET /floors/{id}/map |
+| Floors | GET/POST /supermarkets/{id}/floors; GET/PATCH/DELETE /floors/{id}; PATCH /floors/{id}/details; POST/GET /floors/{id}/map |
 | Zones | GET/POST /floors/{id}/zones; GET/PATCH/DELETE /zones/{id}; GET/PUT /zones/{id}/adjacent-zones; normalized axis-aligned rectangle, optional `colorHex`, and Zone-level `minStaff >= 0` configured by Admin for Manager coverage planning. Delete removes adjacency edges but returns `ZONE_IN_USE` while operational/configuration records still reference the Zone. |
 | Cameras | GET/POST /floors/{id}/cameras; GET/PATCH /cameras/{id} |
 | Connection | GET/PUT /cameras/{id}/connection; POST .../test, .../enable, .../disable |
@@ -98,11 +98,13 @@ Ví dụ mapping:
 {"roiPolygon":[{"x":0.1,"y":0.1},{"x":0.8,"y":0.1},{"x":0.1,"y":0.8}],"status":"ACTIVE"}
 ```
 
-### Floor creation and metadata editing
+### Floor creation, metadata editing and deletion
 
 `POST /api/supermarkets/{id}/floors` (ADMIN) dùng `FloorRequest` hiện có. Store Layout gửi `floorNumber`, `name` và `mapAssetUrl/mapWidth/mapHeight: null`; tạo floor trước, upload map sau. Store là default store từ seed, không thêm flow tạo/chọn store.
 
 `PATCH /api/floors/{id}/details` (ADMIN) nhận `{"floorNumber":2,"name":"Upper floor"}`. Name trim, bắt buộc, tối đa 100 ký tự; floorNumber là int và unique trong cùng store (409 `DUPLICATE` nếu trùng). Không giới hạn tầng phải dương; tầng 0 hoặc tầng âm được phép. Endpoint chỉ thay name/number, giữ floorId, storeId và metadata map hiện tại đọc từ DB, cùng các zone/camera/mapping. Không gửi lại map URL cũ từ lúc mở form. Response là Floor. Full `PATCH /floors/{id}` vẫn giữ contract cũ; upload map dùng endpoint riêng.
+
+`DELETE /api/floors/{id}` (ADMIN) trả 204 khi xóa tầng và 404 nếu tầng không tồn tại. API trả 409 `FLOOR_IN_USE` kèm số zone và camera nếu tầng còn các liên kết này. Sau khi lưu việc xóa thành công, API dọn tệp mặt bằng do hệ thống lưu theo cơ chế best-effort.
 
 ### Zone adjacency
 

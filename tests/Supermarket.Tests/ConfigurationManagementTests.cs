@@ -243,6 +243,44 @@ public sealed class ConfigurationManagementTests
     }
 
     [Theory, InlineData(null, 401), InlineData("OPERATOR", 403), InlineData("MANAGER", 403), InlineData("STAFF", 403), InlineData("ADMIN", 204)]
+    public async Task DeleteEmptyFloorEndpointRequiresAdmin(string? role, int expected)
+    {
+        var (h, otherFloor, store) = World();
+        var floor = new Floor { FloorId = Guid.NewGuid(), SupermarketId = store.SupermarketId, FloorNumber = 2, Name = "Empty floor" };
+        h.Store.Values.Add(floor);
+        await using var factory = new SetupOverviewTests.Factory(h.Store);
+        using var client = factory.CreateClient();
+        if (role is not null) client.DefaultRequestHeaders.Add("X-Test-Role", role);
+
+        var response = await client.DeleteAsync($"/api/floors/{floor.FloorId}");
+        Assert.Equal((HttpStatusCode)expected, response.StatusCode);
+        Assert.Equal(expected != 204, h.Store.Values.Contains(floor));
+        Assert.Contains(otherFloor, h.Store.Values);
+        if (expected == 204)
+            Assert.Equal(HttpStatusCode.NotFound, (await client.DeleteAsync($"/api/floors/{floor.FloorId}")).StatusCode);
+    }
+
+    [Theory, InlineData(true), InlineData(false)]
+    public async Task DeleteFloorEndpointReturnsConflictForAnExistingZoneOrCamera(bool hasZone)
+    {
+        var (h, _, store) = World();
+        var floor = new Floor { FloorId = Guid.NewGuid(), SupermarketId = store.SupermarketId, FloorNumber = 2, Name = "Occupied floor" };
+        Entity dependency = hasZone
+            ? new Zone { ZoneId = Guid.NewGuid(), FloorId = floor.FloorId }
+            : new Camera { CameraId = Guid.NewGuid(), FloorId = floor.FloorId };
+        h.Store.Values.AddRange([floor, dependency]);
+        await using var factory = new SetupOverviewTests.Factory(h.Store);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-Role", "ADMIN");
+
+        var response = await client.DeleteAsync($"/api/floors/{floor.FloorId}");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Contains("FLOOR_IN_USE", await response.Content.ReadAsStringAsync());
+        Assert.Contains(floor, h.Store.Values);
+        Assert.Contains(dependency, h.Store.Values);
+    }
+
+    [Theory, InlineData(null, 401), InlineData("OPERATOR", 403), InlineData("MANAGER", 403), InlineData("STAFF", 403), InlineData("ADMIN", 204)]
     public async Task DeleteZoneEndpointRequiresAdmin(string? role, int expected)
     {
         var (h, floor, _) = World();
