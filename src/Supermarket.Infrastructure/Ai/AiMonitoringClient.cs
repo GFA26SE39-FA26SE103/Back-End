@@ -8,7 +8,7 @@ namespace Supermarket.Infrastructure.Ai;
 public sealed class AiMonitoringClient(HttpClient http,IOptions<AiPreviewOptions> configured,ICredentialProtector secrets):IAiMonitoringClient
 {
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web) { PropertyNamingPolicy=JsonNamingPolicy.SnakeCaseLower };
-    private static readonly HashSet<string> Codes=["AI_SESSION_CAPACITY","AI_SESSION_OWNER_MISMATCH","AI_SESSION_MONITORING_OWNED","AI_SERVICE_UNAUTHORIZED","AI_REQUEST_INVALID","AI_PREVIEW_NOT_RUNNING","AI_PREVIEW_FAILED","AI_SOURCE_TIME_INVALID","AI_RECORDED_VIDEO_INVALID","CAMERA_STREAM_UNAVAILABLE"];
+    private static readonly HashSet<string> Codes=["AI_SESSION_CAPACITY","AI_SESSION_OWNER_MISMATCH","AI_SESSION_MONITORING_OWNED","AI_SERVICE_UNAUTHORIZED","AI_REQUEST_INVALID","AI_PREVIEW_NOT_RUNNING","AI_PREVIEW_FAILED","AI_SOURCE_TIME_INVALID","AI_RECORDED_VIDEO_INVALID","AI_RECORDED_VIDEO_DOWNLOAD_FAILED","CAMERA_STREAM_UNAVAILABLE"];
     private readonly AiPreviewOptions options=configured.Value;
     public Task<AiPreviewStatusView> Start(MonitoringCameraSnapshot snapshot,Guid ownerId,CancellationToken ct)
     {
@@ -18,7 +18,7 @@ public sealed class AiMonitoringClient(HttpClient http,IOptions<AiPreviewOptions
             || checkouts.Length>128 || snapshot.Zones.Length+checkouts.Length==0) throw Invalid();
         var body=new Dictionary<string,object?> {
             ["protocol_version"]=checkouts.Length==0?1:2,["owner_id"]=ownerId,["configuration_fingerprint"]=snapshot.Fingerprint,
-            ["stream_url"]=connection.StreamUri,["source_type"]=connection.SourceType,["username"]=connection.Username,
+            ["stream_url"]=options.SourceUrl(connection),["source_type"]=connection.SourceType,["username"]=connection.Username,
             ["password"]=connection.CredentialSecretRef is null?null:secrets.Unprotect(connection.CredentialSecretRef),
             ["model"]=options.Model,["tracker"]=options.Tracker,["classes"]=options.Classes,["device"]=options.Device,["half"]=options.Half,
             ["confidence"]=snapshot.Zones.Select(z=>z.Confidence).Concat(checkouts.Select(m=>m.Confidence)).Min(),

@@ -51,13 +51,29 @@ public sealed class RecordedVideoStorage(IOptions<VideoOptions> options, ICamera
         }
     }
 
+    public Stream? Open(string uri)
+    {
+        var path = OwnedPath(uri);
+        if (path is null || new FileInfo(path).LinkTarget is not null) return null;
+        try
+        {
+            return new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete, 81920, useAsync: true);
+        }
+        catch (FileNotFoundException) { return null; }
+        catch (DirectoryNotFoundException) { return null; }
+    }
+
     public void Delete(string uri)
     {
+        if (OwnedPath(uri) is { } path) File.Delete(path);
+    }
+
+    private string? OwnedPath(string uri)
+    {
+        if (RecordedVideoPlayback.AssetId(uri) is null) return null;
         var path = Path.GetFullPath(new Uri(uri).LocalPath);
-        var root = Path.GetFullPath(options.Value.RecordedRoot).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        if (path.StartsWith(root, StringComparison.OrdinalIgnoreCase)
-            && Guid.TryParseExact(Path.GetFileNameWithoutExtension(path), "N", out _)
-            && Path.GetExtension(path) == ".mp4")
-            File.Delete(path);
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(options.Value.RecordedRoot));
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return string.Equals(Path.GetDirectoryName(path), root, comparison) ? path : null;
     }
 }

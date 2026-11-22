@@ -42,7 +42,7 @@ public sealed class AiPreviewClient(
                 throw new AppError("AI_SERVICE_UNAVAILABLE", "AI preview service is unavailable.", 503);
         }
         var body = new StartRequest(
-            connection.StreamUri,
+            options.SourceUrl(connection),
             connection.SourceType,
             connection.Username,
             connection.CredentialSecretRef is null ? null : secrets.Unprotect(connection.CredentialSecretRef),

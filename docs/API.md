@@ -22,7 +22,7 @@ Controller và use case cùng kiểm tra quyền; STAFF không đọc được d
 | Cameras | GET/POST /floors/{id}/cameras; GET/PATCH /cameras/{id} |
 | Connection | GET/PUT /cameras/{id}/connection; POST .../test, .../enable, .../disable |
 | Preview | GET /cameras/{id}/preview: image/svg+xml cho demo, image/jpeg cho FFmpeg |
-| Browser playback | POST /cameras/{id}/playback: provision MediaMTX path và trả WebRTC/WHEP URL đã sanitize |
+| Browser playback | POST /cameras/{id}/playback: trả URL WebRTC/WHEP qua MediaMTX cho RTSP hoặc URL MP4 có vé cho video đã upload |
 | Geometry | GET /cameras/{id}/zones; POST /cameras/{id}/zones/{zoneId}/rois; GET/PUT/DELETE /cameras/{id}/zone-rois/{cameraZoneId}. Existing PUT/DELETE by zone remain legacy single-ROI routes and return `CAMERA_ZONE_ROI_AMBIGUOUS` when the pair has multiple ROIs. |
 | Checkout configuration | [Checkout API](CHECKOUT_API.md): GET/POST /zones/{zoneId}/checkout-counters; GET/PATCH/DELETE /checkout-counters/{counterId}; GET /cameras/{cameraId}/checkout-mappings; GET /checkout-counters/{counterId}/camera-mappings; PUT/DELETE /checkout-counters/{counterId}/camera-mappings/{cameraId} |
 | Checkout runtime | GET /zones/{zoneId}/checkout-runtime (ADMIN/OPERATOR/MANAGER; no-store, missing measurements stay null) |
@@ -41,15 +41,21 @@ Liveness `/health/live`, readiness `/health/ready` nằm ngoài prefix `/api`. R
 
 ### WebRTC playback qua MediaMTX
 
-`POST /api/cameras/{id}/playback` dành cho ADMIN, OPERATOR và MANAGER. Camera phải `ACTIVE`; connection phải là `LIVE/RTSP`, đã test `SUCCESS` và enabled. Backend sinh path ổn định `cam-{cameraId:N}`, tạo hoặc đồng bộ path đó qua MediaMTX Control API nội bộ, rồi trả:
+`POST /api/cameras/{id}/playback` dành cho ADMIN, OPERATOR và MANAGER. Camera phải `ACTIVE` và connection phải được test `SUCCESS` rồi enabled. Với `LIVE/RTSP`, Backend tạo hoặc đồng bộ path `cam-{cameraId:N}` qua MediaMTX Control API nội bộ rồi trả:
 
 ```json
 {"cameraId":"<uuid>","transport":"WEBRTC","url":"https://stream-dev.kitsuracloud.com/cam-<uuid-without-dashes>/whep"}
 ```
 
-Response không chứa RTSP URI, username, password hoặc protected credential reference. Cấu hình Control API thay đổi runtime của MediaMTX và không được lưu ngược vào `mediamtx.yml`; endpoint luôn bảo đảm lại path trước khi trả URL nên path được khôi phục sau khi MediaMTX restart. Nguồn FILE/HTTP/HLS hiện trả 422 `PLAYBACK_UNSUPPORTED` và frontend tiếp tục dùng JPEG/file preview hiện có. Gateway chưa bật trả 503 `MEDIA_GATEWAY_NOT_CONFIGURED`; gateway timeout/unavailable trả 504 `MEDIA_GATEWAY_TIMEOUT` hoặc 503 `MEDIA_GATEWAY_UNAVAILABLE`.
+Response chỉ chứa URL WebRTC để mở luồng. Backend đồng bộ lại path trước khi trả URL, kể cả sau khi MediaMTX restart. Nguồn HTTP/HLS trả 422 `PLAYBACK_UNSUPPORTED` và frontend dùng JPEG preview. Gateway chưa bật trả 503 `MEDIA_GATEWAY_NOT_CONFIGURED`. Gateway timeout/unavailable trả 504 `MEDIA_GATEWAY_TIMEOUT` hoặc 503 `MEDIA_GATEWAY_UNAVAILABLE`.
 
 `MediaGateway:ControlBaseUrl` chỉ trỏ tới Docker network riêng, không public port 9997. `ControlUsername`/`ControlPassword` là secret deployment dùng riêng cho quyền MediaMTX `api`; không lưu trong DB, source control hoặc response. `PublicBaseUrl` là HTTPS origin mà browser truy cập. Endpoint này mới quản lý mapping động; viewer authorization trực tiếp tại WHEP ingress là bước hardening riêng, vì URL MediaMTX hiện vẫn public nếu người ngoài biết path.
+
+### Phát video đã upload
+
+Với `RECORDED/FILE`, cùng endpoint playback trả `transport: "MP4"` và URL tương đối `/api/cameras/{id}/recorded-video/content/{assetId}?ticket=...`. Vé có hiệu lực một giờ cho đúng camera và đúng bản ghi. GET trả `video/mp4` và hỗ trợ HTTP Range. Camera phải còn active và nguồn vẫn là bản ghi đã test và enabled. Preview JPEG vẫn có thể dùng để kiểm tra ảnh tĩnh.
+
+Khi AI ở máy riêng, đặt `AiPreview__RecordedVideoBaseUrl` thành HTTPS origin của Backend mà container AI truy cập được. Preview và monitoring gửi URL tải file với source type `RECORDED`. AI chỉ gọi origin tương ứng với `AI_RECORDED_VIDEO_BASE_URL` và xác thực bằng khóa `X-AI-Service-Key` đã cấu hình ở hai bên. Tắt tùy chọn origin để dùng đường dẫn file cục bộ theo cấu hình cùng máy.
 
 ### Dashboard tổng quan MF-01
 

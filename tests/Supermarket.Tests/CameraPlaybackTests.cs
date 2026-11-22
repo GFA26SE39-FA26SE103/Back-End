@@ -14,7 +14,7 @@ public sealed class CameraPlaybackTests
         var camera = new Camera { CameraId = Guid.NewGuid(), Status = "ACTIVE" };
         var connection = ReadyConnection(camera.CameraId);
         var gateway = new Gateway();
-        var useCase = new CameraPlayback(new Store(camera, connection), new User("ADMIN"), gateway);
+        var useCase = new CameraPlayback(new Store(camera, connection), new User("ADMIN"), gateway, null!);
 
         var result = await useCase.Prepare(camera.CameraId, default);
 
@@ -31,7 +31,7 @@ public sealed class CameraPlaybackTests
         var connection = ReadyConnection(camera.CameraId);
         connection.IsEnabled = false;
         var gateway = new Gateway();
-        var useCase = new CameraPlayback(new Store(camera, connection), new User("ADMIN"), gateway);
+        var useCase = new CameraPlayback(new Store(camera, connection), new User("ADMIN"), gateway, null!);
 
         var error = await Assert.ThrowsAsync<AppError>(() => useCase.Prepare(camera.CameraId, default));
 
@@ -40,26 +40,10 @@ public sealed class CameraPlaybackTests
     }
 
     [Fact]
-    public async Task PrepareRejectsRecordedFileSource()
-    {
-        var camera = new Camera { CameraId = Guid.NewGuid(), Status = "ACTIVE" };
-        var connection = ReadyConnection(camera.CameraId);
-        connection.SourceType = "RECORDED";
-        connection.Protocol = "FILE";
-        connection.StreamUri = "file:///videos/test.mp4";
-        var useCase = new CameraPlayback(new Store(camera, connection), new User("ADMIN"), new Gateway());
-
-        var error = await Assert.ThrowsAsync<AppError>(() => useCase.Prepare(camera.CameraId, default));
-
-        Assert.Equal("PLAYBACK_UNSUPPORTED", error.Code);
-        Assert.Equal(422, error.Status);
-    }
-
-    [Fact]
     public async Task PrepareRejectsStaff()
     {
         var camera = new Camera { CameraId = Guid.NewGuid(), Status = "ACTIVE" };
-        var useCase = new CameraPlayback(new Store(camera, ReadyConnection(camera.CameraId)), new User("STAFF"), new Gateway());
+        var useCase = new CameraPlayback(new Store(camera, ReadyConnection(camera.CameraId)), new User("STAFF"), new Gateway(), null!);
 
         var error = await Assert.ThrowsAsync<AppError>(() => useCase.Prepare(camera.CameraId, default));
 

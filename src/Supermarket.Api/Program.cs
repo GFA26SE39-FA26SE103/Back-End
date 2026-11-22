@@ -93,6 +93,8 @@ builder.Services.AddSingleton(new StoreCalendar(StoreCalendar.Zone(builder.Confi
 builder.Services.AddOptions<AiPreviewOptions>().Bind(builder.Configuration.GetSection("AiPreview"))
     .PostConfigure(o => o.Classes = o.Classes.Distinct().ToArray())
     .Validate(o => Uri.TryCreate(o.BaseUrl, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https", "AiPreview:BaseUrl must be an absolute HTTP(S) URI.")
+    .Validate(o => string.IsNullOrWhiteSpace(o.RecordedVideoBaseUrl) || (AiPreviewOptions.IsHttpsOrigin(o.RecordedVideoBaseUrl)
+        && !string.IsNullOrWhiteSpace(o.InternalServiceKey)), "AiPreview:RecordedVideoBaseUrl requires an HTTPS origin and an internal service key.")
     .Validate(o => o.TimeoutSeconds is > 0 and <= 120, "AiPreview timeout must be 1 to 120 seconds.")
     .Validate(o => o.MaxMonitoringResponseBytes is >=1024 and <=67108864, "AI monitoring response limit must be 1 KiB to 64 MiB.")
     .Validate(o => o.Confidence is >= 0 and <= 1, "AiPreview confidence must be in [0,1].")
@@ -118,6 +120,8 @@ builder.Services.AddHttpClient<IMediaGateway, MediaMtxGateway>((services, client
     client.Timeout = Timeout.InfiniteTimeSpan;
 });
 builder.Services.AddScoped<IRecordedVideoStorage, RecordedVideoStorage>();
+builder.Services.AddSingleton<IRecordedVideoTicket, RecordedVideoTicket>();
+builder.Services.AddScoped<RecordedVideoPlayback>();
 builder.Services.AddScoped<RecordedVideoUpload>();
 builder.Services.AddScoped<LocalFloorPlanStorage>();
 builder.Services.AddHttpClient<CloudinaryFloorPlanStorage>(client => client.Timeout = Timeout.InfiniteTimeSpan)

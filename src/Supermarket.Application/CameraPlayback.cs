@@ -2,7 +2,7 @@ using Supermarket.Domain;
 
 namespace Supermarket.Application;
 
-public sealed class CameraPlayback(ISetupStore store, ICurrentUser current, IMediaGateway gateway)
+public sealed class CameraPlayback(ISetupStore store, ICurrentUser current, IMediaGateway gateway, RecordedVideoPlayback recorded)
 {
     public async Task<CameraPlaybackView> Prepare(Guid cameraId, CancellationToken ct)
     {
@@ -14,6 +14,8 @@ public sealed class CameraPlayback(ISetupStore store, ICurrentUser current, IMed
             throw new ApplicationException("CONNECTION_NOT_READY", "An active camera with a tested and enabled connection is required.");
 
         Rules.Connection(connection);
+        if (connection.SourceType == "RECORDED" && connection.Protocol == "FILE")
+            return recorded.Prepare(connection);
         if (connection.SourceType != "LIVE" || connection.Protocol != "RTSP")
             throw new ApplicationException("PLAYBACK_UNSUPPORTED", "WebRTC playback currently requires a live RTSP source.", 422);
 

@@ -27,7 +27,11 @@ public sealed class CamerasController(CameraSetup setup, CameraPlayback playback
         return File(frame.Bytes, frame.ContentType);
     }
     [Authorize(Roles = AccessRoles.Viewer), HttpPost("{id:guid}/playback")]
-    public Task<CameraPlaybackView> Playback(Guid id, CancellationToken ct) => playback.Prepare(id, ct);
+    public Task<CameraPlaybackView> Playback(Guid id, CancellationToken ct)
+    {
+        Response.Headers.CacheControl = "private, no-store";
+        return playback.Prepare(id, ct);
+    }
     [Authorize(Roles = AccessRoles.Admin), HttpPost("{id:guid}/connection/enable")] public async Task<ConnectionView> Enable(Guid id, CancellationToken ct) => Public(await setup.Enable(id, true, ct));
     [Authorize(Roles = AccessRoles.Admin), HttpPost("{id:guid}/connection/disable")] public async Task<ConnectionView> Disable(Guid id, CancellationToken ct) => Public(await setup.Enable(id, false, ct));
     [Authorize(Roles = AccessRoles.Viewer), HttpGet("{id:guid}/zones")] public Task<List<MappingView>> Zones(Guid id, CancellationToken ct) => setup.Mappings(id, ct);

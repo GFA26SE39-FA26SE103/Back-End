@@ -1,4 +1,7 @@
 using System.Linq.Expressions;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
@@ -21,6 +24,59 @@ namespace Supermarket.Tests;
 
 public sealed class RecordedVideoTests
 {
+    [Fact]
+    public async Task RecordedPlaybackStreamsRangesAndRequiresAScopedTicketOrAiKey()
+    {
+        var h = new Harness();
+        var assetId = Guid.NewGuid();
+        var root = Directory.CreateTempSubdirectory("recorded-playback-").FullName;
+        var path = Path.Combine(root, $"{assetId:N}.mp4");
+        var bytes = new byte[] { 0, 1, 2, 3, 4, 5 };
+        await File.WriteAllBytesAsync(path, bytes);
+        h.Connection.SourceType = "RECORDED";
+        h.Connection.Protocol = "FILE";
+        h.Connection.StreamUri = new Uri(path).AbsoluteUri;
+        h.Connection.Username = null;
+        h.Connection.CredentialSecretRef = null;
+        try
+        {
+            using var factory = new UploadApiFactory(h, root, enableRemoteVideo: true);
+            using var client = factory.CreateClient();
+            using var launch = new HttpRequestMessage(HttpMethod.Post, $"/api/cameras/{h.Camera.CameraId}/playback");
+            launch.Headers.Add("X-Test-Role", "OPERATOR");
+            using var launchResponse = await client.SendAsync(launch);
+            launchResponse.EnsureSuccessStatusCode();
+            var playback = Assert.IsType<CameraPlaybackView>(await launchResponse.Content.ReadFromJsonAsync<CameraPlaybackView>());
+            Assert.Equal("MP4", playback.Transport);
+            Assert.DoesNotContain("file:", playback.Url);
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, playback.Url);
+            request.Headers.Range = new RangeHeaderValue(1, 2);
+            using var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.PartialContent, response.StatusCode);
+            Assert.Equal("video/mp4", response.Content.Headers.ContentType?.MediaType);
+            Assert.Equal(new byte[] { 1, 2 }, await response.Content.ReadAsByteArrayAsync());
+
+            var contentPath = RecordedVideoPlayback.ContentPath(h.Camera.CameraId, assetId);
+            Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(contentPath)).StatusCode);
+            Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(playback.Url.Replace(assetId.ToString("N"), Guid.NewGuid().ToString("N")))).StatusCode);
+            using var download = new HttpRequestMessage(HttpMethod.Get, contentPath);
+            download.Headers.Add("X-AI-Service-Key", "test-video-service-key");
+            using var downloaded = await client.SendAsync(download);
+            Assert.Equal(HttpStatusCode.OK, downloaded.StatusCode);
+            Assert.Equal(bytes.Length, downloaded.Content.Headers.ContentLength);
+            Assert.Equal(bytes, await downloaded.Content.ReadAsByteArrayAsync());
+
+            h.Connection.IsEnabled = false;
+            Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(playback.Url)).StatusCode);
+        }
+        finally
+        {
+            File.Delete(path);
+            Directory.Delete(root);
+        }
+    }
+
     [Theory]
     [InlineData(null, 401)]
     [InlineData("STAFF", 403)]
@@ -218,6 +274,7 @@ public sealed class RecordedVideoTests
     {
         public int Saves, Deletes;
         public Task<string> Save(Stream content, string filename, long length, CancellationToken ct) { Saves++; return Task.FromResult("file:///C:/videos/owned.mp4"); }
+        public Stream? Open(string uri) => throw new NotSupportedException();
         public void Delete(string uri) => Deletes++;
     }
     private sealed class FakeStream : ICameraStream
@@ -248,7 +305,7 @@ public sealed class RecordedVideoTests
         public Task<TResult> Transaction<TResult>(Func<Task<TResult>> work, CancellationToken ct = default) => work();
     }
 
-    private sealed class UploadApiFactory(Harness h, string root) : WebApplicationFactory<Program>
+    private sealed class UploadApiFactory(Harness h, string root, bool enableRemoteVideo = false) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -269,6 +326,12 @@ public sealed class RecordedVideoTests
                 services.PostConfigure<Supermarket.Api.JwtOptions>(o => o.Key = new string('x', 48));
                 services.PostConfigure<Supermarket.Infrastructure.HealthWorkerOptions>(o => o.Enabled = false);
                 services.PostConfigure<VideoOptions>(o => o.RecordedRoot = root);
+                if (enableRemoteVideo)
+                    services.PostConfigure<Supermarket.Infrastructure.Ai.AiPreviewOptions>(o =>
+                    {
+                        o.RecordedVideoBaseUrl = "https://backend.example.test";
+                        o.InternalServiceKey = "test-video-service-key";
+                    });
                 services.AddAuthentication(o => { o.DefaultAuthenticateScheme = "UploadTest"; o.DefaultChallengeScheme = "UploadTest"; })
                     .AddScheme<AuthenticationSchemeOptions, UploadTestAuth>("UploadTest", _ => { });
             });

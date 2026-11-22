@@ -109,6 +109,27 @@ public sealed class AiPreviewApiTests
     }
 
     [Fact]
+    public async Task InternalClientSendsRecordedDownloadUrlWithoutForwardingLocalPath()
+    {
+        var cameraId = Guid.NewGuid();
+        var asset = Guid.NewGuid().ToString("N");
+        var handler = new RecordingHandler(_ => Json(HttpStatusCode.OK, StatusJson(cameraId, "STARTING", Guid.NewGuid())));
+        var options = Options.Create(new AiPreviewOptions { RecordedVideoBaseUrl = "https://backend.example.test", InternalServiceKey = "key" });
+        var client = new AiPreviewClient(new HttpClient(handler) { BaseAddress = new Uri("http://ai.test") }, options, new TestProtector());
+        var connection = new CameraConnection
+        {
+            CameraId = cameraId, StreamUri = $"file:///private/videos/{asset}.mp4", SourceType = "RECORDED", Protocol = "FILE"
+        };
+
+        await client.Start(connection, default);
+
+        using var body = JsonDocument.Parse(handler.LastBody!);
+        Assert.Equal($"https://backend.example.test/api/cameras/{cameraId}/recorded-video/content/{asset}",
+            body.RootElement.GetProperty("stream_url").GetString());
+        Assert.Equal("RECORDED", body.RootElement.GetProperty("source_type").GetString());
+    }
+
+    [Fact]
     public async Task InternalClientDecryptsCredentialOnlyForStartRequest()
     {
         var cameraId = Guid.NewGuid();

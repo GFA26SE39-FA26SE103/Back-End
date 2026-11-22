@@ -5,6 +5,7 @@ namespace Supermarket.Application;
 public interface IRecordedVideoStorage
 {
     Task<string> Save(Stream content, string filename, long length, CancellationToken ct);
+    Stream? Open(string uri);
     void Delete(string uri);
 }
 
