@@ -203,8 +203,8 @@ public sealed class TaskFlowSqlTests(SqlApiFixture fixture)
                 (acceptedTask.Priority, acceptedTask.VerificationMode, acceptedTask.VerificationMethod));
             await staffTasks.Start(acceptedTask.TaskId, default);
             var evidenceFiles = new UnusedEvidenceStorage();
-            var staffEvidence = new TaskEvidenceWork(store, new Actor(acceptedOffer.StaffUserId), clock, notifier, dispatch, verification, schema, evidenceFiles);
-            var operatorEvidence = new TaskEvidenceWork(store, new Actor(ids.Operator, "OPERATOR"), clock, notifier, dispatch, verification, schema, evidenceFiles);
+            var staffEvidence = new TaskEvidenceWork(store, new Actor(acceptedOffer.StaffUserId), clock, notifier, dispatch, verification, schema, evidenceFiles, evidenceFiles);
+            var operatorEvidence = new TaskEvidenceWork(store, new Actor(ids.Operator, "OPERATOR"), clock, notifier, dispatch, verification, schema, evidenceFiles, evidenceFiles);
 
             // Event() deliberately omits the strict `metric` field. AUTO must fail closed to Operator review.
             await staffEvidence.Submit(acceptedTask.TaskId, new("Opened another checkout"), default);
@@ -237,7 +237,7 @@ public sealed class TaskFlowSqlTests(SqlApiFixture fixture)
 
             var replacementTasks = new StaffTasks(store, new Actor(replacementOffer.StaffUserId), clock, calendar, roster, dispatch, views, schema);
             await replacementTasks.Respond(replacementOffer.OfferId, new(TaskResponse.HandleNow, null, null), default);
-            var replacementEvidence = new TaskEvidenceWork(store, new Actor(replacementOffer.StaffUserId), clock, notifier, dispatch, verification, schema, evidenceFiles);
+            var replacementEvidence = new TaskEvidenceWork(store, new Actor(replacementOffer.StaffUserId), clock, notifier, dispatch, verification, schema, evidenceFiles, evidenceFiles);
             await replacementEvidence.Submit(acceptedTask.TaskId, new("Replacement completed the work"), default);
             var terminalRejection = await operatorEvidence.Reject(acceptedTask.TaskId, new("Replacement also failed verification"), default);
             Assert.Equal((WorkTaskStatus.Offered, 3, (Guid?)null),
@@ -277,7 +277,7 @@ public sealed class TaskFlowSqlTests(SqlApiFixture fixture)
                 });
                 return 0;
             });
-            var incidentEvidence = new TaskEvidenceWork(store, new Actor(staff[2]), clock, notifier, dispatch, verification, schema, evidenceFiles);
+            var incidentEvidence = new TaskEvidenceWork(store, new Actor(staff[2]), clock, notifier, dispatch, verification, schema, evidenceFiles, evidenceFiles);
             await incidentEvidence.Submit(incidentTaskId, new("Area cleaned", MissingPhotoReason: "Camera view confirms the cleanup"), default);
             await operatorEvidence.Verify(incidentTaskId, new(), default);
 
@@ -336,7 +336,7 @@ public sealed class TaskFlowSqlTests(SqlApiFixture fixture)
         ];
     }
 
-    private sealed class UnusedEvidenceStorage : ITaskEvidenceStorage
+    private sealed class UnusedEvidenceStorage : IStaffReportMediaStorage
     {
         public Task<StoredEvidence> Save(Guid taskId, Stream content, string filename, string contentType, long length, CancellationToken ct)
             => throw new NotSupportedException("This SQL flow submits completion notes only.");

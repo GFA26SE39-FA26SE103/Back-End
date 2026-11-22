@@ -11,7 +11,7 @@ namespace Supermarket.Application;
 /// Incident closes that Incident (BR-22, <see cref="IncidentClosure"/>).
 /// </remarks>
 public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IClock clock, TaskNotifier notifier, TaskDispatch dispatch,
-    TaskVerification verification, ITaskSchema schema, ITaskEvidenceStorage files)
+    TaskVerification verification, ITaskSchema schema, ITaskEvidenceStorage files, IStaffReportMediaStorage reportFiles)
 {
     public const string Submitted = "TASK_SUBMITTED", Verified = "TASK_VERIFIED", Rejected = "TASK_REJECTED", ReassignmentRequired = "TASK_REASSIGNMENT_REQUIRED";
 
@@ -226,6 +226,17 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
         return await files.Open(taskId, evidence.EvidenceImage, ct) ?? throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
     }
 
+    public async Task<EvidenceFile> ReportPhoto(Guid taskId, Guid mediaId, CancellationToken ct)
+    {
+        await schema.Require(ct);
+        var task = await Assigned(taskId, ct);
+        var reportId = await AssignedReportId(task, ct);
+        var photo = reportId is null ? null : await store.Find<StaffReportMedium>(mediaId, ct);
+        if (photo is null || photo.ReportId != reportId || photo.MediaType != StaffReportWork.ImageMedia)
+            throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
+        return UseCase.Found(await reportFiles.Open(photo.ReportId, photo.StorageKey, ct));
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private async Task<WorkTask> Assigned(Guid taskId, CancellationToken ct)
@@ -233,6 +244,18 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
         var task = await store.Find<WorkTask>(taskId, ct);
         if (task is null || task.CurrentAssigneeUserId != current.UserId) throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
         return task;
+    }
+
+    private async Task<Guid?> AssignedReportId(WorkTask task, CancellationToken ct)
+    {
+        if (current.Role != "STAFF" || task.CurrentAssigneeUserId != current.UserId) return null;
+
+        return task.OriginType switch
+        {
+            TaskOrigin.StaffReport => task.StaffReportId,
+            TaskOrigin.Incident when task.IncidentId is { } id => (await store.Find<Incident>(id, ct))?.StaffReportId,
+            _ => null
+        };
     }
 
     private static void Workable(WorkTask task)
@@ -341,9 +364,16 @@ public sealed class TaskEvidenceWork(ISetupStore store, ICurrentUser current, IC
         }
         var drafts = rows.Where(e => e.ReviewStatus == TaskEvidenceReview.Draft && TaskEvidenceType.Photos.Contains(e.EvidenceType))
             .OrderBy(e => e.CreatedAt).Select(Photo).ToArray();
+        var reportPhotos = Array.Empty<TaskReportPhotoView>();
+        if (await AssignedReportId(task, ct) is { } reportId)
+        {
+            var media = await store.List<StaffReportMedium>(m => m.ReportId == reportId && m.MediaType == StaffReportWork.ImageMedia, ct);
+            reportPhotos = media.OrderBy(m => m.UploadedAt).ThenBy(m => m.MediaId)
+                .Select(m => new TaskReportPhotoView(m.MediaId, $"/api/tasks/{task.TaskId}/report-photos/{m.MediaId}/image")).ToArray();
+        }
         return new(task.TaskId, task.Status, task.VerificationMode, task.VerificationMethod,
             requirement.BeforePhoto, requirement.AfterPhoto, task.RejectionCount, drafts,
-            submissions.OrderByDescending(s => s.SubmittedAt).ToArray());
+            submissions.OrderByDescending(s => s.SubmittedAt).ToArray()) { ReportPhotos = reportPhotos };
     }
 
     private async Task<TaskCompletionResult> Result(Guid taskId, CancellationToken ct)

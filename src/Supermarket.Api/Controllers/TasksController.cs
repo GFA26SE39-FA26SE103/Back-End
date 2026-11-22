@@ -37,6 +37,14 @@ public sealed class TasksController(StaffTasks staff, OperatorTasks operators, T
         return File(file.Content, file.ContentType);
     }
 
+    [HttpGet("{taskId:guid}/report-photos/{mediaId:guid}/image"), Authorize(Roles = AccessRoles.Staff)]
+    public async Task<IActionResult> ReportPhoto(Guid taskId, Guid mediaId, CancellationToken ct)
+    {
+        var file = await evidence.ReportPhoto(taskId, mediaId, ct);
+        Response.Headers.CacheControl = "private, no-store";
+        return File(file.Content, file.ContentType);
+    }
+
     [HttpPost("{taskId:guid}/submit"), Authorize(Roles = AccessRoles.Staff)] public Task<TaskCompletionResult> Submit(Guid taskId, TaskSubmitRequest request, CancellationToken ct) => evidence.Submit(taskId, request, ct);
     [HttpPost("{taskId:guid}/verify"), Authorize(Roles = AccessRoles.Operator)] public Task<TaskCompletionResult> Verify(Guid taskId, TaskVerifyRequest request, CancellationToken ct) => evidence.Verify(taskId, request, ct);
     [HttpPost("{taskId:guid}/reject"), Authorize(Roles = AccessRoles.Operator)] public Task<TaskCompletionResult> Reject(Guid taskId, TaskRejectRequest request, CancellationToken ct) => evidence.Reject(taskId, request, ct);

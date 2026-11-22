@@ -363,11 +363,60 @@ public sealed class TaskEvidenceTests
         Assert.DoesNotContain(w.Store.Values.OfType<AuditLog>(), a => a.Action == "MITIGATE_INCIDENT");
     }
 
+    [Theory]
+    [InlineData(TaskOrigin.Incident)]
+    [InlineData(TaskOrigin.StaffReport)]
+    public async Task AssignedStaffCanViewOriginalReportPhotosButNotOtherReportMedia(string origin)
+    {
+        var w = new World();
+        var staff = w.Staff("Assignee");
+        var reporter = w.Staff("Reporter");
+        var replacement = w.Staff("Replacement");
+        var task = await w.InProgress(staff, incidentRequiresBefore: false);
+        var incident = w.Store.Values.OfType<Incident>().Single();
+        var report = new StaffReport { ReportId = Guid.NewGuid(), ReportedByUserId = reporter, ZoneId = task.ZoneId };
+        w.Store.Values.Add(report);
+        task.OriginType = origin;
+        task.Title = "Clean Spill";
+        if (origin == TaskOrigin.Incident) incident.StaffReportId = report.ReportId;
+        else
+        {
+            task.IncidentId = null;
+            task.StaffReportId = report.ReportId;
+        }
+
+        var stored = await w.ReportFiles.Save(report.ReportId, new MemoryStream(Jpeg), "photo.jpg", "image/jpeg", Jpeg.Length, default);
+        var photo = new StaffReportMedium { MediaId = Guid.NewGuid(), ReportId = report.ReportId, StorageKey = stored.Token };
+        var voice = new StaffReportMedium { MediaId = Guid.NewGuid(), ReportId = report.ReportId, MediaType = StaffReportWork.AudioMedia };
+        var unrelated = new StaffReportMedium { MediaId = Guid.NewGuid(), ReportId = Guid.NewGuid(), StorageKey = stored.Token };
+        w.Store.Values.AddRange([photo, voice, unrelated]);
+
+        var assigned = w.Evidence(staff);
+        var listed = Assert.Single((await assigned.Get(task.TaskId, default)).ReportPhotos);
+        Assert.Equal(photo.MediaId, listed.MediaId);
+        Assert.Equal($"/api/tasks/{task.TaskId}/report-photos/{photo.MediaId}/image", listed.ImageUrl);
+        var file = await assigned.ReportPhoto(task.TaskId, photo.MediaId, default);
+        using (file.Content)
+        {
+            Assert.Equal("image/jpeg", file.ContentType);
+        }
+        Assert.Equal(report.ReportId, w.ReportFiles.LastOpenedScope);
+        Assert.Equal(404, (await Assert.ThrowsAsync<AppError>(() => assigned.ReportPhoto(task.TaskId, voice.MediaId, default))).Status);
+        Assert.Equal(404, (await Assert.ThrowsAsync<AppError>(() => assigned.ReportPhoto(task.TaskId, unrelated.MediaId, default))).Status);
+
+        await w.Upload(staff, task, TaskEvidenceType.AfterPhoto);
+        task.CurrentAssigneeUserId = replacement;
+        Assert.Empty((await assigned.Get(task.TaskId, default)).ReportPhotos);
+        Assert.Equal(404, (await Assert.ThrowsAsync<AppError>(() => assigned.ReportPhoto(task.TaskId, photo.MediaId, default))).Status);
+        Assert.Single((await w.Evidence(replacement).Get(task.TaskId, default)).ReportPhotos);
+    }
+
     private sealed class World
     {
         public MonitoringSetupTests.MemoryStore Store { get; } = new();
         public StaffTaskTests.Clock Clock { get; } = new() { UtcNow = Now };
         public MemoryFiles Files { get; } = new();
+        public MemoryFiles ReportFiles { get; } = new();
         public TaskDispatch Dispatch { get; }
         private readonly StoreCalendar calendar = new(StoreCalendar.Zone(null));
         private readonly Zone zone;
@@ -466,7 +515,7 @@ public sealed class TaskEvidenceTests
             ? $$"""{"measurementMode":"QUEUE_LENGTH","thresholdUnit":"PEOPLE","metric":{{metric}},"warningThreshold":3}"""
             : "{\"measurementMode\":\"QUEUE_LENGTH\",\"metric\":999}";
 
-        public TaskEvidenceWork Evidence(Guid user) => new(Store, Current(user), Clock, notifier, Dispatch, verification, schema, Files);
+        public TaskEvidenceWork Evidence(Guid user) => new(Store, Current(user), Clock, notifier, Dispatch, verification, schema, Files, ReportFiles);
         public StaffTasks StaffTasks(Guid user) => new(Store, Current(user), Clock, calendar, roster, Dispatch, views, schema);
         public OperatorTasks Operator(Guid user) => new(Store, Current(user), Clock, roster, Dispatch, notifier, views, schema,
             new StaffTaskTests.OperatorQueries(Store), new StandaloneTaskSlaPolicyService(Store, Clock));
@@ -478,10 +527,11 @@ public sealed class TaskEvidenceTests
         }
     }
 
-    internal sealed class MemoryFiles : ITaskEvidenceStorage
+    internal sealed class MemoryFiles : IStaffReportMediaStorage
     {
         public Dictionary<string, (byte[] Bytes, string Type)> Saved { get; } = [];
         public List<string> Deleted { get; } = [];
+        public Guid? LastOpenedScope { get; private set; }
         public async Task<StoredEvidence> Save(Guid taskId, Stream content, string filename, string contentType, long length, CancellationToken ct)
         {
             using var copy = new MemoryStream();
@@ -491,7 +541,10 @@ public sealed class TaskEvidenceTests
             return new(token, contentType);
         }
         public Task<EvidenceFile?> Open(Guid taskId, string token, CancellationToken ct)
-            => Task.FromResult(Saved.TryGetValue(token, out var file) ? new EvidenceFile(new MemoryStream(file.Bytes), file.Type) : null);
+        {
+            LastOpenedScope = taskId;
+            return Task.FromResult(Saved.TryGetValue(token, out var file) ? new EvidenceFile(new MemoryStream(file.Bytes), file.Type) : null);
+        }
         public Task Delete(Guid taskId, string token, CancellationToken ct)
         {
             Deleted.Add(token);
