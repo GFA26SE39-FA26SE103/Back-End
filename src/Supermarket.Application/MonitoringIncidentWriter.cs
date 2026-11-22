@@ -31,8 +31,8 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
             EnsureEvidenceFresh(command);
 
             var rule=command.Rule; var zone=command.Zone; var batch=command.Batch;
-            if(rule.Mode is "CHECKOUT_CAPACITY" or "WAITING_TIME" && command.MetricOverride is null
-                || rule.Mode is not ("CHECKOUT_CAPACITY" or "WAITING_TIME") && command.MetricOverride is not null)
+            if(MonitoringPolicy.IsCheckoutMode(rule.Mode) && command.MetricOverride is null
+                || !MonitoringPolicy.IsCheckoutMode(rule.Mode) && command.MetricOverride is not null)
                 throw new ApplicationException("CHECKOUT_MEASUREMENT_INVALID","Checkout rules require a validated aggregate metric.",503);
             var metric=command.MetricOverride??rule.CameraMetric(zone,command.Measurement);
             var metadata=Metadata(command,metric);
@@ -115,7 +115,7 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
 
     private void EnsureEvidenceFresh(IncidentObservationCommand command)
     {
-        if(command.Rule.Mode is "CHECKOUT_CAPACITY" or "WAITING_TIME"
+        if(MonitoringPolicy.IsCheckoutMode(command.Rule.Mode)
             && (command.EvidenceValidUntil is not { } until || clock.UtcNow>until))
             throw new ApplicationException("CHECKOUT_OBSERVATION_STALE","Checkout evidence expired before persistence.",503);
     }

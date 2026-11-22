@@ -50,6 +50,19 @@ public static class MonitoringPolicy
         _ => null
     };
     public static string? OperationalEventCode(IncidentType type) => OperationalEventCode(type.Code);
+    /// <summary>Long Queue in a checkout zone counts people inside the enabled counters' Lane ROIs.</summary>
+    public const string CheckoutQueueMode = "CHECKOUT_QUEUE_LENGTH";
+    /// <summary>Queue and waiting-time rules only make sense at checkout counters; other crowding is Congestion.</summary>
+    public static bool RequiresCheckoutZone(string? eventTypeCode) => eventTypeCode is "LONG_QUEUE" or "EXCESSIVE_WAIT";
+    /// <summary>Rules evaluated from checkout counter mappings (Lane/Staff/Service ROIs) instead of a zone ROI.</summary>
+    public static bool UsesCheckoutRuntime(string? eventTypeCode, string? zoneType) =>
+        eventTypeCode == "CHECKOUT_CAPACITY" || zoneType == "CHECKOUT" && RequiresCheckoutZone(eventTypeCode);
+    public static bool IsCheckoutMode(string? mode) => mode is "CHECKOUT_CAPACITY" or "WAITING_TIME" or CheckoutQueueMode;
+    public static RuntimeMeasurementDefinition CheckoutRuntimeDefinition(MonitoringRule rule, OperationalEventType type)
+    {
+        var definition = RuntimeDefinition(rule, type);
+        return type.Code == "LONG_QUEUE" && definition.Supported ? definition with { Mode = CheckoutQueueMode } : definition;
+    }
     public static int RecoverySeconds(MonitoringRule rule) => rule.ClearDurationSec;
     public static RuntimeMeasurementDefinition RuntimeDefinition(MonitoringRule rule, OperationalEventType type)
     {

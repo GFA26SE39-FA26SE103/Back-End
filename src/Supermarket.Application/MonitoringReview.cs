@@ -13,8 +13,7 @@ public sealed partial class MonitoringSetup
         var types = (await store.List<IncidentType>(ct: ct)).ToDictionary(t => t.IncidentTypeId);
         var eventTypes = (await store.List<OperationalEventType>(ct: ct)).ToDictionary(t => t.EventTypeId);
         var checkoutRules = rules.Where(r => r.Enabled && r.OutcomeType == "OPERATIONAL_EVENT"
-            && r.EventTypeId is { } id && (eventTypes.GetValueOrDefault(id)?.Code == "CHECKOUT_CAPACITY"
-                || zone.ZoneType == "CHECKOUT" && eventTypes.GetValueOrDefault(id)?.Code == "EXCESSIVE_WAIT")).ToArray();
+            && r.EventTypeId is { } id && MonitoringPolicy.UsesCheckoutRuntime(eventTypes.GetValueOrDefault(id)?.Code, zone.ZoneType)).ToArray();
         var genericRules = rules.Except(checkoutRules).ToArray();
         var hasGenericRules = genericRules.Any(r => r.Enabled);
         var mappings = checkoutRules.Length == 0 || hasGenericRules
@@ -38,7 +37,7 @@ public sealed partial class MonitoringSetup
             var type = eventTypes[rule.EventTypeId!.Value];
             try { MonitoringPolicy.ValidateForActivation(rule, type, requireDualThresholds: configuration.Status != "ACTIVE"); }
             catch (DomainException e) { issues.Add(new(e.Code, $"{type.Name}: {e.Message}")); }
-            var definition = MonitoringPolicy.RuntimeDefinition(rule, type);
+            var definition = MonitoringPolicy.CheckoutRuntimeDefinition(rule, type);
             snapshots.Add(new(rule.RuleId, null, type.Code, type.Name, definition.Mode, definition.Unit,
                 rule.WarningThreshold, rule.CriticalThreshold, rule.SustainSec, rule.CooldownSec,
                 type.EventTypeId, type.Code, rule.ClearDurationSec, rule.OutcomeType, rule.ParametersJson));
@@ -87,6 +86,8 @@ public sealed partial class MonitoringSetup
             if (type is null) { issues.Add(new("OPERATIONAL_EVENT_TYPE_MISSING", "A rule's operational event type no longer exists.")); continue; }
             if (type.Code == "EXCESSIVE_WAIT" && zone.ZoneType != "CHECKOUT")
                 issues.Add(new("CHECKOUT_ZONE_REQUIRED", "Waiting-time monitoring requires a checkout zone and Service ROI."));
+            if (type.Code == "LONG_QUEUE" && zone.ZoneType != "CHECKOUT")
+                issues.Add(new("CHECKOUT_ZONE_REQUIRED", "Long Queue monitoring requires a checkout zone; use Overcrowding / Congestion for other areas."));
             try { MonitoringPolicy.ValidateForActivation(rule, type, requireDualThresholds: configuration.Status != "ACTIVE"); }
             catch (DomainException e) { issues.Add(new(e.Code, $"{type.Name}: {e.Message}")); }
             densityEnabled |= MonitoringPolicy.RuntimeDefinition(rule, type).Mode == MonitoringPolicy.DensityMode;

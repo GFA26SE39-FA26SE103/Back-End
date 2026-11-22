@@ -146,6 +146,11 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
                             throw new AppError("CHECKOUT_WAITING_SOURCE_INVALID", "Waiting-time source is not available.", 503);
                         value = decimal.Round((decimal)counters.Max(c => c.MaxWaitSeconds!.Value) / 60m, 4);
                     }
+                    else if (rule.Mode == MonitoringPolicy.CheckoutQueueMode)
+                    {
+                        value = metric.QueueCount is { } queue ? queue
+                            : throw new AppError("CHECKOUT_QUEUE_SOURCE_INVALID", "Checkout queue count is not available.", 503);
+                    }
                     else
                     {
                         var parameters = CheckoutRuleParameters.Parse(rule.ParametersJson);

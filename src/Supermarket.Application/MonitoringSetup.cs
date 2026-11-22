@@ -34,8 +34,10 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
                     true,null,null,null,null,null,t.RequiresBeforePhoto);
             var eventType=x.EventType; var d = MonitoringPolicy.Definition(eventType);
             var congestion = MonitoringPolicy.SupportsCongestion(eventType);
+            var longQueue=eventType.Code=="LONG_QUEUE" && eventType.MeasurementType=="QUEUE_LENGTH";
+            // Long Queue is checkout-only and reads the counters' Lane ROIs through the checkout AI contract.
             var supported=t.Status=="ACTIVE" && eventType.Status=="ACTIVE"
-                && (eventType.Code=="LONG_QUEUE" && eventType.MeasurementType=="QUEUE_LENGTH" || congestion);
+                && (longQueue && checkout.AiContractEnabled || congestion);
             var options=congestion
                 ? new[]
                 {
@@ -44,9 +46,13 @@ public sealed partial class MonitoringSetup(ISetupStore store, ICurrentUser curr
                         "Divides the current ROI count by the measured zone area. Use one ROI that covers that floor area.",
                         MonitoringPolicy.CrowdDensity.Warning, MonitoringPolicy.CrowdDensity.Critical)
                 }
-                : new[] { new MonitoringMeasurementOptionView(eventType.MeasurementType,d?.Unit??"PENDING",supported,supported?null:"Measurement runtime is not yet implemented.",d?.Warning,d?.Critical) };
+                : new[] { new MonitoringMeasurementOptionView(eventType.MeasurementType,d?.Unit??"PENDING",supported,
+                    supported ? longQueue ? "Counts people in the enabled checkout counters' Lane ROIs. Checkout zones only." : null
+                    : longQueue && !checkout.AiContractEnabled ? "Checkout AI is disabled in this environment." : "Measurement runtime is not yet implemented.",d?.Warning,d?.Critical) };
+            var unsupportedReason = longQueue && !checkout.AiContractEnabled ? "Checkout AI is disabled in this environment."
+                : "Select a supported measurement mode or keep this rule disabled in Draft.";
             return new IncidentTypeView(t.IncidentTypeId,t.Code,t.Name,t.Description,"AI_DETECTED",eventType.MeasurementType,t.Status,
-                supported,d?.Unit,d?.Warning,d?.Critical,supported?null:"Select a supported measurement mode or keep this rule disabled in Draft.",options,t.RequiresBeforePhoto);
+                supported,d?.Unit,d?.Warning,d?.Critical,supported?null:unsupportedReason,options,t.RequiresBeforePhoto);
         }).ToArray();
     }
     public async Task<MonitoringConfigurationView> Get(Guid zoneId, CancellationToken ct)

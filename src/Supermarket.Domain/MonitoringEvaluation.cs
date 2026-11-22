@@ -22,7 +22,7 @@ public static class MonitoringRuleEvaluator
         var checkout=settings.Mode=="CHECKOUT_CAPACITY" && settings.Unit=="PEOPLE_PER_STAFFED_COUNTER";
         var waiting=settings.Mode=="WAITING_TIME" && settings.Unit=="MINUTES";
         var density=settings.Mode==MonitoringPolicy.DensityMode && settings.Unit==MonitoringPolicy.DensityUnit;
-        var count=settings.Mode is "PEOPLE_COUNT" or "QUEUE_LENGTH" && settings.Unit=="PEOPLE";
+        var count=settings.Mode is "PEOPLE_COUNT" or "QUEUE_LENGTH" or MonitoringPolicy.CheckoutQueueMode && settings.Unit=="PEOPLE";
         if(!checkout && !waiting && !density && !count) return new(new(),null,0,0,"RULE_RUNTIME_UNSUPPORTED",false);
         if(observation.MetricValue<0 || count && decimal.Truncate(observation.MetricValue)!=observation.MetricValue || observation.Sequence<1
            || observation.SourceElapsedMs<0 || observation.SessionId==Guid.Empty || observation.ContinuityId==Guid.Empty)
