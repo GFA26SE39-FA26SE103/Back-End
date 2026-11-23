@@ -33,7 +33,7 @@ public sealed class CheckoutSnapshotTests
     {
         var f = new CheckoutFixture();
         f.Store.Values.Remove(f.Rule);
-        f.H.AddRule();
+        f.H.AddCongestionCountRule();
         f.Store.Values.Add(f.GenericMapping);
         f.Store.RejectCheckoutReads = true;
         var snapshot = Assert.Single(await f.Reader().ReadAll(default));
@@ -44,11 +44,34 @@ public sealed class CheckoutSnapshotTests
     }
 
     [Fact]
+    public async Task LongQueueUsesTheCheckoutLaneWithoutAGenericZoneMapping()
+    {
+        var f = new CheckoutFixture();
+        f.Store.Values.Remove(f.Rule);
+        f.H.AddRule();
+
+        var review = await f.Setup().Review(f.H.Zone.ZoneId, default);
+        Assert.True(review.CanActivate);
+        var snapshot = Assert.Single(await f.Reader().ReadAll(default));
+        Assert.Null(snapshot.IssueCode);
+        Assert.Empty(snapshot.Zones);
+        var mapping = Assert.Single(snapshot.CheckoutMappings!);
+        Assert.True(mapping.IsQueueSource);
+        var rule = Assert.Single(mapping.Rules);
+        Assert.Equal("LONG_QUEUE", rule.EventTypeCode);
+        Assert.Equal(MonitoringPolicy.CheckoutQueueMode, rule.Mode);
+        Assert.Equal("PEOPLE", rule.Unit);
+
+        f.Mapping.IsQueueSource = false;
+        Assert.False((await f.Setup().Review(f.H.Zone.ZoneId, default)).CanActivate);
+    }
+
+    [Fact]
     public async Task DisabledCheckoutRuleDoesNotReadCheckoutTables()
     {
         var f = new CheckoutFixture();
         f.Rule.Enabled = false;
-        f.H.AddRule();
+        f.H.AddCongestionCountRule();
         f.Store.Values.Add(f.GenericMapping);
         f.Store.RejectCheckoutReads = true;
         Assert.Null(Assert.Single(await f.Reader().ReadAll(default)).IssueCode);
@@ -62,7 +85,7 @@ public sealed class CheckoutSnapshotTests
     {
         var f = new CheckoutFixture();
         f.Store.Values.Remove(f.Rule);
-        f.H.AddRule();
+        f.H.AddCongestionCountRule();
         f.Store.Values.Add(f.GenericMapping);
         f.Options.MaxZones = checkoutLimit;
         f.Store.RejectCheckoutReads = true;
@@ -91,7 +114,7 @@ public sealed class CheckoutSnapshotTests
     public async Task MixedRulesKeepGenericAndCheckoutCameraCoverageIndependent()
     {
         var f = new CheckoutFixture();
-        f.H.AddRule();
+        f.H.AddCongestionCountRule();
         var camera = f.AddSource(queueSource: false);
         f.GenericMapping.CameraId = camera.CameraId;
         f.Store.Values.Add(f.GenericMapping);
@@ -99,7 +122,7 @@ public sealed class CheckoutSnapshotTests
         Assert.Equal(2, snapshots.Length);
         Assert.All(snapshots, s => Assert.Null(s.IssueCode));
         var generic = Assert.Single(snapshots.Single(s => s.CameraId == camera.CameraId).Zones);
-        Assert.Equal("LONG_QUEUE", Assert.Single(generic.Rules).EventTypeCode);
+        Assert.Equal("CONGESTION", Assert.Single(generic.Rules).EventTypeCode);
         Assert.All(snapshots.SelectMany(s => s.CheckoutMappings!), m =>
             Assert.Equal("CHECKOUT_CAPACITY", Assert.Single(m.Rules).EventTypeCode));
         Assert.Empty(snapshots.Single(s => s.CameraId == f.H.Camera.CameraId).Zones);
@@ -109,7 +132,7 @@ public sealed class CheckoutSnapshotTests
     public async Task MixedRulesWithoutGenericMappingBlockCheckoutSources()
     {
         var f = new CheckoutFixture();
-        f.H.AddRule();
+        f.H.AddCongestionCountRule();
         Assert.NotNull(Assert.Single(await f.Reader().ReadAll(default)).IssueCode);
     }
 

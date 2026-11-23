@@ -18,7 +18,7 @@ public sealed class MonitoringSetupTests
     [Fact]
     public async Task ActivationRejectsMoreThanOneActiveMapping()
     {
-        var h=new Harness(); h.AddRule();
+        var h=new Harness(); h.AddCongestionCountRule();
         var second=new Camera { CameraId=Guid.NewGuid(), FloorId=h.Zone.FloorId, Status="ACTIVE" };
         h.Store.Values.Add(second);
         h.Store.Values.Add(new CameraZoneMapping { CameraZoneId=Guid.NewGuid(),CameraId=second.CameraId,ZoneId=h.Zone.ZoneId,RoiPolygon="[{\"x\":0,\"y\":0},{\"x\":1,\"y\":0},{\"x\":0,\"y\":1}]" });
@@ -32,6 +32,19 @@ public sealed class MonitoringSetupTests
         var error = await Assert.ThrowsAsync<AppError>(() => h.Setup.Activate(h.Zone.ZoneId, true, default));
         Assert.Equal("MONITORING_NOT_READY", error.Code);
         Assert.Equal("DRAFT", h.Configuration.Status);
+    }
+
+    [Fact]
+    public async Task LongQueueCannotActivateOutsideCheckout()
+    {
+        var h = new Harness();
+        h.AddRule();
+
+        var review = await h.Setup.Review(h.Zone.ZoneId, default);
+        Assert.False(review.CanActivate);
+        Assert.Contains(review.Issues, issue => issue.Code == "CHECKOUT_ZONE_REQUIRED");
+        var error = await Assert.ThrowsAsync<AppError>(() => h.Setup.Activate(h.Zone.ZoneId, true, default));
+        Assert.Equal("MONITORING_NOT_READY", error.Code);
     }
 
     [Fact]
@@ -84,7 +97,7 @@ public sealed class MonitoringSetupTests
     public async Task DraftSaveReplacesRulesRejectsStaleVersionAndActivatesOnlyValidSetup()
     {
         var h = new Harness();
-        var type = h.AddRule();
+        var type = h.AddCongestionCountRule();
         var input = new MonitoringRuleRequest(type.IncidentTypeId, 4, 7, "PEOPLE", 0, 0, 45, WarningExitThreshold: 3, CriticalExitThreshold: 6);
         var stale = await Assert.ThrowsAsync<AppError>(() => h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Stale", Rules: [input], ExpectedUpdatedAt: DateTime.UnixEpoch), default));
         Assert.Equal("CONFIGURATION_CHANGED", stale.Code);
@@ -193,6 +206,8 @@ public sealed class MonitoringSetupTests
             Store.Values.AddRange([Zone, Configuration, Camera, Connection, new CameraZoneMapping { CameraZoneId = Guid.NewGuid(), CameraId = Camera.CameraId, ZoneId = Zone.ZoneId, RoiPolygon = System.Text.Json.JsonSerializer.Serialize(new Point[] { new(0,0),new(1,0),new(0,1) }) }]);
             Setup = new(Store, new User(role));
         }
+        public IncidentType AddCongestionCountRule() => AddRule("OVERCROWDING_CONGESTION", "CROWD_DENSITY");
+
         public IncidentType AddRule(string code = "LONG_QUEUE", string measurement = "QUEUE_LENGTH", string unit = "PEOPLE")
         {
             var type = new IncidentType { IncidentTypeId = Guid.NewGuid(), Code = code, Name = code };

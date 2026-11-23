@@ -29,7 +29,7 @@ public sealed class SetupOverviewTests
         var supermarket = new Store { SupermarketId = Guid.NewGuid(), Name = "Default store" };
         h.Store.Values.Add(supermarket);
         h.Store.Values.Add(new Floor { FloorId = h.Zone.FloorId, SupermarketId = supermarket.SupermarketId, FloorNumber = 1, Name = "Ground floor", MapAssetUrl = "/api/floors/map" });
-        h.AddRule();
+        h.AddCongestionCountRule();
         return h;
     }
 

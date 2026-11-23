@@ -68,7 +68,7 @@ public sealed class CheckoutReviewTests
     public async Task MixedReviewStillRequiresExactlyOneGenericCamera()
     {
         var f = new CheckoutFixture();
-        f.H.AddRule();
+        f.H.AddCongestionCountRule();
         Assert.False((await f.Setup().Review(f.H.Zone.ZoneId, default)).CanActivate);
         f.Store.Values.Add(f.GenericMapping);
         f.AddSource(queueSource: false);
@@ -82,7 +82,7 @@ public sealed class CheckoutReviewTests
     {
         var f = new CheckoutFixture();
         f.Rule.Enabled = false;
-        f.H.AddRule();
+        f.H.AddCongestionCountRule();
         f.Store.Values.Add(f.GenericMapping);
         f.Store.RejectCheckoutReads = true;
         Assert.True((await f.Setup().Review(f.H.Zone.ZoneId, default)).CanActivate);
@@ -134,7 +134,7 @@ public sealed class CheckoutReviewTests
     {
         var f = new CheckoutFixture();
         var generic = new MonitoringSetupTests.Harness();
-        generic.AddRule();
+        generic.AddCongestionCountRule();
         var genericMapping = generic.Store.Values.OfType<CameraZoneMapping>().Single();
         genericMapping.CameraId = f.H.Camera.CameraId;
         generic.Zone.FloorId = f.H.Zone.FloorId;
