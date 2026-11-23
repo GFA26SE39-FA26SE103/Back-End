@@ -36,7 +36,7 @@ internal sealed class MonitoringRuntimeTestSupport : IAsyncDisposable
         var login=await Read<LoginResponse>(await Client.PostAsJsonAsync("/api/auth/login",new LoginRequest(SqlApiFixture.AdminEmail,SqlApiFixture.AdminPassword)));
         Client.DefaultRequestHeaders.Authorization=new AuthenticationHeaderValue("Bearer",login.AccessToken);
     }
-    public async Task<(Camera Camera,ZoneView Zone,MonitoringConfigurationView Config)> Configure(bool queue=false,int clearDurationSec=60)
+    public async Task<(Camera Camera,ZoneView Zone,MonitoringConfigurationView Config)> Configure(int clearDurationSec=60)
     {
         var stores=(await Client.GetFromJsonAsync<JsonElement[]>("/api/supermarkets"))!;
         var supermarket=stores.Length==0?(await Read<JsonElement>(await Client.PostAsJsonAsync("/api/supermarkets",new StoreRequest("TEST","Runtime test",null)))).GetProperty("supermarketId").GetGuid():stores[0].GetProperty("supermarketId").GetGuid();
@@ -49,7 +49,7 @@ internal sealed class MonitoringRuntimeTestSupport : IAsyncDisposable
         // A recorded URI in an isolated fixture, with fake AI; no uploaded/user video is changed.
         await Execute("UPDATE dbo.CameraConnection SET source_type='RECORDED',protocol='FILE',stream_uri='file:///C:/runtime-test/video.mp4' WHERE camera_id=@camera",("@camera",camera.CameraId));
         await Read<MappingView>(await Client.PutAsJsonAsync($"/api/cameras/{camera.CameraId}/zones/{zone.ZoneId}",new MappingRequest(Roi)));
-        var type=(await Client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!.Single(t=>t.Code==(queue?"LONG_QUEUE":"OVERCROWDING_CONGESTION"));
+        var type=(await Client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!.Single(t=>t.Code=="OVERCROWDING_CONGESTION");
         var config=await Read<MonitoringConfigurationView>(await Client.PutAsJsonAsync($"/api/zones/{zone.ZoneId}/monitoring",new MonitoringRequest("Runtime config",.7m,[new(type.IncidentTypeId,2,4,"PEOPLE",1,30,clearDurationSec,WarningExitThreshold:1,CriticalExitThreshold:3)])));
         var review=await Read<MonitoringReviewView>(await Client.GetAsync($"/api/zones/{zone.ZoneId}/monitoring/review")); Assert.True(review.CanActivate);
         return(camera,zone,config);
@@ -82,7 +82,10 @@ internal sealed class MonitoringRuntimeTestSupport : IAsyncDisposable
         public MonitoringCameraSnapshot Snapshot=null!; public Guid Session=Guid.NewGuid(),Epoch=Guid.NewGuid();
         public int Starts,Stops,ViewerStarts,ViewerStops; public string State="LIVE"; public List<AiMeasurementBatch> Batches=[];
         public Action? BeforeRead;
-        public void Add(long ms,int people,int queue=0)=>Batches.Add(new(1,Session,Epoch,Batches.Count+1,DateTime.UtcNow,ms,Snapshot.Fingerprint,Snapshot.Zones.Select(z=>new AiZoneMeasurement(z.ZoneId,z.ConfigId,z.ConfigVersion,people,queue)).ToArray()));
+        public void Add(long ms, int people, Guid? alternateZoneId = null, int alternatePeople = 0)
+            => Batches.Add(new(1, Session, Epoch, Batches.Count+1, DateTime.UtcNow, ms, Snapshot.Fingerprint,
+                Snapshot.Zones.Select(z => new AiZoneMeasurement(z.ZoneId, z.ConfigId, z.ConfigVersion,
+                    z.ZoneId == alternateZoneId ? alternatePeople : people, 0)).ToArray()));
         private AiPreviewStatusView Status(Guid id)=>new(id,State,null,DateTime.UtcNow,Batches.Count,null,Session,"MONITORING",Snapshot?.Fingerprint,"confidence:0.7");
         public Task<AiPreviewStatusView> Start(MonitoringCameraSnapshot s,Guid owner,CancellationToken ct) { Snapshot=s; Starts++; return Task.FromResult(Status(s.CameraId)); }
         public Task<AiMeasurementPage> Read(Guid c,Guid owner,Guid? session,long after,int limit,CancellationToken ct) { BeforeRead?.Invoke(); BeforeRead=null; return Task.FromResult(new AiMeasurementPage(1,Session,1,Batches.LastOrDefault()?.Sequence??0,false,Batches.Where(b=>b.Sequence>after).Take(limit).ToArray(),State,null)); }

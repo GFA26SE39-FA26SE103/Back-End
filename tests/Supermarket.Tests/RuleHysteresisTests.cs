@@ -122,7 +122,7 @@ public sealed class RuleHysteresisTests
     public async Task SavedSingleThresholdRuleRequiresAnUpdateBeforeActivation()
     {
         var h = new MonitoringSetupTests.Harness();
-        var type = h.AddRule();
+        var type = h.AddCongestionCountRule();
         var rule = Assert.Single(h.Store.Values.OfType<MonitoringRule>());
         rule.ParametersJson = null;
 

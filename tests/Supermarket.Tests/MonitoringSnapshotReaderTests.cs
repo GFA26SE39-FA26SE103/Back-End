@@ -7,7 +7,7 @@ public sealed class MonitoringSnapshotReaderTests
     [Fact]
     public async Task SameCameraCanCoverOneZoneWithMultipleIndependentRois()
     {
-        var h=new MonitoringSetupTests.Harness(); h.AddRule();
+        var h=new MonitoringSetupTests.Harness(); h.AddCongestionCountRule();
         h.Store.Values.Add(new CameraZoneMapping { CameraZoneId=Guid.NewGuid(),CameraId=h.Camera.CameraId,ZoneId=h.Zone.ZoneId,
             RoiPolygon=System.Text.Json.JsonSerializer.Serialize(new Point[] { new(.5m,0),new(1,0),new(1,1) }),Status="ACTIVE" });
         var review=await h.Setup.Review(h.Zone.ZoneId,default);
@@ -22,11 +22,11 @@ public sealed class MonitoringSnapshotReaderTests
     [Fact]
     public async Task ActiveSnapshotIsVersionedButHealthUpdatesDoNotRestartTracking()
     {
-        var h=new MonitoringSetupTests.Harness(); h.AddRule(); h.Configuration.Status="ACTIVE";
+        var h=new MonitoringSetupTests.Harness(); h.AddCongestionCountRule(); h.Configuration.Status="ACTIVE";
         var reader=new MonitoringSnapshotReader(h.Store);
         var snapshot=Assert.Single(await reader.ReadAll(default));
         Assert.Equal(h.Camera.CameraId,snapshot.CameraId); Assert.Single(snapshot.Zones);
-        var rule=Assert.Single(snapshot.Zones[0].Rules); Assert.NotEqual(Guid.Empty,rule.EventTypeId); Assert.Equal("LONG_QUEUE",rule.EventTypeCode);
+        var rule=Assert.Single(snapshot.Zones[0].Rules); Assert.NotEqual(Guid.Empty,rule.EventTypeId); Assert.Equal("CONGESTION",rule.EventTypeCode);
         Assert.True(await reader.IsCurrent(snapshot,h.Zone.ZoneId,default));
         h.Camera.UpdatedAt=DateTime.UtcNow; h.Camera.LastSeenAt=DateTime.UtcNow; h.Camera.HealthStatus="ONLINE";
         Assert.Equal(snapshot.Fingerprint,Assert.Single(await reader.ReadAll(default)).Fingerprint);
