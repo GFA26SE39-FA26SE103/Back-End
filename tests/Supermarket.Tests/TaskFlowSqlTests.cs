@@ -253,10 +253,13 @@ public sealed class TaskFlowSqlTests(SqlApiFixture fixture)
             var incidentTaskId = Guid.NewGuid();
             await store.Transaction(async () =>
             {
+                await store.Add(new StaffReport { ReportId = incidentId, ReportedByUserId = staff[2], ZoneId = ids.SourceZone,
+                    IncidentTypeId = incidentType.IncidentTypeId, Title = "D7 cleanup report", ReportCategory = "POTENTIAL_INCIDENT",
+                    Status = "CONFIRMED", ConfirmedAt = clock.UtcNow });
                 await store.Add(new Incident
                 {
                     IncidentId = incidentId, IncidentTypeId = incidentType.IncidentTypeId, ZoneId = ids.SourceZone,
-                    MonitoringRuleId = ids.Rule, SourceType = "MONITORING_RULE",
+                    StaffReportId = incidentId, ReportedByUserId = staff[2], SourceType = "STAFF_REPORT",
                     Title = "D7 cleanup incident", Status = "DETECTED"
                 });
                 await store.Add(new WorkTask

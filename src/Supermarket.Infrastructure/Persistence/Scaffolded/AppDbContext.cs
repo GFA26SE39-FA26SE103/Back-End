@@ -470,17 +470,12 @@ public partial class AppDbContext : DbContext
         {
             entity.ToTable("Incident");
 
-            entity.HasIndex(e => e.MonitoringRuleId, "IX_Incident_MonitoringRuleId").HasFilter("([monitoring_rule_id] IS NOT NULL)");
 
             entity.HasIndex(e => e.ResolutionDeadlineAt, "IX_Incident_ResolutionDeadline_Open").HasFilter("([resolution_deadline_at] IS NOT NULL AND [closed_at] IS NULL)");
 
             entity.HasIndex(e => e.SlaPolicyId, "IX_Incident_SLAPolicyId").HasFilter("([sla_policy_id] IS NOT NULL)");
 
             entity.HasIndex(e => new { e.ZoneId, e.IncidentTypeId, e.ClosedAt }, "IX_Incident_Zone_Type_Closed");
-
-            entity.HasIndex(e => new { e.MonitoringRuleId, e.ZoneId, e.IncidentTypeId }, "UX_Incident_Open_MonitoringRule_Zone_Type")
-                .IsUnique()
-                .HasFilter("([closed_at] IS NULL AND [monitoring_rule_id] IS NOT NULL)");
 
             entity.HasIndex(e => e.StaffReportId, "UX_Incident_StaffReport")
                 .IsUnique()
@@ -503,7 +498,6 @@ public partial class AppDbContext : DbContext
             entity.Property(e => e.MitigatedAt)
                 .HasPrecision(3)
                 .HasColumnName("mitigated_at");
-            entity.Property(e => e.MonitoringRuleId).HasColumnName("monitoring_rule_id");
             entity.Property(e => e.ReportedByUserId).HasColumnName("reported_by_user_id");
             entity.Property(e => e.ResolutionDeadlineAt)
                 .HasPrecision(3)
@@ -533,10 +527,6 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.IncidentTypeId)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("FK_Incident_Type");
-
-            entity.HasOne(d => d.MonitoringRule).WithMany(p => p.Incidents)
-                .HasForeignKey(d => d.MonitoringRuleId)
-                .HasConstraintName("FK_Incident_MonitoringRule");
 
             entity.HasOne(d => d.ReportedByUser).WithMany(p => p.Incidents)
                 .HasForeignKey(d => d.ReportedByUserId)
@@ -668,15 +658,10 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.EventTypeId, "IX_MonitoringRule_EventTypeId");
 
-            entity.HasIndex(e => e.IncidentTypeId, "IX_MonitoringRule_IncidentTypeId");
 
             entity.HasIndex(e => new { e.ConfigId, e.EventTypeId }, "UX_MonitoringRule_Config_EventType")
                 .IsUnique()
                 .HasFilter("([outcome_type]=N'OPERATIONAL_EVENT' AND [event_type_id] IS NOT NULL)");
-
-            entity.HasIndex(e => new { e.ConfigId, e.IncidentTypeId }, "UX_MonitoringRule_Config_IncidentType")
-                .IsUnique()
-                .HasFilter("([outcome_type]=N'INCIDENT' AND [incident_type_id] IS NOT NULL)");
 
             entity.Property(e => e.RuleId)
                 .HasDefaultValueSql("(newsequentialid())", "DF_MonitoringRule_Id")
@@ -699,7 +684,6 @@ public partial class AppDbContext : DbContext
                 .HasDefaultValue(true, "DF_MonitoringRule_Enabled")
                 .HasColumnName("enabled");
             entity.Property(e => e.EventTypeId).HasColumnName("event_type_id");
-            entity.Property(e => e.IncidentTypeId).HasColumnName("incident_type_id");
             entity.Property(e => e.OutcomeType)
                 .HasMaxLength(40)
                 .HasDefaultValue("OPERATIONAL_EVENT", "DF_MonitoringRule_OutcomeType")
@@ -728,9 +712,6 @@ public partial class AppDbContext : DbContext
                 .HasForeignKey(d => d.EventTypeId)
                 .HasConstraintName("FK_MonitoringRule_OperationalEventType");
 
-            entity.HasOne(d => d.IncidentType).WithMany(p => p.MonitoringRules)
-                .HasForeignKey(d => d.IncidentTypeId)
-                .HasConstraintName("FK_MonitoringRule_IncidentType");
         });
 
         modelBuilder.Entity<Notification>(entity =>

@@ -203,7 +203,7 @@ public sealed class ResponsePolicyTests
         var rule = Assert.Single(h.Store.Values.OfType<MonitoringRule>());
         rule.OutcomeType = "INCIDENT";
         rule.EventTypeId = null;
-        rule.IncidentTypeId = Guid.NewGuid();
+
         var policies = new OperationalResponsePolicies(h.Store, new MonitoringSetupTests.User("ADMIN"));
 
         Assert.Equal("INVALID_POLICY_RULE",

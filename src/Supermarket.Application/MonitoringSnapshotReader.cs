@@ -43,10 +43,7 @@ public sealed class MonitoringSnapshotReader(ISetupStore store,CheckoutMonitorin
                     else rules.Add(snapshot);
                     continue;
                 }
-                var incidentType=rule.IncidentTypeId is { } incidentTypeId ? await store.Find<IncidentType>(incidentTypeId,ct) : null;
-                issue??=incidentType is null?"INCIDENT_TYPE_UNAVAILABLE":"INCIDENT_RULE_RUNTIME_UNSUPPORTED";
-                rules.Add(new(rule.RuleId,rule.IncidentTypeId,incidentType?.Code??"UNKNOWN",incidentType?.Name??"Unknown incident type","UNSUPPORTED",rule.ThresholdUnit,
-                    rule.WarningThreshold,rule.CriticalThreshold,rule.SustainSec,rule.CooldownSec,null,"",rule.ClearDurationSec,rule.OutcomeType,rule.ParametersJson));
+                issue??="MONITORING_OUTCOME_INVALID";
             }
             var mappings=rules.Count>0 || enabled.Count==0
                 ? await store.List<CameraZoneMapping>(m=>m.ZoneId==zone.ZoneId && m.Status=="ACTIVE",ct) : [];

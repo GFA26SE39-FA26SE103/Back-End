@@ -2,14 +2,14 @@ using System.ComponentModel.DataAnnotations;
 using Supermarket.Domain;
 namespace Supermarket.Application;
 
-public sealed record MonitoringRuleRequest(Guid IncidentTypeId, decimal WarningThreshold, decimal CriticalThreshold,
+public sealed record MonitoringRuleRequest(Guid EventTypeId, decimal WarningThreshold, decimal CriticalThreshold,
     [Required, MaxLength(30)] string ThresholdUnit, int SustainSec = 30, int CooldownSec = 300, int ClearDurationSec = 60, bool Enabled = true,
     [MaxLength(16000)] string? ParametersJson = null,
     // Saving requires both exits below their entries. Nullable so validation can report missing values.
     decimal? WarningExitThreshold = null, decimal? CriticalExitThreshold = null);
 public sealed record MonitoringActivationRequest(DateTime ExpectedUpdatedAt);
 public sealed record MonitoringDeleteRequest(Guid ConfigId, DateTime ExpectedUpdatedAt);
-public sealed record MonitoringRuleView(Guid RuleId, Guid IncidentTypeId, string IncidentCode, string IncidentName,
+public sealed record MonitoringRuleView(Guid RuleId, Guid EventTypeId, string EventCode, string EventName,
     decimal WarningThreshold, decimal CriticalThreshold, string ThresholdUnit, int SustainSec, int CooldownSec,
     int ClearDurationSec, bool Enabled, string? ParametersJson, decimal? WarningExitThreshold = null, decimal? CriticalExitThreshold = null);
 public sealed record MonitoringConfigurationView(Guid ConfigId, Guid ZoneId, string Name, decimal ConfidenceThreshold,
@@ -19,6 +19,9 @@ public sealed record IncidentTypeView(Guid IncidentTypeId, string Code, string N
     string? MeasurementType, string Status, bool Supported, string? ThresholdUnit, decimal? DefaultWarningThreshold,
     decimal? DefaultCriticalThreshold, string? UnsupportedReason, MonitoringMeasurementOptionView[]? MeasurementOptions=null,
     bool RequiresBeforePhoto=false);
+public sealed record MonitoringEventTypeView(Guid EventTypeId, string Code, string Name, string? Description,
+    string? MeasurementType, string Status, bool Supported, string? ThresholdUnit, decimal? DefaultWarningThreshold,
+    decimal? DefaultCriticalThreshold, string? UnsupportedReason, MonitoringMeasurementOptionView[]? MeasurementOptions=null);
 public sealed record MonitoringIssue(string Code, string Message);
 public sealed record MonitoringCameraView(Guid CameraId, string Code, string Name, string Status, string MappingStatus,
     Point[] RoiPolygon, string? SourceType, string? Protocol, bool IsEnabled, string? LastTestResult, DateTime? LastTestedAt,

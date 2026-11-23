@@ -21,6 +21,5 @@ public interface IMonitoringSnapshotReader
 public interface IMonitoringIncidentQueries
 {
     Task EnsureSchema(CancellationToken ct);
-    Task<DateTime?> LatestEndedAt(Guid zoneId,Guid typeId,CancellationToken ct);
     Task<IncidentFeedView> PageForCamera(Guid cameraId,IncidentFeedQuery query,CancellationToken ct);
 }

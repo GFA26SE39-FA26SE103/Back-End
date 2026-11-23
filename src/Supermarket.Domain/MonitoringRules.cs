@@ -15,7 +15,6 @@ public sealed class MonitoringRule : TrackedEntity
 {
     public Guid RuleId { get; set; }
     public Guid ConfigId { get; set; }
-    public Guid? IncidentTypeId { get; set; }
     public Guid? EventTypeId { get; set; }
     public string OutcomeType { get; set; } = "OPERATIONAL_EVENT";
     public decimal WarningThreshold { get; set; }
@@ -105,8 +104,8 @@ public static class MonitoringPolicy
     }
     public static void Validate(MonitoringRule rule, OperationalEventType type, bool requireDualThresholds = false)
     {
-        Rules.Require(rule.OutcomeType == "OPERATIONAL_EVENT" && rule.EventTypeId is not null && rule.IncidentTypeId is null,
-            "INVALID_RULE_TARGET", "Operational-event rules require only an operational event type.");
+        Rules.Require(rule.OutcomeType == "OPERATIONAL_EVENT" && rule.EventTypeId is not null,
+            "INVALID_RULE_TARGET", "Monitoring rules require an operational event type.");
         Rules.Require(!rule.Enabled || type.Status == "ACTIVE", "OPERATIONAL_EVENT_TYPE_INACTIVE", "Enabled rules require an active operational event type.");
         Rules.Require(rule.WarningThreshold >= 0 && rule.CriticalThreshold > rule.WarningThreshold
             && rule.CriticalThreshold <= 99999999999999.9999m && decimal.Round(rule.WarningThreshold, 4) == rule.WarningThreshold

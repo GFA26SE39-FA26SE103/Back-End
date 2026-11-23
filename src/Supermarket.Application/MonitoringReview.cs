@@ -10,7 +10,6 @@ public sealed partial class MonitoringSetup
         var configuration = await Configuration(zoneId, ct);
         var rules = (await store.List<MonitoringRule>(r => r.ConfigId == configuration.ConfigId, ct)).ToArray();
         if (rules.Length > 32) throw new ApplicationException("TOO_MANY_RULES", "A configuration supports at most 32 rules.");
-        var types = (await store.List<IncidentType>(ct: ct)).ToDictionary(t => t.IncidentTypeId);
         var eventTypes = (await store.List<OperationalEventType>(ct: ct)).ToDictionary(t => t.EventTypeId);
         var checkoutRules = rules.Where(r => r.Enabled && r.OutcomeType == "OPERATIONAL_EVENT"
             && r.EventTypeId is { } id && MonitoringPolicy.UsesCheckoutRuntime(eventTypes.GetValueOrDefault(id)?.Code, zone.ZoneType)).ToArray();
@@ -26,7 +25,7 @@ public sealed partial class MonitoringSetup
             var connection = (await store.List<CameraConnection>(c => c.CameraId == cameraId, ct)).SingleOrDefault();
             if (connection is not null) connections[cameraId] = connection;
         }
-        var view = ConfigurationView(configuration, rules, types, eventTypes);
+        var view = ConfigurationView(configuration, rules, eventTypes);
         if (checkoutRules.Length == 0)
             return EvaluateReview(zone, view, rules, eventTypes, mappings, cameras, connections);
 
@@ -81,7 +80,7 @@ public sealed partial class MonitoringSetup
         if (enabled.Length == 0) issues.Add(new("NO_ENABLED_RULES", "Enable at least one supported AI rule."));
         foreach (var rule in enabled)
         {
-            if(rule.OutcomeType!="OPERATIONAL_EVENT") { issues.Add(new("INCIDENT_RULE_RUNTIME_UNSUPPORTED", "Direct Incident monitoring is not enabled until a validated measurement contract exists.")); continue; }
+            if(rule.OutcomeType!="OPERATIONAL_EVENT") { issues.Add(new("MONITORING_OUTCOME_INVALID", "Monitoring rules must target operational events.")); continue; }
             var type = rule.EventTypeId is { } eventTypeId ? eventTypes.GetValueOrDefault(eventTypeId) : null;
             if (type is null) { issues.Add(new("OPERATIONAL_EVENT_TYPE_MISSING", "A rule's operational event type no longer exists.")); continue; }
             if (type.Code == "EXCESSIVE_WAIT" && zone.ZoneType != "CHECKOUT")

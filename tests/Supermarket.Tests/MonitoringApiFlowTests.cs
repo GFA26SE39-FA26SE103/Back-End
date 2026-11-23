@@ -30,15 +30,15 @@ public sealed partial class ApiFlowTests
         var floor = await Floor(client);
         var camera = await Camera(client, floor);
         var zone = await Zone(client, floor);
-        var catalog = (await client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!;
-        var aiCatalog = catalog.Where(t => t.SourceType == "AI_DETECTED").ToArray();
+        var catalog = (await client.GetFromJsonAsync<MonitoringEventTypeView[]>("/api/operational-event-types/monitoring"))!;
+        var aiCatalog = catalog;
         Assert.Equal(4, aiCatalog.Length);
         var queue = aiCatalog.Single(t => t.Code == "LONG_QUEUE");
-        var checkout = aiCatalog.Single(t => t.Code == "CHECKOUT_CAPACITY_ISSUE");
+        var checkout = aiCatalog.Single(t => t.Code == "CHECKOUT_CAPACITY");
         Assert.False(checkout.Supported);
         var input = new[] {
-            new MonitoringRuleRequest(queue.IncidentTypeId, 3, 5, "PEOPLE", 0, 0, WarningExitThreshold: 2, CriticalExitThreshold: 4),
-            new MonitoringRuleRequest(checkout.IncidentTypeId, 0.5m, 1, "PENDING", Enabled: false, WarningExitThreshold: 0.25m, CriticalExitThreshold: 0.75m)
+            new MonitoringRuleRequest(queue.EventTypeId, 3, 5, "PEOPLE", 0, 0, WarningExitThreshold: 2, CriticalExitThreshold: 4),
+            new MonitoringRuleRequest(checkout.EventTypeId, 0.5m, 1, "PENDING", Enabled: false, WarningExitThreshold: 0.25m, CriticalExitThreshold: 0.75m)
         };
         var route = $"/api/zones/{zone.ZoneId}/monitoring";
         var emptyCreate = await client.PutAsJsonAsync(route, new MonitoringRequest("Missing incidents", Rules: []));
@@ -49,8 +49,8 @@ public sealed partial class ApiFlowTests
         Assert.Equal("DRAFT", draft.Status);
         var loaded = (await client.GetFromJsonAsync<MonitoringConfigurationView>(route))!;
         Assert.Equal(.7123m, loaded.ConfidenceThreshold);
-        Assert.False(loaded.Rules.Single(r => r.IncidentTypeId == checkout.IncidentTypeId).Enabled);
-        Assert.Equal(0, loaded.Rules.Single(r => r.IncidentTypeId == queue.IncidentTypeId).CooldownSec);
+        Assert.False(loaded.Rules.Single(r => r.EventTypeId == checkout.EventTypeId).Enabled);
+        Assert.Equal(0, loaded.Rules.Single(r => r.EventTypeId == queue.EventTypeId).CooldownSec);
         var emptyUpdate = await client.PutAsJsonAsync(route, new MonitoringRequest("Remove every incident", Rules: [], ExpectedUpdatedAt: loaded.UpdatedAt));
         Assert.Equal(HttpStatusCode.UnprocessableEntity, emptyUpdate.StatusCode);
         var afterRejectedSave = (await client.GetFromJsonAsync<MonitoringConfigurationView>(route))!;
@@ -95,7 +95,7 @@ public sealed partial class ApiFlowTests
         Assert.Single(reloaded.Rules);
         Assert.Equal(0, reloaded.ConfidenceThreshold);
         Assert.Equal(4, reloaded.Rules[0].WarningThreshold);
-        Assert.Equal(loaded.Rules.Single(r => r.IncidentTypeId == queue.IncidentTypeId).RuleId, reloaded.Rules[0].RuleId);
+        Assert.Equal(loaded.Rules.Single(r => r.EventTypeId == queue.EventTypeId).RuleId, reloaded.Rules[0].RuleId);
     }
 
     [Fact]
@@ -104,8 +104,8 @@ public sealed partial class ApiFlowTests
         using var client = await Admin();
         var zone = await Zone(client, await Floor(client));
         var route = $"/api/zones/{zone.ZoneId}/monitoring";
-        var type = (await client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!.Single(t => t.Code == "LONG_QUEUE");
-        var rule = new MonitoringRuleRequest(type.IncidentTypeId, 3, 5, "PEOPLE", WarningExitThreshold: 2, CriticalExitThreshold: 4);
+        var type = (await client.GetFromJsonAsync<MonitoringEventTypeView[]>("/api/operational-event-types/monitoring"))!.Single(t => t.Code == "LONG_QUEUE");
+        var rule = new MonitoringRuleRequest(type.EventTypeId, 3, 5, "PEOPLE", WarningExitThreshold: 2, CriticalExitThreshold: 4);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PutAsJsonAsync(route, new { name = "Missing rules" })).StatusCode);
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, (await client.PostAsync(route + "/activate", null)).StatusCode);
         foreach (var invalid in new[] { rule with { CriticalThreshold = 3 }, rule with { ThresholdUnit = "MINUTES" }, rule with { SustainSec = -1 }, rule with { ParametersJson = "{invalid" }, rule with { WarningThreshold = 3.5m } })

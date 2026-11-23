@@ -5,10 +5,9 @@ public sealed class Incident : TrackedEntity
     public Guid IncidentId { get; set; }
     public Guid IncidentTypeId { get; set; }
     public Guid ZoneId { get; set; }
-    public Guid? MonitoringRuleId { get; set; }
     public Guid? StaffReportId { get; set; }
     public Guid? ReportedByUserId { get; set; }
-    public string SourceType { get; set; } = "AI_DETECTED";
+    public string SourceType { get; set; } = "STAFF_REPORT";
     public string Title { get; set; } = "";
     public string? Description { get; set; }
     public string Status { get; set; } = "DETECTED";

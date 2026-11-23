@@ -27,9 +27,8 @@ public sealed class MonitoringLive(ISetupStore store,ICurrentUser current,IMonit
                     }
                     else
                     {
-                        var type=rule.IncidentTypeId is { } incidentTypeId ? await store.Find<IncidentType>(incidentTypeId,ct) : null;
-                        ruleViews.Add(new(rule.RuleId,type?.Code??"UNKNOWN",type?.Name??"Unknown incident type","UNSUPPORTED",rule.ThresholdUnit,rule.WarningThreshold,rule.CriticalThreshold,
-                            rule.SustainSec,rule.CooldownSec,rule.ClearDurationSec,null,0,0,0,"INCIDENT_RULE_RUNTIME_UNSUPPORTED"));
+                        ruleViews.Add(new(rule.RuleId,"UNKNOWN","Invalid monitoring outcome","UNSUPPORTED",rule.ThresholdUnit,rule.WarningThreshold,rule.CriticalThreshold,
+                            rule.SustainSec,rule.CooldownSec,rule.ClearDurationSec,null,0,0,0,"MONITORING_OUTCOME_INVALID"));
                     }
                 }
             zones.Add(new(zone.ZoneId,zone.Name,config?.ConfigId,config?.UpdatedAt,config?.Status??"NOT_CONFIGURED",config?.ConfidenceThreshold??0,

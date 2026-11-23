@@ -14,7 +14,8 @@ public sealed class EfMonitoringIncidentQueries(AppDbContext db):IMonitoringInci
                 AND OBJECT_ID(N'dbo.OperationalEventType',N'U') IS NOT NULL
                 AND COL_LENGTH(N'dbo.MonitoringRule',N'event_type_id') IS NOT NULL
                 AND COL_LENGTH(N'dbo.MonitoringRule',N'outcome_type') IS NOT NULL
-                AND COL_LENGTH(N'dbo.Incident',N'monitoring_rule_id') IS NOT NULL
+                AND COL_LENGTH(N'dbo.Incident',N'monitoring_rule_id') IS NULL
+                AND COL_LENGTH(N'dbo.MonitoringRule',N'incident_type_id') IS NULL
                 AND COL_LENGTH(N'dbo.Incident',N'severity') IS NULL
                 AND COL_LENGTH(N'dbo.IncidentType',N'default_severity') IS NULL
                 AND COL_LENGTH(N'dbo.Incident',N'sla_policy_id') IS NOT NULL
@@ -36,16 +37,13 @@ public sealed class EfMonitoringIncidentQueries(AppDbContext db):IMonitoringInci
                 AND OBJECT_ID(N'dbo.ZoneShiftRequirement',N'U') IS NULL
                 AND EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.MonitoringRule')
                     AND name=N'UX_MonitoringRule_Config_EventType')
-                AND EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.MonitoringRule')
+                AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.MonitoringRule')
                     AND name=N'UX_MonitoringRule_Config_IncidentType')
                 AND EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'dbo.OperationalEvent') AND name=N'UX_OperationalEvent_Active_Rule_Zone')
                 THEN 1 ELSE 0 END AS Value
             """).SingleAsync(ct);
-        if(ready!=1) throw new Supermarket.Application.ApplicationException("MONITORING_SCHEMA_NOT_READY","Apply the approved ERD V7 Database V9 migration before using operational monitoring.",503);
+        if(ready!=1) throw new Supermarket.Application.ApplicationException("MONITORING_SCHEMA_NOT_READY","Apply the monitoring-to-operational-event schema cutover before using operational monitoring.",503);
     }
-    public Task<DateTime?> LatestEndedAt(Guid zoneId,Guid typeId,CancellationToken ct)
-        =>db.Incidents.Where(i=>i.ZoneId==zoneId && i.IncidentTypeId==typeId && i.ClosedAt!=null).MaxAsync(i=>i.ClosedAt,ct);
-
     public async Task<IncidentFeedView> PageForCamera(Guid cameraId,IncidentFeedQuery query,CancellationToken ct)
     {
         query.Validate(); await EnsureSchema(ct);

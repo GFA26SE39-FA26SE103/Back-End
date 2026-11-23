@@ -128,10 +128,10 @@ public sealed partial class ApiFlowTests(SqlApiFixture fixture)
         var zone = await Zone(client, floor);
         var monitoring = $"/api/zones/{zone.ZoneId}/monitoring";
         var connection = $"/api/cameras/{camera.CameraId}/connection";
-        var incidentTypes = (await client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!;
-        var congestion = incidentTypes.Single(t => t.Code == "OVERCROWDING_CONGESTION");
+        var eventTypes = (await client.GetFromJsonAsync<MonitoringEventTypeView[]>("/api/operational-event-types/monitoring"))!;
+        var congestion = eventTypes.Single(t => t.Code == "OVERCROWDING");
         var draft = await Read<MonitoringConfigurationView>(await client.PutAsJsonAsync(monitoring, new MonitoringRequest("Congestion monitoring",
-            Rules: [new MonitoringRuleRequest(congestion.IncidentTypeId, 3, 5, "PEOPLE", 30, 300, WarningExitThreshold: 2, CriticalExitThreshold: 4)])));
+            Rules: [new MonitoringRuleRequest(congestion.EventTypeId, 3, 5, "PEOPLE", 30, 300, WarningExitThreshold: 2, CriticalExitThreshold: 4)])));
         Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync(monitoring + "/activate", new MonitoringActivationRequest(draft.UpdatedAt))).StatusCode);
         await Read<ConnectionView>(await client.PutAsJsonAsync(connection, new ConnectionRequest("LIVE", "HTTP", "http://camera.test/video")));
         await Read<ConnectionView>(await client.PostAsync(connection + "/test", null));

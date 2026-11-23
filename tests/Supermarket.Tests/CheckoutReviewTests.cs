@@ -149,7 +149,7 @@ public sealed class CheckoutReviewTests
     {
         var f = new CheckoutFixture();
         f.Options.AiContractEnabled = enabled;
-        var type = Assert.Single(await f.Setup().IncidentTypes(default));
+        var type = Assert.Single(await f.Setup().EventTypes(default));
         Assert.Equal("PEOPLE_PER_STAFFED_COUNTER", type.ThresholdUnit);
         Assert.Equal(enabled, type.Supported);
         Assert.Null(type.DefaultWarningThreshold);
@@ -166,12 +166,8 @@ public sealed class CheckoutReviewTests
     {
         var f = new CheckoutFixture();
         f.Store.Values.RemoveAll(e => e is OperationalEventType);
-        var type = Assert.Single(await f.Setup().IncidentTypes(default));
-        Assert.Equal("AI_DETECTED", type.SourceType);
-        Assert.Equal("PEOPLE_PER_STAFFED_COUNTER", type.ThresholdUnit);
-        Assert.False(type.Supported);
-        Assert.Null(type.DefaultWarningThreshold);
-        Assert.Null(type.DefaultCriticalThreshold);
+        var catalog = await f.Setup().EventTypes(default);
+        Assert.Empty(catalog);
     }
 
     [Fact]

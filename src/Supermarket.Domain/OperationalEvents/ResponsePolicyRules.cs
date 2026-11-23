@@ -18,7 +18,7 @@ public static class ResponsePolicyRules
             "INVALID_POLICY_RULE", "Response policies can target only operational-event rules.");
 
     public static bool IsOperationalEventRule(MonitoringRule rule)
-        => rule.OutcomeType == "OPERATIONAL_EVENT" && rule.EventTypeId is not null && rule.IncidentTypeId is null;
+        => rule.OutcomeType == "OPERATIONAL_EVENT" && rule.EventTypeId is not null;
 
     public static (string? Title, string? Instructions, string? TaskTypeCode) TaskParameters(string? title, string? instructions, string? taskTypeCode)
     {

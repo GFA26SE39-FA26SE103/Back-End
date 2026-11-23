@@ -15,11 +15,11 @@ public sealed class MonitoringRuntimeSchemaApiFlowTests(SqlApiFixture fixture)
         var store = scope.ServiceProvider.GetRequiredService<ISetupStore>();
         var zone = new Zone { ZoneId=Guid.NewGuid(), Code="RT-"+Guid.NewGuid().ToString("N")[..8], Name="Runtime test", MapPolygon="[{\"x\":0,\"y\":0},{\"x\":1,\"y\":0},{\"x\":0,\"y\":1}]" };
         var camera = new Camera { CameraId=Guid.NewGuid(), Code="RT-"+Guid.NewGuid().ToString("N")[..8], Name="Runtime test" };
-        var type = (await store.List<IncidentType>(t=>t.Code=="LONG_QUEUE")).Single();
+        var type = (await store.List<IncidentType>(t=>t.Code=="CLEANLINESS_ISSUE")).Single();
         var eventType = (await store.List<OperationalEventType>(t=>t.Code=="LONG_QUEUE")).Single();
         var ruleId=Guid.NewGuid(); var configId=Guid.NewGuid();
         var incident = new Incident { IncidentId=Guid.NewGuid(), ZoneId=zone.ZoneId, IncidentTypeId=type.IncidentTypeId,
-            MonitoringRuleId=ruleId,SourceType="MONITORING_RULE",Title="Runtime queue" };
+            StaffReportId=Guid.NewGuid(),SourceType="STAFF_REPORT",Title="Runtime report" };
         var observed = new OperationalEvent { EventId=Guid.NewGuid(), CameraId=camera.CameraId, ZoneId=zone.ZoneId,
             EventTypeId=eventType.EventTypeId, MetricValue=2, Priority="WARNING",
             DetectedAt=DateTime.UtcNow, LastObservedAt=DateTime.UtcNow, UpdatedAt=DateTime.UtcNow, CreatedAt=DateTime.UtcNow,
@@ -36,10 +36,12 @@ public sealed class MonitoringRuntimeSchemaApiFlowTests(SqlApiFixture fixture)
                 Status="ACTIVE",CreatedByUserId=admin.UserId });
             await store.Add(new MonitoringRule { RuleId=ruleId,ConfigId=configId,EventTypeId=eventType.EventTypeId,
                 OutcomeType="OPERATIONAL_EVENT",WarningThreshold=1,CriticalThreshold=2,ThresholdUnit="PEOPLE",SustainSec=1,CooldownSec=30,ClearDurationSec=1 });
-            observed.RuleId=ruleId; await store.Add(incident); await store.Add(observed); return true;
+            observed.RuleId=ruleId; await store.Add(new StaffReport { ReportId=incident.StaffReportId!.Value, ReportedByUserId=admin.UserId,
+                ZoneId=zone.ZoneId, IncidentTypeId=type.IncidentTypeId, Title="Runtime report", ReportCategory="POTENTIAL_INCIDENT",
+                Status="CONFIRMED", ConfirmedAt=DateTime.UtcNow }); await store.Add(incident); await store.Add(observed); return true;
         });
         var saved=(await store.Find<Incident>(incident.IncidentId))!;
-        Assert.Equal("DETECTED",saved.Status); Assert.Equal("MONITORING_RULE",saved.SourceType);
+        Assert.Equal("DETECTED",saved.Status); Assert.Equal("STAFF_REPORT",saved.SourceType);
         Assert.Null(saved.ReportedByUserId); Assert.Equal(DateTimeKind.Utc,saved.CreatedAt.Kind);
         var savedEvent=(await store.Find<OperationalEvent>(observed.EventId))!;
         Assert.Equal(2,savedEvent.MetricValue); Assert.Equal(observed.MetadataJson,savedEvent.MetadataJson);

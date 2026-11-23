@@ -150,12 +150,11 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
             if (config is not null)
             {
                 var rules = (await store.List<MonitoringRule>(x => x.ConfigId == config.ConfigId, ct)).ToArray();
-                var incidentTypes = (await store.List<IncidentType>(ct: ct)).ToDictionary(x => x.IncidentTypeId);
                 var eventTypes = (await store.List<OperationalEventType>(ct: ct)).ToDictionary(x => x.EventTypeId);
-                var view = MonitoringSetup.ConfigurationView(config, rules, incidentTypes, eventTypes);
+                var view = MonitoringSetup.ConfigurationView(config, rules, eventTypes);
                 monitoring = new(view.Name, view.Status,
                     view.Rules.Select(x => new ZoneRuleUsageView(x.RuleId,
-                        x.IncidentCode == "CONGESTION" && x.ThresholdUnit == MonitoringPolicy.DensityUnit ? "Crowd Density" : x.IncidentName,
+                        x.EventCode == "CONGESTION" && x.ThresholdUnit == MonitoringPolicy.DensityUnit ? "Crowd Density" : x.EventName,
                         x.Enabled)).ToArray());
             }
         }

@@ -87,7 +87,7 @@ public sealed class RuleHysteresisTests
     {
         var h = new MonitoringSetupTests.Harness();
         var type = h.AddRule();
-        var input = new MonitoringRuleRequest(type.IncidentTypeId, 10, 20, "PEOPLE", 0, 0, 45, WarningExitThreshold: 8, CriticalExitThreshold: 18);
+        var input = new MonitoringRuleRequest(h.Store.Values.OfType<OperationalEventType>().Single().EventTypeId, 10, 20, "PEOPLE", 0, 0, 45, WarningExitThreshold: 8, CriticalExitThreshold: 18);
         var saved = await h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Dual", .6m, [input], h.Configuration.UpdatedAt), default);
         var view = Assert.Single(saved.Rules);
         Assert.Equal((8m, 18m), (view.WarningExitThreshold!.Value, view.CriticalExitThreshold!.Value));
@@ -110,7 +110,7 @@ public sealed class RuleHysteresisTests
     {
         var h = new MonitoringSetupTests.Harness();
         var type = h.AddRule();
-        var input = new MonitoringRuleRequest(type.IncidentTypeId, 10, 20, "PEOPLE", WarningExitThreshold: warningExit, CriticalExitThreshold: criticalExit);
+        var input = new MonitoringRuleRequest(h.Store.Values.OfType<OperationalEventType>().Single().EventTypeId, 10, 20, "PEOPLE", WarningExitThreshold: warningExit, CriticalExitThreshold: criticalExit);
 
         var error = await Assert.ThrowsAsync<DomainException>(() =>
             h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Invalid", Rules: [input], ExpectedUpdatedAt: h.Configuration.UpdatedAt), default));
@@ -131,7 +131,7 @@ public sealed class RuleHysteresisTests
         Assert.Contains(review.Issues, issue => issue.Code == "DUAL_THRESHOLDS_REQUIRED");
         await Assert.ThrowsAsync<Supermarket.Application.ApplicationException>(() => h.Setup.Activate(h.Zone.ZoneId, true, h.Configuration.UpdatedAt, default));
 
-        var input = new MonitoringRuleRequest(type.IncidentTypeId, 3, 5, "PEOPLE", WarningExitThreshold: 2, CriticalExitThreshold: 4);
+        var input = new MonitoringRuleRequest(h.Store.Values.OfType<OperationalEventType>().Single().EventTypeId, 3, 5, "PEOPLE", WarningExitThreshold: 2, CriticalExitThreshold: 4);
         var saved = await h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Updated", Rules: [input], ExpectedUpdatedAt: h.Configuration.UpdatedAt), default);
         Assert.Equal(rule.RuleId, Assert.Single(saved.Rules).RuleId);
         Assert.Equal("ACTIVE", (await h.Setup.Activate(h.Zone.ZoneId, true, saved.UpdatedAt, default)).Status);

@@ -5,8 +5,9 @@ using Supermarket.Application;
 namespace Supermarket.Api.Controllers;
 
 [ApiController, Authorize(Roles = AccessRoles.Admin), Route("api/operational-event-types")]
-public sealed class OperationalEventTypesController(OperationalEventTypeCatalog catalog) : ControllerBase
+public sealed class OperationalEventTypesController(OperationalEventTypeCatalog catalog, MonitoringSetup monitoring) : ControllerBase
 {
+    [HttpGet("monitoring")] public Task<MonitoringEventTypeView[]> Monitoring(CancellationToken ct) => monitoring.EventTypes(ct);
     [HttpGet] public Task<OperationalEventTypeAdminView[]> List(CancellationToken ct) => catalog.List(ct);
     [HttpGet("{eventTypeId:guid}")] public Task<OperationalEventTypeAdminView> Get(Guid eventTypeId, CancellationToken ct) => catalog.Get(eventTypeId, ct);
     [HttpPost] public Task<OperationalEventTypeAdminView> Create(OperationalEventTypeCreateRequest request, CancellationToken ct) => catalog.Create(request, ct);

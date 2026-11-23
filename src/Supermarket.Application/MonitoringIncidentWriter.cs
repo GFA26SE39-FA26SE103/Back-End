@@ -2,8 +2,8 @@ using System.Text.Json;
 using Supermarket.Domain;
 namespace Supermarket.Application;
 
-public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapshotReader snapshots,IMonitoringIncidentQueries queries,IClock clock,
-    IOperationalEventResponder? responder=null,IncidentSlaPolicyService? slaPolicies=null)
+public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapshotReader snapshots,IClock clock,
+    IOperationalEventResponder? responder=null)
 {
     private static readonly JsonSerializerOptions Json=new(JsonSerializerDefaults.Web);
 
@@ -14,12 +14,10 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
         if(!command.ShouldSample && evaluation.EligibleSeverity is null && !evaluation.ShouldClear)
             return Task.FromResult(new IncidentWriteResult(true,false,false,null,evaluation.Reason));
         var outcome=command.Rule.OutcomeType;
-        if(outcome is not ("OPERATIONAL_EVENT" or "INCIDENT"))
+        if(outcome != "OPERATIONAL_EVENT")
             throw new ApplicationException("MONITORING_OUTCOME_INVALID","The monitoring rule outcome type is invalid.",503);
         if(outcome=="OPERATIONAL_EVENT" && (command.Rule.EventTypeId is not { } eventTypeId || eventTypeId==Guid.Empty || string.IsNullOrWhiteSpace(command.Rule.EventTypeCode)))
             throw new ApplicationException("OPERATIONAL_EVENT_TYPE_UNAVAILABLE","The monitoring rule has no operational event type.",503);
-        if(outcome=="INCIDENT" && (command.Rule.IncidentTypeId is not { } incidentTypeId || incidentTypeId==Guid.Empty))
-            throw new ApplicationException("INCIDENT_TYPE_UNAVAILABLE","The monitoring rule has no incident type.",503);
 
         return store.Transaction(async()=>
         {
@@ -36,37 +34,6 @@ public sealed class MonitoringIncidentWriter(ISetupStore store,IMonitoringSnapsh
                 throw new ApplicationException("CHECKOUT_MEASUREMENT_INVALID","Checkout rules require a validated aggregate metric.",503);
             var metric=command.MetricOverride??rule.CameraMetric(zone,command.Measurement);
             var metadata=Metadata(command,metric);
-
-            if(outcome=="INCIDENT")
-            {
-                var incidentTypeId=rule.IncidentTypeId!.Value;
-                var existing=(await store.List<Incident>(i=>i.MonitoringRuleId==rule.RuleId && i.ZoneId==zone.ZoneId && i.IncidentTypeId==incidentTypeId && i.ClosedAt==null,ct)).SingleOrDefault();
-                if(evaluation.ShouldClear || evaluation.EligibleSeverity is null)
-                    return new(true,false,false,existing?.IncidentId,evaluation.Reason);
-
-                var latestEnded=existing is null?await queries.LatestEndedAt(zone.ZoneId,incidentTypeId,ct):null;
-                var decision=IncidentPolicy.Decide(existing,latestEnded,evaluation.EligibleSeverity,rule.Settings(),clock.UtcNow);
-                var incident=existing;
-                if(decision.Action=="CREATE")
-                {
-                    var title=$"{rule.Name} — {zone.ZoneName}";
-                    incident=new Incident { IncidentId=Guid.NewGuid(),IncidentTypeId=incidentTypeId,ZoneId=zone.ZoneId,
-                        MonitoringRuleId=rule.RuleId,Title=title[..Math.Min(200,title.Length)],
-                        Description=$"{rule.Mode}: {metric} {rule.Unit}. AI-detected incident outcome; dispatch is not implemented." };
-                    if(slaPolicies is null)
-                        throw new ApplicationException("INCIDENT_SLA_SERVICE_UNAVAILABLE","Incident SLA matching is unavailable.",503);
-                    await slaPolicies.Assign(incident,ct);
-                    await store.Add(incident,ct);
-                }
-                else if(incident is not null)
-                {
-                    incident.MonitoringRuleId??=rule.RuleId;
-                    incident.Description=$"{rule.Mode}: {metric} {rule.Unit}. Latest aggregate observation; recovery does not automatically close this incident.";
-                    await store.Update(incident,ct);
-                }
-                var reason=decision.Action=="SUPPRESSED"?"COOLDOWN":evaluation.Reason;
-                return new(true,false,false,incident?.IncidentId,reason,decision.CooldownRemainingSec);
-            }
 
             var active=(await store.List<OperationalEvent>(e=>e.RuleId==rule.RuleId && e.ZoneId==zone.ZoneId && e.ClearedAt==null,ct)).SingleOrDefault();
             EnsureEvidenceFresh(command);

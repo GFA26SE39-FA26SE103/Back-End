@@ -98,7 +98,7 @@ public sealed class MonitoringSetupTests
     {
         var h = new Harness();
         var type = h.AddCongestionCountRule();
-        var input = new MonitoringRuleRequest(type.IncidentTypeId, 4, 7, "PEOPLE", 0, 0, 45, WarningExitThreshold: 3, CriticalExitThreshold: 6);
+        var input = new MonitoringRuleRequest(h.Store.Values.OfType<OperationalEventType>().Single().EventTypeId, 4, 7, "PEOPLE", 0, 0, 45, WarningExitThreshold: 3, CriticalExitThreshold: 6);
         var stale = await Assert.ThrowsAsync<AppError>(() => h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Stale", Rules: [input], ExpectedUpdatedAt: DateTime.UnixEpoch), default));
         Assert.Equal("CONFIGURATION_CHANGED", stale.Code);
         var saved = await h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("Saved", .6m, [input], h.Configuration.UpdatedAt), default);
@@ -122,14 +122,14 @@ public sealed class MonitoringSetupTests
     {
         var h = new Harness();
         var legacyCatalogType = h.AddRule();
-        var input = new MonitoringRuleRequest(legacyCatalogType.IncidentTypeId, 3, 5, "PEOPLE", WarningExitThreshold: 2, CriticalExitThreshold: 4);
+        var input = new MonitoringRuleRequest(h.Store.Values.OfType<OperationalEventType>().Single().EventTypeId, 3, 5, "PEOPLE", WarningExitThreshold: 2, CriticalExitThreshold: 4);
 
         await h.Setup.Save(h.Zone.ZoneId, new MonitoringRequest("V6", Rules: [input], ExpectedUpdatedAt: h.Configuration.UpdatedAt), default);
 
         var stored = Assert.Single(h.Store.Values.OfType<MonitoringRule>());
         Assert.Equal("OPERATIONAL_EVENT", stored.OutcomeType);
         Assert.NotEqual(Guid.Empty, stored.EventTypeId);
-        Assert.Null((Guid?)stored.IncidentTypeId);
+        Assert.Equal("OPERATIONAL_EVENT", stored.OutcomeType);
     }
 
     [Theory]
@@ -213,7 +213,7 @@ public sealed class MonitoringSetupTests
             var type = new IncidentType { IncidentTypeId = Guid.NewGuid(), Code = code, Name = code };
             var eventType = new OperationalEventType { EventTypeId=Guid.NewGuid(),Code=MonitoringPolicy.OperationalEventCode(type)!,Name=code,MeasurementType=measurement };
             Store.Values.AddRange([type,eventType]);
-            Store.Values.Add(new MonitoringRule { RuleId = Guid.NewGuid(), ConfigId = Configuration.ConfigId, IncidentTypeId = null,
+            Store.Values.Add(new MonitoringRule { RuleId = Guid.NewGuid(), ConfigId = Configuration.ConfigId,
                 EventTypeId=eventType.EventTypeId, WarningThreshold = 3, CriticalThreshold = 5, ThresholdUnit = unit,
                 ParametersJson = RuleHysteresis.Merge(null, 2, 4) });
             return type;

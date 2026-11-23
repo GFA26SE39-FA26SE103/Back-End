@@ -31,7 +31,6 @@ public partial class Incident
 
     public Guid? StaffReportId { get; set; }
 
-    public Guid? MonitoringRuleId { get; set; }
 
     public Guid? SlaPolicyId { get; set; }
 
@@ -45,7 +44,6 @@ public partial class Incident
 
     public virtual IncidentType IncidentType { get; set; } = null!;
 
-    public virtual MonitoringRule? MonitoringRule { get; set; }
 
     public virtual ICollection<Notification> Notifications { get; set; } = new List<Notification>();
 

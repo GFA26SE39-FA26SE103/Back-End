@@ -117,7 +117,7 @@ public sealed class StaffTaskTests
     {
         var w = new World(); w.Staff("An", checkedIn: true); w.Policy();
         var rule = Assert.Single(w.Store.Values.OfType<MonitoringRule>());
-        rule.OutcomeType = "INCIDENT"; rule.EventTypeId = null; rule.IncidentTypeId = Guid.NewGuid();
+        rule.OutcomeType = "INCIDENT"; rule.EventTypeId = null;
 
         await w.Raise("CRITICAL");
 
@@ -564,7 +564,7 @@ public sealed class StaffTaskTests
         w.Store.Values.Add(new MonitoringRule { RuleId = rule.RuleId, ConfigId = configId, EventTypeId = eventTypeId, OutcomeType = "OPERATIONAL_EVENT", Enabled = true });
         w.Store.Values.Add(new OperationalEventType { EventTypeId = eventTypeId, Code = "LONG_QUEUE", Name = "Long queue", MeasurementType = "QUEUE_LENGTH" });
         w.Policy(rule.RuleId);
-        var writer = new MonitoringIncidentWriter(w.Store, new Snapshots(), new Queries(), w.Clock, w.Dispatch);
+        var writer = new MonitoringIncidentWriter(w.Store, new Snapshots(), w.Clock, w.Dispatch);
         var zone = new MonitoringZoneSnapshot(w.Zone.ZoneId, w.Zone.Name, configId, Now, [], .5m, [rule]);
         var snapshot = new MonitoringCameraSnapshot(w.Camera.CameraId, new(), "f", [zone]);
         var session = Guid.NewGuid();

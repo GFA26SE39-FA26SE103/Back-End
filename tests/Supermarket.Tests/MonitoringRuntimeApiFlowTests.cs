@@ -15,8 +15,8 @@ public sealed class MonitoringRuntimeApiFlowTests
         var (camera,zone,first)=await h.Configure();
         var secondZone=await MonitoringRuntimeTestSupport.Read<ZoneView>(await h.Client.PostAsJsonAsync($"/api/floors/{camera.FloorId}/zones",new ZoneRequest(Guid.NewGuid().ToString("N"),"Second ROI","QUEUE",MonitoringRuntimeTestSupport.Roi)));
         await MonitoringRuntimeTestSupport.Read<MappingView>(await h.Client.PutAsJsonAsync($"/api/cameras/{camera.CameraId}/zones/{secondZone.ZoneId}",new MappingRequest(MonitoringRuntimeTestSupport.Roi)));
-        var congestion=(await h.Client.GetFromJsonAsync<IncidentTypeView[]>("/api/incident-types"))!.Single(t=>t.Code=="OVERCROWDING_CONGESTION");
-        var second=await MonitoringRuntimeTestSupport.Read<MonitoringConfigurationView>(await h.Client.PutAsJsonAsync($"/api/zones/{secondZone.ZoneId}/monitoring",new MonitoringRequest("Second zone",.8m,[new(congestion.IncidentTypeId,2,4,"PEOPLE",1,30,WarningExitThreshold:1,CriticalExitThreshold:3)])));
+        var congestion=(await h.Client.GetFromJsonAsync<MonitoringEventTypeView[]>("/api/operational-event-types/monitoring"))!.Single(t=>t.Code=="CONGESTION");
+        var second=await MonitoringRuntimeTestSupport.Read<MonitoringConfigurationView>(await h.Client.PutAsJsonAsync($"/api/zones/{secondZone.ZoneId}/monitoring",new MonitoringRequest("Second zone",.8m,[new(congestion.EventTypeId,2,4,"PEOPLE",1,30,WarningExitThreshold:1,CriticalExitThreshold:3)])));
         first=await h.Activate(zone.ZoneId,first); await h.Worker.Tick(default); h.Ai.Add(0,3); await h.Worker.Tick(default);
         var session=h.Worker.Get(camera.CameraId)!.SessionId;
         second=await h.Activate(secondZone.ZoneId,second); await h.Worker.Tick(default);
@@ -75,13 +75,17 @@ public sealed class MonitoringRuntimeApiFlowTests
         h.Ai.Add(0,3); await h.Worker.Tick(default); h.Ai.Add(1000,3);
         h.Ai.BeforeRead=()=>h.Execute("UPDATE dbo.MonitoringConfiguration SET status='INACTIVE',updated_at=DATEADD(ms,1,updated_at) WHERE config_id=@id",("@id",active.ConfigId)).GetAwaiter().GetResult();
         await h.Worker.Tick(default); Assert.Empty(await h.Rows<Incident>()); Assert.Empty(await h.Rows<OperationalEvent>());
-        var type=draft.Rules[0].IncidentTypeId;
-        var rule=draft.Rules[0].RuleId;
         await h.Execute("""
-          INSERT dbo.Incident(incident_id,incident_type_id,zone_id,monitoring_rule_id,source_type,title,status,closed_at,created_at,updated_at)
-          SELECT NEWID(),@type,@zone,@rule,'MONITORING_RULE','History','CLOSED',@time,@time,@time
-          FROM (SELECT TOP(1000) ROW_NUMBER() OVER(ORDER BY (SELECT NULL)) n FROM sys.all_objects a CROSS JOIN sys.all_objects b) x;
-          """,("@type",type),("@zone",zone.ZoneId),("@rule",rule),("@time",h.Clock.UtcNow));
+          DECLARE @type uniqueidentifier = (SELECT incident_type_id FROM dbo.IncidentType WHERE code='CLEANLINESS_ISSUE');
+          DECLARE @reporter uniqueidentifier = (SELECT TOP(1) user_id FROM dbo.UserAccount ORDER BY user_id);
+          SELECT TOP(1000) NEWID() AS incident_id, NEWID() AS report_id INTO #history
+          FROM sys.all_objects a CROSS JOIN sys.all_objects b;
+          INSERT dbo.StaffReport(report_id,reported_by_user_id,zone_id,title,status,confirmed_at,created_at,updated_at,incident_type_id,report_category)
+          SELECT report_id,@reporter,@zone,'History','CONFIRMED',@time,@time,@time,@type,'POTENTIAL_INCIDENT' FROM #history;
+          INSERT dbo.Incident(incident_id,incident_type_id,zone_id,staff_report_id,source_type,title,status,closed_at,created_at,updated_at)
+          SELECT incident_id,@type,@zone,report_id,'STAFF_REPORT','History','CLOSED',@time,@time,@time FROM #history;
+          DROP TABLE #history;
+          """,("@zone",zone.ZoneId),("@time",h.Clock.UtcNow));
         var root=$"/api/cameras/{camera.CameraId}/incidents";
         Assert.Empty((await MonitoringRuntimeTestSupport.Read<IncidentFeedView>(await h.Client.GetAsync(root))).Items);
         var seen=new HashSet<Guid>(); string path=root+"?includeEnded=true&limit=100";

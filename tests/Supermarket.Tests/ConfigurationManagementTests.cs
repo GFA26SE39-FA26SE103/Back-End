@@ -19,9 +19,9 @@ public sealed class ConfigurationManagementTests
         var setup = new MonitoringSetup(h.Store, new MonitoringSetupTests.User("ADMIN"),
             checkoutOptions: new CheckoutMonitoringOptions { AiContractEnabled = enabled });
 
-        var catalog = await setup.IncidentTypes(default);
-        var wait = Assert.Single(catalog, item => item.Code == "EXCESSIVE_WAITING_TIME");
-        var capacity = Assert.Single(catalog, item => item.Code == "CHECKOUT_CAPACITY_ISSUE");
+        var catalog = await setup.EventTypes(default);
+        var wait = Assert.Single(catalog, item => item.Code == "EXCESSIVE_WAIT");
+        var capacity = Assert.Single(catalog, item => item.Code == "CHECKOUT_CAPACITY");
         Assert.Equal("MINUTES", wait.ThresholdUnit);
         Assert.Equal(4m, wait.DefaultWarningThreshold);
         Assert.Equal(8m, wait.DefaultCriticalThreshold);
@@ -115,7 +115,7 @@ public sealed class ConfigurationManagementTests
         var oldRequest = new MonitoringDeleteRequest(h.Configuration.ConfigId, h.Configuration.UpdatedAt);
         var type = h.Store.Values.OfType<IncidentType>().Single();
         await h.Setup.Delete(h.Zone.ZoneId, oldRequest, default);
-        var saved = await h.Setup.Save(h.Zone.ZoneId, new("Replacement", Rules: [new(type.IncidentTypeId, 3, 5, "PEOPLE", WarningExitThreshold: 2, CriticalExitThreshold: 4)]), default);
+        var saved = await h.Setup.Save(h.Zone.ZoneId, new("Replacement", Rules: [new(h.Store.Values.OfType<OperationalEventType>().Single().EventTypeId, 3, 5, "PEOPLE", WarningExitThreshold: 2, CriticalExitThreshold: 4)]), default);
         Assert.NotEqual(oldRequest.ConfigId, saved.ConfigId);
         Assert.Equal("CONFIGURATION_CHANGED", (await Assert.ThrowsAsync<AppError>(() => h.Setup.Delete(h.Zone.ZoneId, oldRequest, default))).Code);
         Assert.Equal(saved.ConfigId, (await h.Setup.Get(h.Zone.ZoneId, default)).ConfigId);
