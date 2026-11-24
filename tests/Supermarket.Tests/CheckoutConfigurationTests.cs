@@ -22,6 +22,31 @@ public sealed class CheckoutConfigurationTests
     private static readonly DateTime Version = new(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
 
     [Fact]
+    public async Task NewCounterAndThreeRoisAreSavedEnabledTogether()
+    {
+        var h = new Harness();
+        var saved = await h.Setup.Create(h.Zone.ZoneId,
+            new("", "Second counter", CameraId: h.Camera.CameraId,
+                LaneRoi: Triangle, StaffRoi: Triangle, ServiceRoi: Triangle), default);
+        Assert.True(saved.IsEnabled);
+        Assert.StartsWith("CTR-", saved.Code);
+        var mapping = Assert.Single(h.Store.Values.OfType<CameraCheckoutMapping>());
+        Assert.Equal(saved.CheckoutCounterId, mapping.CheckoutCounterId);
+        Assert.True(mapping.IsEnabled);
+        Assert.Equal(Triangle, JsonSerializer.Deserialize<Point[]>(Assert.IsType<string>(mapping.ServiceRoi),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+    }
+
+    [Fact]
+    public async Task NewCounterWithIncompleteCoverageDoesNotPersist()
+    {
+        var h = new Harness();
+        await h.Unchanged("CHECKOUT_COVERAGE_REQUIRED", () => h.Setup.Create(h.Zone.ZoneId,
+            new("C2", "Second counter", CameraId: h.Camera.CameraId,
+                LaneRoi: Triangle, StaffRoi: Triangle), default));
+    }
+
+    [Fact]
     public void DomainPropertiesExactlyMatchTheGeneratedScalars()
     {
         Match(typeof(CheckoutCounter), typeof(Db.CheckoutCounter),
@@ -127,15 +152,19 @@ public sealed class CheckoutConfigurationTests
     public async Task CounterCrudPreservesIdentityZoneAndStoreOwnedTimestamps()
     {
         var h = new Harness();
-        var created = await h.Setup.Create(h.Zone.ZoneId, new(" C2 ", " Second "), default);
-        Assert.False(created.IsEnabled); Assert.Equal("C2", created.Code); Assert.Equal("Second", created.Name);
+        var created = await h.Setup.Create(h.Zone.ZoneId, new(" C2 ", " Second ", CameraId: h.Camera.CameraId,
+            LaneRoi: Triangle, StaffRoi: Triangle, ServiceRoi: Triangle), default);
+        Assert.True(created.IsEnabled); Assert.Equal("C2", created.Code); Assert.Equal("Second", created.Name);
         Assert.Equal(h.Zone.ZoneId, created.ZoneId); Assert.Equal(Version, created.CreatedAt);
         var updated = await h.Setup.Update(created.CheckoutCounterId, new("C3", "Third", ExpectedUpdatedAt: created.UpdatedAt), default);
         Assert.Equal(created.CheckoutCounterId, updated.CheckoutCounterId); Assert.Equal(created.ZoneId, updated.ZoneId);
         Assert.Equal(created.CreatedAt, updated.CreatedAt); Assert.True(updated.UpdatedAt > created.UpdatedAt);
-        await h.Setup.Delete(updated.CheckoutCounterId, updated.UpdatedAt, default);
+        var mapping = Assert.Single(h.Store.Values.OfType<CameraCheckoutMapping>());
+        await h.Setup.DeleteMapping(updated.CheckoutCounterId, h.Camera.CameraId, mapping.UpdatedAt, default);
+        var disabled = await h.Setup.Get(updated.CheckoutCounterId, default);
+        await h.Setup.Delete(disabled.CheckoutCounterId, disabled.UpdatedAt, default);
         await Error("NOT_FOUND", () => h.Setup.Get(updated.CheckoutCounterId, default));
-        Assert.Equal(3, h.Store.Transactions);
+        Assert.Equal(4, h.Store.Transactions);
     }
 
     [Theory]
@@ -158,7 +187,8 @@ public sealed class CheckoutConfigurationTests
         h.Store.Values.Add(other);
         await h.Unchanged("DUPLICATE", () => h.Setup.Update(other.CheckoutCounterId, new("c1", "Changed", ExpectedUpdatedAt: Version), default));
         h.Counter.ZoneId = Guid.NewGuid();
-        Assert.Equal("C1", (await h.Setup.Create(h.Zone.ZoneId, new("C1", "Different zone"), default)).Code);
+        Assert.Equal("C1", (await h.Setup.Create(h.Zone.ZoneId, new("C1", "Different zone",
+            CameraId: h.Camera.CameraId, LaneRoi: Triangle, StaffRoi: Triangle, ServiceRoi: Triangle), default)).Code);
     }
 
     [Theory]
@@ -196,7 +226,7 @@ public sealed class CheckoutConfigurationTests
     [Theory]
     [InlineData("zone")]
     [InlineData("mapping")]
-    [InlineData("source")]
+    [InlineData("service")]
     [InlineData("camera")]
     [InlineData("connection")]
     [InlineData("test")]
@@ -210,8 +240,8 @@ public sealed class CheckoutConfigurationTests
         switch (reason)
         {
             case "zone": h.Zone.Status = "INACTIVE"; code = "CHECKOUT_ZONE_INACTIVE"; break;
-            case "mapping": mapping.IsEnabled = false; mapping.IsQueueSource = false; code = "CHECKOUT_QUEUE_SOURCE_REQUIRED"; break;
-            case "source": mapping.IsQueueSource = false; code = "CHECKOUT_QUEUE_SOURCE_REQUIRED"; break;
+            case "mapping": mapping.IsEnabled = false; code = "CHECKOUT_SOURCE_REQUIRED"; break;
+            case "service": mapping.ServiceRoi = null; code = "CHECKOUT_SERVICE_ROI_REQUIRED"; break;
             case "camera": h.Camera.Status = "INACTIVE"; break;
             case "connection": h.Connection.IsEnabled = false; break;
             case "test": h.Connection.LastTestedAt = null; break;
@@ -239,9 +269,9 @@ public sealed class CheckoutConfigurationTests
     public async Task MappingCrudRoundTripsIndependentPolygonsAndPreservesIdentityAndTimestamps()
     {
         var h = new Harness(); Point[] staff = [new(.7m, .7m), new(1, .7m), new(.7m, 1)];
-        var saved = await h.Setup.PutMapping(h.Counter.CheckoutCounterId, h.Camera.CameraId, new(Triangle, staff), default);
+        var saved = await h.Setup.PutMapping(h.Counter.CheckoutCounterId, h.Camera.CameraId, new(Triangle, staff, ServiceRoi: Triangle), default);
         Assert.Equal(Triangle, saved.LaneRoi); Assert.Equal(staff, saved.StaffRoi);
-        Assert.False(saved.IsEnabled); Assert.False(saved.IsQueueSource);
+        Assert.False(saved.IsEnabled); Assert.True(saved.IsQueueSource);
         var row = Assert.Single(h.Store.Values.OfType<CameraCheckoutMapping>());
         Assert.Contains("\"x\"", row.LaneRoi); Assert.Contains("\"y\"", row.StaffRoi);
         var updated = await h.Setup.PutMapping(h.Counter.CheckoutCounterId, h.Camera.CameraId,
@@ -287,13 +317,14 @@ public sealed class CheckoutConfigurationTests
     }
 
     [Fact]
-    public async Task AtMostOneEnabledQueueSourceEvenWhileCounterIsDisabled()
+    public async Task MultipleEnabledCamerasMayObserveOneCounter()
     {
         var h = new Harness(); h.AddMapping(enabled: true, source: true);
         var second = h.AddCamera();
-        await h.Unchanged("CHECKOUT_QUEUE_SOURCE_DUPLICATE", () => h.Setup.PutMapping(h.Counter.CheckoutCounterId, second.CameraId,
-            new(Triangle, Triangle, true, true, ServiceRoi: Triangle), default));
-        Assert.False(h.Counter.IsEnabled);
+        var saved = await h.Setup.PutMapping(h.Counter.CheckoutCounterId, second.CameraId,
+            new(Triangle, Triangle, true, true, ServiceRoi: Triangle), default);
+        Assert.True(saved.IsEnabled);
+        Assert.True(h.Counter.IsEnabled);
     }
 
     [Fact]
@@ -306,12 +337,14 @@ public sealed class CheckoutConfigurationTests
     }
 
     [Fact]
-    public async Task EnabledCounterMustRetainExactlyOneSourceOnMappingEditsAndDeletes()
+    public async Task DeletingLastCameraCoverageDisablesTheCounter()
     {
         var h = new Harness(); h.Counter.IsEnabled = true; h.AddMapping(enabled: true, source: true);
-        await h.Unchanged("CHECKOUT_QUEUE_SOURCE_REQUIRED", () => h.Setup.PutMapping(h.Counter.CheckoutCounterId, h.Camera.CameraId,
-            new(Triangle, Triangle, true, false, Version), default));
-        await h.Unchanged("CHECKOUT_QUEUE_SOURCE_REQUIRED", () => h.Setup.DeleteMapping(h.Counter.CheckoutCounterId, h.Camera.CameraId, Version, default));
+        await h.Setup.DeleteMapping(h.Counter.CheckoutCounterId, h.Camera.CameraId, Version, default);
+        Assert.False(h.Counter.IsEnabled);
+        Assert.Empty(h.Store.Values.OfType<CameraCheckoutMapping>());
+        h.AddMapping(enabled: true, source: true);
+        h.Counter.IsEnabled = true;
         var second = h.AddCamera(); var extra = h.AddMapping(second, true, false);
         await h.Setup.DeleteMapping(h.Counter.CheckoutCounterId, second.CameraId, extra.UpdatedAt, default);
         Assert.Single(h.Store.Values.OfType<CameraCheckoutMapping>()); Assert.True(h.Counter.IsEnabled);
@@ -367,10 +400,10 @@ public sealed class CheckoutConfigurationTests
         var h = new Harness(options: new() { MaxCountersPerZone = 1, MaxMappingsPerCounter = 1, MaxMappingsPerCamera = 1 });
         await h.Unchanged("CHECKOUT_CAPACITY_EXCEEDED", () => h.Setup.Create(h.Zone.ZoneId, new("C2", "Two"), default));
         h.AddMapping(); var second = h.AddCamera();
-        await h.Unchanged("CHECKOUT_CAPACITY_EXCEEDED", () => h.Setup.PutMapping(h.Counter.CheckoutCounterId, second.CameraId, new(Triangle, Triangle), default));
+        await h.Unchanged("CHECKOUT_CAPACITY_EXCEEDED", () => h.Setup.PutMapping(h.Counter.CheckoutCounterId, second.CameraId, new(Triangle, Triangle, ServiceRoi: Triangle), default));
         var other = new CheckoutCounter { CheckoutCounterId = Guid.NewGuid(), ZoneId = h.Zone.ZoneId, Code = "OTHER" };
         h.Store.Values.Add(other);
-        await h.Unchanged("CHECKOUT_CAPACITY_EXCEEDED", () => h.Setup.PutMapping(other.CheckoutCounterId, h.Camera.CameraId, new(Triangle, Triangle), default));
+        await h.Unchanged("CHECKOUT_CAPACITY_EXCEEDED", () => h.Setup.PutMapping(other.CheckoutCounterId, h.Camera.CameraId, new(Triangle, Triangle, ServiceRoi: Triangle), default));
     }
 
     [Theory]

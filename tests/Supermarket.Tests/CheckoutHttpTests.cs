@@ -16,35 +16,26 @@ namespace Supermarket.Tests;
 public sealed class CheckoutHttpTests
 {
     [Fact]
-    public async Task AdminCanCreateConfigureReadDisableAndDeleteACounterWithoutChangingGenericRoi()
+    public async Task AdminCreatesEnabledCoverageAtomicallyAndCanDeleteItWithoutChangingGenericRoi()
     {
         await using var w=new World(); w.Client.DefaultRequestHeaders.Add("X-Test-Role","ADMIN");
         var empty=await w.Client.GetFromJsonAsync<CheckoutCounterView[]>($"/api/zones/{w.Zone.ZoneId}/checkout-counters");
         Assert.Empty(empty!);
-        var create=await w.Client.PostAsJsonAsync($"/api/zones/{w.Zone.ZoneId}/checkout-counters",new CheckoutCounterRequest("C01","Lane one"));
+        Point[] roi=[new(0,0),new(1,0),new(0,1)];
+        var create=await w.Client.PostAsJsonAsync($"/api/zones/{w.Zone.ZoneId}/checkout-counters",
+            new CheckoutCounterRequest("C01","Lane one",CameraId:w.Camera.CameraId,LaneRoi:roi,StaffRoi:roi,ServiceRoi:roi));
         Assert.Equal(HttpStatusCode.Created,create.StatusCode);
         var counter=(await create.Content.ReadFromJsonAsync<CheckoutCounterView>())!;
-        Assert.False(counter.IsEnabled);
+        Assert.True(counter.IsEnabled);
         Assert.Equal($"/api/checkout-counters/{counter.CheckoutCounterId}",create.Headers.Location!.OriginalString);
-        Point[] roi=[new(0,0),new(1,0),new(0,1)];
-        var mappingResponse=await w.Client.PutAsJsonAsync($"/api/checkout-counters/{counter.CheckoutCounterId}/camera-mappings/{w.Camera.CameraId}",
-            new CheckoutMappingRequest(roi,roi,true,true,ServiceRoi:roi));
-        Assert.Equal(HttpStatusCode.OK,mappingResponse.StatusCode);
-        var mapping=(await mappingResponse.Content.ReadFromJsonAsync<CheckoutMappingView>())!;
-        var enabledResponse=await w.Client.PatchAsJsonAsync($"/api/checkout-counters/{counter.CheckoutCounterId}",
-            new CheckoutCounterRequest(counter.Code,counter.Name,true,counter.UpdatedAt));
-        Assert.Equal(HttpStatusCode.OK,enabledResponse.StatusCode);
-        var enabled=(await enabledResponse.Content.ReadFromJsonAsync<CheckoutCounterView>())!;
-        Assert.True(enabled.IsEnabled);
+        var mapping=Assert.Single((await w.Client.GetFromJsonAsync<CheckoutMappingView[]>($"/api/checkout-counters/{counter.CheckoutCounterId}/camera-mappings"))!);
         Assert.Single((await w.Client.GetFromJsonAsync<CheckoutMappingView[]>($"/api/cameras/{w.Camera.CameraId}/checkout-mappings"))!);
         Assert.Single((await w.Client.GetFromJsonAsync<CheckoutMappingView[]>($"/api/checkout-counters/{counter.CheckoutCounterId}/camera-mappings"))!);
         Assert.Equal(counter.CheckoutCounterId,(await w.Client.GetFromJsonAsync<CheckoutCounterView>($"/api/checkout-counters/{counter.CheckoutCounterId}"))!.CheckoutCounterId);
         var removeMapping=$"/api/checkout-counters/{counter.CheckoutCounterId}/camera-mappings/{w.Camera.CameraId}?expectedUpdatedAt={Uri.EscapeDataString(mapping.UpdatedAt.ToString("O"))}";
-        Assert.Equal(HttpStatusCode.Conflict,(await w.Client.DeleteAsync(removeMapping)).StatusCode);
-        var disabledResponse=await w.Client.PatchAsJsonAsync($"/api/checkout-counters/{counter.CheckoutCounterId}",
-            new CheckoutCounterRequest(counter.Code,counter.Name,false,enabled.UpdatedAt));
-        var disabled=(await disabledResponse.Content.ReadFromJsonAsync<CheckoutCounterView>())!;
         Assert.Equal(HttpStatusCode.NoContent,(await w.Client.DeleteAsync(removeMapping)).StatusCode);
+        var disabled=(await w.Client.GetFromJsonAsync<CheckoutCounterView>($"/api/checkout-counters/{counter.CheckoutCounterId}"))!;
+        Assert.False(disabled.IsEnabled);
         Assert.Equal(HttpStatusCode.NoContent,(await w.Client.DeleteAsync($"/api/checkout-counters/{counter.CheckoutCounterId}?expectedUpdatedAt={Uri.EscapeDataString(disabled.UpdatedAt.ToString("O"))}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound,(await w.Client.GetAsync($"/api/checkout-counters/{counter.CheckoutCounterId}")).StatusCode);
         Assert.Equal("original-generic-roi",Assert.Single(w.Store.Values.OfType<CameraZoneMapping>()).RoiPolygon);

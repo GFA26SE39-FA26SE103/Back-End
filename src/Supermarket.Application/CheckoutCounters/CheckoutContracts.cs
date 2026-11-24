@@ -4,10 +4,14 @@ using Supermarket.Domain;
 namespace Supermarket.Application;
 
 public sealed record CheckoutCounterRequest(
-    [Required, MaxLength(50)] string Code,
+    [MaxLength(50)] string Code,
     [Required, MaxLength(100)] string Name,
     bool IsEnabled = false,
-    DateTime? ExpectedUpdatedAt = null);
+    DateTime? ExpectedUpdatedAt = null,
+    Guid? CameraId = null,
+    Point[]? LaneRoi = null,
+    Point[]? StaffRoi = null,
+    Point[]? ServiceRoi = null);
 
 public sealed record CheckoutMappingRequest(
     [Required, MinLength(3), MaxLength(1000)] Point[] LaneRoi,

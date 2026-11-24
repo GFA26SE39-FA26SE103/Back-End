@@ -9,7 +9,7 @@ All paths below have prefix `/api`. Reads allow ADMIN, OPERATOR and MANAGER; mut
 | Method | Path | Result |
 | --- | --- | --- |
 | GET | `/zones/{zoneId}/checkout-counters` | Scoped counter views |
-| POST | `/zones/{zoneId}/checkout-counters` | 201 with counter and Location |
+| POST | `/zones/{zoneId}/checkout-counters` | Atomically creates enabled counter plus this camera's three ROIs; 201 with counter and Location |
 | GET | `/checkout-counters/{counterId}` | Counter view |
 | PATCH | `/checkout-counters/{counterId}` | Updated counter view |
 | DELETE | `/checkout-counters/{counterId}?expectedUpdatedAt={UTC}` | 204; disabled counter/mappings only |
@@ -18,21 +18,20 @@ All paths below have prefix `/api`. Reads allow ADMIN, OPERATOR and MANAGER; mut
 | PUT | `/checkout-counters/{counterId}/camera-mappings/{cameraId}` | Create/update mapping view |
 | DELETE | `/checkout-counters/{counterId}/camera-mappings/{cameraId}?expectedUpdatedAt={UTC}` | 204 |
 
-Counter request: `code`, `name`, `isEnabled` (default false), `expectedUpdatedAt` (absent for create; required for existing counter). PATCH is a full editing DTO, not JSON Patch.
+Create request: `name`, `cameraId`, `laneRoi`, `staffRoi`, `serviceRoi`; `code` may be blank, in which case Backend generates an internal unique identifier. All three polygons and a configured camera are required; the counter and mapping are saved enabled in one transaction. `isEnabled` is retained for compatibility but ignored on create. PATCH retains the existing counter DTO and optimistic `expectedUpdatedAt` token.
 
-Mapping request: `laneRoi`, `staffRoi`, optional `serviceRoi`, `isEnabled`, `isQueueSource`, `expectedUpdatedAt`. Lane and Staff polygons are required even when disabled; Service ROI is required when enabling a queue-source mapping. Each supplied polygon contains 3–1000 distinct normalized `{x,y}` vertices and must be non-degenerate/non-self-intersecting. Do not repeat the closing vertex. No adjacency, overlap or containment relationship is required between ROIs. Mapping IDs and camera/counter associations are returned by the API, not chosen by the client.
+Mapping request: `laneRoi`, `staffRoi`, `serviceRoi`, `isEnabled`, `expectedUpdatedAt`. All three polygons are required when saving coverage; `isQueueSource` is retained for compatibility but ignored. Each supplied polygon contains 3–1000 distinct normalized `{x,y}` vertices and must be non-degenerate/non-self-intersecting. Do not repeat the closing vertex. No adjacency, overlap or containment relationship is required between ROIs. Mapping IDs and camera/counter associations are returned by the API, not chosen by the client.
 
 Views return `createdAt`/`updatedAt`; counter views use `checkoutCounterId`, and mapping views use `mappingId`, `cameraId`, `checkoutCounterId`. No camera credentials or secret reference is returned. Send the last saved `updatedAt` back for updates/deletes. A stale/missing version returns 409 `CHECKOUT_CONFIGURATION_CHANGED`.
 
 ## Required editing sequence
 
-1. Create a disabled counter in an existing `zoneType=CHECKOUT` Zone.
-2. Save complete Lane/Staff ROI mappings and a Service ROI for the queue source. Camera and counter Zone must have the same Floor, thus the same supermarket.
-3. Enable at least one mapping and select exactly one enabled mapping as queue source. Enabling mappings requires an active camera with a tested, enabled connection; monitoring review separately validates source/ROI compatibility.
-4. Enable the counter with its current version. An enabled counter must always retain exactly one enabled queue source. Multiple enabled staff-observation mappings are allowed.
-5. Save/review/activate the existing Zone monitoring configuration when the AI deployment is ready.
+1. Select an existing `zoneType=CHECKOUT` Zone and a camera on the same Floor.
+2. Enter the counter name, draw Lane, Staff and Service ROIs, then save. The counter and first mapping become enabled together; incomplete coverage is not persisted.
+3. Additional cameras may save three ROIs for the same counter. No manual queue-source selection is required.
+4. Save/review/activate the existing Zone monitoring configuration when the AI deployment is ready.
 
-Deactivate Zone monitoring before editing counter/mapping configuration or replacing an involved camera source. To switch queue sources, deactivate monitoring and disable the counter, demote the old source, promote the new source, re-enable the counter, then review/activate. No automatic fallback or hidden source change occurs. Temporary runtime health failures do not disable saved configuration.
+Deactivate Zone monitoring before editing counter/mapping configuration or replacing an involved camera source. Deleting the last mapping automatically disables the counter; new coverage can later re-enable it. Temporary runtime health failures do not disable saved configuration.
 
 Changing a Zone away from CHECKOUT is rejected while its counters exist. Generic `CameraZoneMapping` and its API remain separate and unchanged. Floor-map coordinates are not camera-frame ROI coordinates.
 
@@ -42,8 +41,7 @@ Changing a Zone away from CHECKOUT is rejected while its counters exist. Generic
 
 - 503 `CHECKOUT_SCHEMA_NOT_READY`: V17 tables/columns or the V18 `service_roi` column are absent or unavailable.
 - 409 `MONITORING_ACTIVE`: deactivate affected monitoring before changing configuration.
-- 409 `CHECKOUT_QUEUE_SOURCE_REQUIRED` / `CHECKOUT_QUEUE_SOURCE_DUPLICATE`: invalid enabled source selection.
-- 409 `CHECKOUT_SERVICE_ROI_REQUIRED`: enabled queue source has no Service ROI.
+- 409 `CHECKOUT_COVERAGE_REQUIRED` / `CHECKOUT_SERVICE_ROI_REQUIRED`: incomplete checkout coverage.
 - 409 `CHECKOUT_CAMERA_NOT_READY`: active/tested/enabled source is required.
 - 409 `CHECKOUT_CAPACITY_EXCEEDED`: scoped configuration limit exceeded.
 - 422 `INVALID_POLYGON`, `CROSS_FLOOR_MAPPING`, `CHECKOUT_ZONE_REQUIRED`: invalid geometry/scope.
@@ -54,7 +52,7 @@ SQL uniqueness/range locking and optimistic timestamps protect concurrent writes
 
 `GET /api/zones/{zoneId}/checkout-runtime` is read-only and no-store. State is `NOT_ACTIVE`, `UNAVAILABLE` or `READY`. Unknown/unavailable `queueCount`, `staffedCounterCount`, `queuePerStaffedCounter`, `maxWaitSeconds` and rule metrics are null, never fabricated zero. `maxWaitSeconds` is the longest currently observed Lane-to-Service ROI wait, not transaction start time. Counter presence is PRESENT/ABSENT/UNKNOWN. `noStaffedCapacity=true` is an explicit valid-measurement condition, not an Infinity/NaN ratio. The legacy `incidentId` field is not reused for event identity; checkout rule views expose `operationalEventId`.
 
-AI observations remain camera-local. Backend confirms presence/absence for 15 seconds per source, then fuses by counter: any confirmed PRESENT wins; ABSENT requires all enabled sources confirmed absent; otherwise UNKNOWN. Health, missing/stale observations, gaps/session changes and config replacement invalidate the affected evidence. Only the selected queue source supplies each counter's queue count. A secondary source can contribute staff presence but cannot take over queue counting.
+AI observations remain camera-local. Backend confirms presence/absence for 15 seconds per source, then fuses by counter: any confirmed PRESENT wins; ABSENT requires all enabled sources confirmed absent; otherwise UNKNOWN. Health, missing/stale observations, gaps/session changes and config replacement invalidate the affected evidence. For queue count and wait, the strongest fresh camera measurement per counter is used; camera views of one physical counter are never added together.
 
 Checkout uses the existing Zone MonitoringRule API/catalog mapping to CHECKOUT_CAPACITY or EXCESSIVE_WAIT. An EXCESSIVE_WAIT rule uses `thresholdUnit=MINUTES` and evaluates the largest currently observed counter wait; it must be configured explicitly. Required CHECKOUT_CAPACITY settings:
 
@@ -71,4 +69,4 @@ One Zone aggregate owns each rule episode. The camera whose valid observation fi
 
 `Checkout:Monitoring:AiContractEnabled` defaults to false. CRUD works independently, but Review/Activate blocks checkout runtime until a compatible, validated [AI protocol v2](CHECKOUT_AI_PROTOCOL.md) deployment is explicitly enabled. A v1/invalid response fails closed; it is not interpreted as zero demand or no staff. Generic-only monitoring continues using protocol v1. This Backend change does not implement or deploy the AI-Service/Frontend.
 
-The configured camera session is shared between generic and checkout observations; there is no detector/session per counter. Staff ROI occupancy is an observed-person proxy at the cashier position, not employee identity recognition or transaction detection. Queue counting reuses the existing track dwell logic (>=5 seconds inside ROI), not a new stationary-person classifier. Cross-camera person ReID and POS are not included. Validate physical queue coverage against footage; selecting one source per counter does not deduplicate people between different counters. Waiting Time remains separate and unsupported.
+The configured camera session is shared between generic and checkout observations; there is no detector/session per counter. Staff ROI occupancy is an observed-person proxy at the cashier position, not employee identity recognition or transaction detection. Queue counting reuses the existing track dwell logic (>=5 seconds inside ROI), not a new stationary-person classifier. Cross-camera person ReID and POS are not included. Validate physical queue coverage against footage; separate counters still require independent lanes. Waiting Time uses the Service ROI to exclude people who have reached service.

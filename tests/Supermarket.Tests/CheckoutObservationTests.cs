@@ -24,14 +24,14 @@ public sealed class CheckoutObservationTests
     }
 
     [Fact]
-    public void WaitingTimeComesOnlyFromQueueSourceAndClearsOnFailure()
+    public void WaitingTimeUsesLongestObservedWaitAndSurvivesOneCameraFailure()
     {
         var p = World(true);
         p.Observe(Frame(SourceA, 0, true) with { MaxWaitSeconds = 12 }, Start);
         p.Observe(Frame(SourceB, 0, true) with { MaxWaitSeconds = 999 }, Start);
-        Assert.Equal(12, p.Read(Start).MaxWaitSeconds);
+        Assert.Equal(999, p.Read(Start).MaxWaitSeconds);
         p.Unavailable(SourceA);
-        Assert.Null(p.Read(Start).MaxWaitSeconds);
+        Assert.Equal(999, p.Read(Start).MaxWaitSeconds);
     }
 
     [Theory, InlineData(true, CheckoutPresence.Present), InlineData(false, CheckoutPresence.Absent)]
@@ -53,13 +53,13 @@ public sealed class CheckoutObservationTests
     }
 
     [Fact]
-    public void AbsenceRequiresAllEnabledSourcesAndQueueUsesOnlySelectedSource()
+    public void AbsenceRequiresAllEnabledSourcesAndQueueUsesLargestSingleObservation()
     {
         var p = World(true);
         for (var t = 0; t <= 15; t++) Observe(p, t, false, true);
         var result = p.Read(Start.AddSeconds(15));
         Assert.Equal(CheckoutPresence.Absent, result.Presence);
-        Assert.Equal(4, result.QueueCount);
+        Assert.Equal(100, result.QueueCount);
         Assert.False(result.Disagreement);
     }
 
@@ -136,12 +136,13 @@ public sealed class CheckoutObservationTests
     }
 
     [Fact]
-    public void UnknownOrDuplicateMappingsAndMissingQueueSourceAreRejected()
+    public void UnknownOrDuplicateMappingsAndMissingEnabledCameraAreRejected()
     {
+        var multiple = new CheckoutCounterProjection(Counter,
+            [new(SourceA, CameraA, true, true), new(SourceB, CameraB, true, true)], Options);
+        Assert.NotNull(multiple);
         Assert.Throws<DomainException>(() => new CheckoutCounterProjection(Counter,
-            [new(SourceA, CameraA, true, true), new(SourceB, CameraB, true, true)], Options));
-        Assert.Throws<DomainException>(() => new CheckoutCounterProjection(Counter,
-            [new(SourceA, CameraA, true, false)], Options));
+            [new(SourceA, CameraA, false, false)], Options));
         Assert.Throws<DomainException>(() => World().Observe(Frame(Guid.NewGuid(), 0, true), Start));
     }
 
@@ -185,14 +186,14 @@ public sealed class CheckoutObservationTests
     }
 
     [Fact]
-    public void ASecondaryCameraCannotTakeOverTheQueueMeasurement()
+    public void AnyConfiguredCameraCanProvideQueueMeasurement()
     {
         var p = World(true);
         for (var t = 0; t <= 15; t++) p.Observe(Frame(SourceB, t, true, 100), Start.AddSeconds(t));
         var c = p.Read(Start.AddSeconds(15));
         Assert.Equal(CheckoutPresence.Present, c.Presence);
-        Assert.Null(c.QueueCount);
-        Assert.False(CheckoutCapacity.Measure([c], 10).Available);
+        Assert.Equal(100, c.QueueCount);
+        Assert.True(CheckoutCapacity.Measure([c], 10).Available);
     }
 
     [Fact]
@@ -229,8 +230,8 @@ public sealed class CheckoutObservationTests
         var p = World(true); for (var t = 0; t <= 15; t++) Observe(p, t, true, true);
         var c = p.Read(Start.AddSeconds(15));
         var metric = CheckoutCapacity.Measure([c], 10);
-        Assert.True(metric.Available); Assert.Equal(4L, metric.QueueCount);
-        Assert.Equal(1, metric.StaffedCounterCount); Assert.Equal(4m, metric.QueuePerStaffedCounter);
+        Assert.True(metric.Available); Assert.Equal(100L, metric.QueueCount);
+        Assert.Equal(1, metric.StaffedCounterCount); Assert.Equal(100m, metric.QueuePerStaffedCounter);
         Assert.Throws<DomainException>(() => CheckoutCapacity.Measure([c, c], 10));
         Assert.False(CheckoutCapacity.Measure([p.Read(Start.AddSeconds(20))], 10).Available);
         Assert.Null(CheckoutCapacity.Measure([p.Read(Start.AddSeconds(20))], 10).QueueCount);

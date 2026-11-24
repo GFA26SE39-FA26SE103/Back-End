@@ -11,7 +11,7 @@ public sealed class CheckoutPersistenceMappingTests
         .UseSqlServer("Server=localhost;Database=model-only;Integrated Security=true;TrustServerCertificate=true").Options);
 
     [Fact]
-    public void CheckoutHasTwoRequiredPolygonsAndOnlyQueueSourcesAreUniquePerCounter()
+    public void CheckoutHasThreePolygonsAndCameraCounterPairsAreUnique()
     {
         using var db = ModelOnly();
         var mapping = db.Model.FindEntityType(typeof(CameraCheckoutMapping))!;
@@ -21,10 +21,7 @@ public sealed class CheckoutPersistenceMappingTests
         Assert.False(mapping.FindProperty(nameof(CameraCheckoutMapping.StaffRoi))!.IsNullable);
         Assert.True(mapping.FindProperty(nameof(CameraCheckoutMapping.UpdatedAt))!.IsConcurrencyToken);
         Assert.False(mapping.GetForeignKeys().Single(f => f.PrincipalEntityType.ClrType == typeof(CheckoutCounter)).IsUnique);
-        var source = mapping.GetIndexes().Single(i => i.GetDatabaseName() == "UX_CameraCheckoutMapping_EnabledQueueSource");
-        Assert.True(source.IsUnique);
-        Assert.Contains("[is_enabled]=(1)", source.GetFilter());
-        Assert.Contains("[is_queue_source]=(1)", source.GetFilter());
+        Assert.DoesNotContain(mapping.GetIndexes(), i => i.GetDatabaseName() == "UX_CameraCheckoutMapping_EnabledQueueSource");
         var pair = mapping.GetIndexes().Single(i => i.GetDatabaseName() == "UQ_CameraCheckoutMapping_Camera_Counter");
         Assert.True(pair.IsUnique);
         Assert.Equal(new[] { "CameraId", "CheckoutCounterId" }, pair.Properties.Select(p => p.Name));

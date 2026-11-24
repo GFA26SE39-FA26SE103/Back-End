@@ -35,8 +35,7 @@ public partial class AppDbContext
             .OnDelete(DeleteBehavior.ClientSetNull)
             .HasConstraintName("FK_TaskOffer_Task");
 
-        // Filtered uniqueness limits only enabled queue sources, not the camera coverage
-        // relation. A counter may have many enabled staff-observation camera mappings.
+        // One camera/counter pair is unique, but multiple cameras may observe one counter.
         var mappingType = modelBuilder.Entity<CameraCheckoutMapping>().Metadata;
         var counterForeignKey = mappingType.GetForeignKeys().Single(f => f.PrincipalEntityType.ClrType == typeof(CheckoutCounter));
         mappingType.RemoveForeignKey(counterForeignKey);

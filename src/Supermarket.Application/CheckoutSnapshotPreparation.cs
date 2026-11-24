@@ -51,8 +51,6 @@ internal static class CheckoutSnapshotPreparation
             var sources = sourceRows.Where(m => m.IsEnabled).ToList();
             Limit(sources.Count, options.MaxSourcesPerCounter, 16, "Enabled sources per counter");
             if (sources.Count == 0) issues.Add(new("CHECKOUT_SOURCE_REQUIRED", $"Counter {counter.Code} needs an enabled lane/staff camera mapping."));
-            if (sources.Count(m => m.IsQueueSource) != 1)
-                issues.Add(new("CHECKOUT_QUEUE_SOURCE_REQUIRED", $"Counter {counter.Code} requires exactly one enabled queue source; sources are never automatically substituted."));
             mappings.AddRange(sources);
         }
 
@@ -79,7 +77,7 @@ internal static class CheckoutSnapshotPreparation
             var connection = connections.GetValueOrDefault(mapping.CameraId);
             var lane = Polygon(mapping.LaneRoi, "Lane", problems);
             var staff = Polygon(mapping.StaffRoi, "Staff", problems);
-            var service = mapping.IsQueueSource ? Polygon(mapping.ServiceRoi ?? "", "Service", problems) : null;
+            var service = Polygon(mapping.ServiceRoi ?? "", "Service", problems);
             if (camera is null) problems.Add(new("CAMERA_MISSING", "A checkout camera no longer exists."));
             else
             {
@@ -104,7 +102,7 @@ internal static class CheckoutSnapshotPreparation
                 "ACTIVE", lane, connection?.SourceType, connection?.Protocol, connection?.IsEnabled ?? false,
                 connection?.LastTestResult, connection?.LastTestedAt, problems.Count == 0, problems.ToArray()));
             prepared.Add(new(mapping.MappingId, mapping.CameraId, mapping.CheckoutCounterId, zone.ZoneId, zone.Name,
-                configuration.ConfigId, configuration.UpdatedAt, mapping.UpdatedAt, lane, staff, mapping.IsQueueSource,
+                configuration.ConfigId, configuration.UpdatedAt, mapping.UpdatedAt, lane, staff, true,
                 configuration.ConfidenceThreshold, snapshots, problems.FirstOrDefault()?.Code, service));
         }
         var blockers = issues.Distinct().ToArray();

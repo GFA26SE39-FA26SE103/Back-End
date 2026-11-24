@@ -29,12 +29,12 @@ public sealed class CheckoutMonitoringRuntimeTests
         using var world = new World();
         for (var t = 0; t <= 16; t++) await world.Frame(t, 8);
         var ev = Assert.Single(world.Store.Values.OfType<OperationalEvent>());
-        Assert.Equal(world.Second.CameraId, ev.CameraId);
+        Assert.Equal(world.First.CameraId, ev.CameraId);
         Assert.Equal("CRITICAL", ev.Priority); Assert.Equal(8m, ev.MetricValue);
         Assert.Equal(8L, world.Runtime.Get(world.ZoneId)!.QueueCount);
         Assert.Contains("sourceCameraIds", ev.MetadataJson);
         for (var t = 17; t <= 20; t++) await world.Frame(t, 8, includeSecond: false);
-        Assert.Equal(world.Second.CameraId, Assert.Single(world.Store.Values.OfType<OperationalEvent>()).CameraId);
+        Assert.Equal(world.First.CameraId, Assert.Single(world.Store.Values.OfType<OperationalEvent>()).CameraId);
         world.Clock.UtcNow = world.Clock.UtcNow.AddSeconds(4);
         await world.Runtime.Evaluate(world.Services, default);
         var runtime = world.Runtime.Get(world.ZoneId)!;
@@ -140,7 +140,7 @@ public sealed class CheckoutMonitoringRuntimeTests
             var m = camera.CheckoutMappings![0];
             return new(2, camera == First ? firstSession : secondSession, continuity, second + 1, Clock.UtcNow, second * 1000L,
                 camera.Fingerprint, [], [new(m.MappingId, m.CounterId, m.ConfigId, m.ConfigVersion, m.MappingVersion, true,
-                    m.IsQueueSource ? queue : null, true, m.IsQueueSource ? 600 : null)]);
+                    queue, true, 600)]);
         }
         public async Task Frame(int second, int queue, bool includeSecond = true)
         {

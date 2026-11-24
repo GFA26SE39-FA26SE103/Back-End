@@ -55,7 +55,7 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
                 if (counters.Length > options.MaxCountersPerZone) throw new AppError("CHECKOUT_COUNTER_LIMIT", "Configured checkout-counter capacity exceeded.", 503);
                 foreach (var counter in counters)
                     job.Counters.Add(counter.Key, new CheckoutCounterProjection(counter.Key,
-                        counter.Select(s => new CheckoutObservationSource(s.Mapping.MappingId, s.Snapshot.CameraId, true, s.Mapping.IsQueueSource)).ToArray(),
+                        counter.Select(s => new CheckoutObservationSource(s.Mapping.MappingId, s.Snapshot.CameraId, true, true)).ToArray(),
                         new(TimeSpan.FromSeconds(options.PresentSeconds), TimeSpan.FromSeconds(options.AbsentSeconds),
                             TimeSpan.FromMilliseconds(options.MaxObservationGapMs), TimeSpan.FromSeconds(options.MaxObservationAgeSeconds),
                             TimeSpan.FromSeconds(options.MaxClockSkewSeconds), options.MaxSourcesPerCounter)));
@@ -81,7 +81,8 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
             var mapping = expected.SingleOrDefault(m => m.MappingId == observed.MappingId);
             if (mapping is null || mapping.CounterId != observed.CounterId || mapping.ConfigId != observed.ConfigId
                 || mapping.ConfigVersion != observed.ConfigVersion || mapping.MappingVersion != observed.MappingVersion
-                || observed.QueueCount is < 0) throw Invalid();
+                || observed.QueueCount is < 0
+                || observed.MaxWaitSeconds is { } wait && (!double.IsFinite(wait) || wait < 0)) throw Invalid();
         }
         foreach (var observed in batch.Checkouts)
         {
@@ -90,12 +91,12 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
             var source = job.Sources.SingleOrDefault(s => s.Mapping.MappingId == m.MappingId && s.Snapshot.Fingerprint == snapshot.Fingerprint);
             if (source is null) throw Invalid();
             var accepted = counter.Observe(new(m.MappingId, batch.SessionId, batch.ContinuityId, batch.Sequence,
-                batch.SourceElapsedMs, batch.CapturedAt, observed.PersonPresent, m.IsQueueSource ? observed.QueueCount : null,
-                cameraUsable && observed.Usable, m.IsQueueSource ? observed.MaxWaitSeconds : null), clock.UtcNow);
+                batch.SourceElapsedMs, batch.CapturedAt, observed.PersonPresent, observed.QueueCount,
+                cameraUsable && observed.Usable, observed.MaxWaitSeconds), clock.UtcNow);
             if (accepted && cameraUsable && observed.Usable)
             {
+                if (!job.Dirty) job.Origin = source;
                 job.Dirty = true;
-                job.Origin = source;
             }
         }
     }
@@ -184,8 +185,7 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
                         var batch = new AiMeasurementBatch(2, job.Session, job.Continuity, job.Sequence, capturedAt, elapsed, job.Fingerprint, []);
                         var zone = new MonitoringZoneSnapshot(job.Zone.ZoneId, job.Zone.ZoneName, job.Zone.ConfigId, job.Zone.ConfigVersion,
                             [], job.Zone.Confidence, job.Rules);
-                        var ruleOrigin = rule.Mode == "WAITING_TIME"
-                            ? job.Sources.Single(s => s.Mapping.IsQueueSource) : origin;
+                        var ruleOrigin = origin;
                         written = await writer.Apply(new(ruleOrigin.Snapshot, zone, rule, batch,
                             new(zone.ZoneId, zone.ConfigId, zone.ConfigVersion, 0, 0), evaluation, true, value,
                             new { metric.QueueCount, metric.StaffedCounterCount, metric.QueuePerStaffedCounter, metric.NoStaffedCapacity,

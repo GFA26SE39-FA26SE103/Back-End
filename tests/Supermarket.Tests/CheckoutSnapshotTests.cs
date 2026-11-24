@@ -62,7 +62,7 @@ public sealed class CheckoutSnapshotTests
         Assert.Equal(MonitoringPolicy.CheckoutQueueMode, rule.Mode);
         Assert.Equal("PEOPLE", rule.Unit);
 
-        f.Mapping.IsQueueSource = false;
+        f.Mapping.ServiceRoi = null;
         Assert.False((await f.Setup().Review(f.H.Zone.ZoneId, default)).CanActivate);
     }
 
@@ -336,8 +336,7 @@ public sealed class CheckoutSnapshotTests
     [InlineData("connection")]
     [InlineData("lane")]
     [InlineData("staff")]
-    [InlineData("queue-source")]
-    [InlineData("two-queue-sources")]
+    [InlineData("service")]
     public async Task InvalidCheckoutSourcesFailClosed(string reason)
     {
         var f = new CheckoutFixture();
@@ -412,7 +411,7 @@ internal sealed class CheckoutFixture
     private CameraCheckoutMapping NewMapping(Guid cameraId, bool queueSource) => new()
     {
         MappingId = Guid.NewGuid(), CameraId = cameraId, CheckoutCounterId = Counter.CheckoutCounterId,
-        LaneRoi = Polygon, StaffRoi = Polygon, ServiceRoi = queueSource ? Polygon : null, IsEnabled = true, IsQueueSource = queueSource
+        LaneRoi = Polygon, StaffRoi = Polygon, ServiceRoi = Polygon, IsEnabled = true, IsQueueSource = queueSource
     };
     internal Camera AddSource(bool queueSource)
     {
@@ -433,8 +432,7 @@ internal sealed class CheckoutFixture
             case "connection": H.Connection.IsEnabled = false; break;
             case "lane": Mapping.LaneRoi = "[]"; break;
             case "staff": Mapping.StaffRoi = "[]"; break;
-            case "queue-source": Mapping.IsQueueSource = false; break;
-            case "two-queue-sources": AddSource(queueSource: true); break;
+            case "service": Mapping.ServiceRoi = null; break;
         }
     }
 

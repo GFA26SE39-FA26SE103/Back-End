@@ -42,8 +42,7 @@ public sealed class CheckoutReviewTests
     [InlineData("connection")]
     [InlineData("lane")]
     [InlineData("staff")]
-    [InlineData("queue-source")]
-    [InlineData("two-queue-sources")]
+    [InlineData("service")]
     public async Task ReviewRevalidatesEveryCheckoutSource(string reason)
     {
         var f = new CheckoutFixture();

@@ -34,8 +34,8 @@ public sealed class EfCheckoutSchema(AppDbContext db) : ICheckoutSchema
                         AND name=N'UQ_CheckoutCounter_Zone_Code' AND is_unique=1 AND is_disabled=0)
                     AND EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID({mapping})
                         AND name=N'UQ_CameraCheckoutMapping_Camera_Counter' AND is_unique=1 AND is_disabled=0)
-                    AND EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID({mapping})
-                        AND name=N'UX_CameraCheckoutMapping_EnabledQueueSource' AND is_unique=1 AND is_disabled=0 AND has_filter=1)
+                    AND NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID({mapping})
+                        AND name=N'UX_CameraCheckoutMapping_EnabledQueueSource')
                     AND (SELECT COUNT(*) FROM sys.foreign_keys WHERE name IN
                         (N'FK_CheckoutCounter_Zone',N'FK_CameraCheckoutMapping_Camera',N'FK_CameraCheckoutMapping_Counter')
                         AND parent_object_id IN (OBJECT_ID({counter}),OBJECT_ID({mapping}))

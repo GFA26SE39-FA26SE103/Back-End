@@ -36,8 +36,8 @@ public sealed class CheckoutCounterProjection
             && mappings.Select(m => m.CameraId).Distinct().Count() == mappings.Count,
             "CHECKOUT_MAPPING_INVALID", "Each counter mapping must have a distinct mapping and camera identity.");
         var enabled = mappings.Where(m => m.IsEnabled).ToArray();
-        Rules.Require(enabled.Length > 0 && enabled.Count(m => m.IsQueueSource) == 1,
-            "CHECKOUT_QUEUE_SOURCE_REQUIRED", "An active counter needs exactly one enabled queue source.");
+        Rules.Require(enabled.Length > 0,
+            "CHECKOUT_SOURCE_REQUIRED", "An active counter needs an enabled camera mapping.");
         this.counterId = counterId;
         this.options = options;
         sources = enabled.ToDictionary(m => m.MappingId, m => new Source(m));
@@ -105,14 +105,26 @@ public sealed class CheckoutCounterProjection
         var absent = sources.Values.Any(s => s.Confirmed == CheckoutPresence.Absent);
         var state = present ? CheckoutPresence.Present
             : sources.Values.All(s => s.Confirmed == CheckoutPresence.Absent) ? CheckoutPresence.Absent : CheckoutPresence.Unknown;
-        var queueSource = sources.Values.Single(s => s.Mapping.IsQueueSource);
+        // Each camera can detect first. Take the strongest current reading per counter, never sum
+        // the same physical lane across cameras; the rule/zone episode remains unique downstream.
+        var queueSources = sources.Values.Where(s => s.QueueCount is not null && s.Last is not null).ToArray();
+        var queueSource = queueSources.OrderByDescending(s => s.QueueCount)
+            .ThenByDescending(s => s.Last!.CapturedAt).ThenBy(s => s.Mapping.MappingId).FirstOrDefault();
+        var waitSource = queueSources.Where(s => s.MaxWaitSeconds is not null)
+            .OrderByDescending(s => s.MaxWaitSeconds).ThenByDescending(s => s.Last!.CapturedAt)
+            .ThenBy(s => s.Mapping.MappingId).FirstOrDefault();
+        var queueCount = queueSource?.QueueCount;
+        var maxWait = waitSource?.MaxWaitSeconds;
         DateTime? presenceAt = state == CheckoutPresence.Present
             ? sources.Values.Where(s => s.Confirmed == CheckoutPresence.Present).Max(s => s.Last!.CapturedAt)
             : state == CheckoutPresence.Absent ? sources.Values.Min(s => s.Last!.CapturedAt) : null;
-        var validUntil = presenceAt is { } witnessed && queueSource.QueueCount is not null
-            ? (witnessed < queueSource.Last!.CapturedAt ? witnessed : queueSource.Last.CapturedAt) + options.MaxAge
+        var queueAt = queueSource?.Last?.CapturedAt;
+        if (queueAt is not null && waitSource?.Last is { } wait && wait.CapturedAt < queueAt)
+            queueAt = wait.CapturedAt;
+        var validUntil = presenceAt is { } witnessed && queueAt is { } observed
+            ? (witnessed < observed ? witnessed : observed) + options.MaxAge
             : (DateTime?)null;
-        return new(counterId, state, queueSource.QueueCount, present && absent, validUntil, queueSource.MaxWaitSeconds);
+        return new(counterId, state, queueCount, present && absent, validUntil, maxWait);
     }
 
     /// <summary>Runtime health/transport invalidation is not a negative person detection.</summary>

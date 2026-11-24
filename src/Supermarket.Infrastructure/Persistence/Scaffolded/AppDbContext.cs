@@ -223,9 +223,6 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => new { e.CameraId, e.CheckoutCounterId }, "UQ_CameraCheckoutMapping_Camera_Counter").IsUnique();
 
-            entity.HasIndex(e => e.CheckoutCounterId, "UX_CameraCheckoutMapping_EnabledQueueSource")
-                .IsUnique()
-                .HasFilter("([is_enabled]=(1) AND [is_queue_source]=(1))");
 
             entity.Property(e => e.MappingId)
                 .HasDefaultValueSql("(newsequentialid())")

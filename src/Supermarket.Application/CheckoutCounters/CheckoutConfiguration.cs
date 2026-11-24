@@ -61,19 +61,30 @@ public sealed class CheckoutConfiguration
             var zone = UseCase.Found(await store.Find<Zone>(zoneId, ct));
             await MutableZone(zone, ct);
             CheckVersion(null, request.ExpectedUpdatedAt);
-            var code = Rules.Text(request.Code, 50, "Code");
+            var code = string.IsNullOrWhiteSpace(request.Code) ? $"CTR-{Guid.NewGuid():N}" : Rules.Text(request.Code, 50, "Code");
             var name = Rules.Text(request.Name, 100, "Name");
             var counters = await CounterRows(zoneId, ct);
             UseCase.Unique(counters.Any(c => string.Equals(c.Code, code, StringComparison.OrdinalIgnoreCase)));
             RequireSpace(counters.Count, maxCounters);
-            if (request.IsEnabled)
-            {
-                ActiveZone(zone);
-                QueueSources([], true); // A new counter has no mappings yet; create it disabled first.
-            }
+            var cameraId = request.CameraId.GetValueOrDefault();
+            Rules.Require(cameraId != Guid.Empty
+                && request.LaneRoi is not null && request.StaffRoi is not null && request.ServiceRoi is not null,
+                "CHECKOUT_COVERAGE_REQUIRED", "Draw Lane, Staff and Service ROIs before saving the counter.");
+            Rules.Polygon(request.LaneRoi); Rules.Polygon(request.StaffRoi); Rules.Polygon(request.ServiceRoi);
+            ActiveZone(zone);
+            var camera = UseCase.Found(await store.Find<Camera>(cameraId, ct));
+            Rules.SameFloor(camera, zone);
+            await ReadyCamera(camera, ct);
+            RequireSpace((await CameraMappings(cameraId, ct)).Count, maxCameraMappings);
             var counter = new CheckoutCounter { CheckoutCounterId = Guid.NewGuid(), ZoneId = zoneId,
-                Code = code, Name = name, IsEnabled = request.IsEnabled };
+                Code = code, Name = name, IsEnabled = true };
             await store.Add(counter, ct);
+            await store.Add(new CameraCheckoutMapping { MappingId = Guid.NewGuid(), CameraId = cameraId,
+                CheckoutCounterId = counter.CheckoutCounterId,
+                LaneRoi = JsonSerializer.Serialize(request.LaneRoi, Json),
+                StaffRoi = JsonSerializer.Serialize(request.StaffRoi, Json),
+                ServiceRoi = JsonSerializer.Serialize(request.ServiceRoi, Json),
+                IsEnabled = true, IsQueueSource = true }, ct);
             return View(counter);
         }, ct);
     }
@@ -144,9 +155,8 @@ public sealed class CheckoutConfiguration
             var existing = mappings.SingleOrDefault(m => m.CameraId == cameraId);
             CheckVersion(existing?.UpdatedAt, request.ExpectedUpdatedAt);
             Rules.Polygon(request.LaneRoi); Rules.Polygon(request.StaffRoi);
-            if (request.ServiceRoi is not null) Rules.Polygon(request.ServiceRoi);
-            if (request.IsEnabled && request.IsQueueSource)
-                Rules.Require(request.ServiceRoi is not null, "CHECKOUT_SERVICE_ROI_REQUIRED", "Draw Service ROI before enabling the queue source.");
+            Rules.Require(request.ServiceRoi is not null, "CHECKOUT_SERVICE_ROI_REQUIRED", "Draw Service ROI before saving checkout coverage.");
+            Rules.Polygon(request.ServiceRoi);
             if (existing is null)
             {
                 RequireSpace(mappings.Count, maxCounterMappings);
@@ -156,7 +166,7 @@ public sealed class CheckoutConfiguration
                 CameraId = cameraId, CheckoutCounterId = counterId,
                 LaneRoi = JsonSerializer.Serialize(request.LaneRoi, Json), StaffRoi = JsonSerializer.Serialize(request.StaffRoi, Json),
                 ServiceRoi = request.ServiceRoi is null ? null : JsonSerializer.Serialize(request.ServiceRoi, Json),
-                IsEnabled = request.IsEnabled, IsQueueSource = request.IsQueueSource,
+                IsEnabled = request.IsEnabled, IsQueueSource = true,
                 CreatedAt = existing?.CreatedAt ?? default, UpdatedAt = existing?.UpdatedAt ?? default };
             var after = mappings.Where(m => m.CameraId != cameraId).Append(proposed).ToList();
             QueueSources(after, counter.IsEnabled);
@@ -167,6 +177,11 @@ public sealed class CheckoutConfiguration
             }
             // Detached proposed state prevents invalid PUTs from mutating the existing tracked object.
             if (existing is null) await store.Add(proposed, ct); else await store.Update(proposed, ct);
+            if (request.IsEnabled && !counter.IsEnabled)
+            {
+                counter.IsEnabled = true;
+                await store.Update(counter, ct);
+            }
             return View(proposed);
         }, ct);
     }
@@ -183,7 +198,12 @@ public sealed class CheckoutConfiguration
             UniquePairs(mappings);
             var existing = UseCase.Found(mappings.SingleOrDefault(m => m.CameraId == cameraId));
             CheckVersion(existing.UpdatedAt, expectedUpdatedAt);
-            QueueSources(mappings.Where(m => m.MappingId != existing.MappingId).ToList(), counter.IsEnabled);
+            var remaining = mappings.Where(m => m.MappingId != existing.MappingId).ToList();
+            if (counter.IsEnabled && !remaining.Any(m => m.IsEnabled))
+            {
+                counter.IsEnabled = false;
+                await store.Update(counter, ct);
+            }
             await store.Remove(existing, ct);
             return true;
         }, ct);
@@ -208,7 +228,7 @@ public sealed class CheckoutConfiguration
     private async Task ReadyMapping(CameraCheckoutMapping mapping, Zone zone, CancellationToken ct)
     {
         Rules.Polygon(Points(mapping.LaneRoi)); Rules.Polygon(Points(mapping.StaffRoi));
-        if (mapping.IsQueueSource) Rules.Polygon(Points(mapping.ServiceRoi ?? "[]"));
+        Rules.Polygon(Points(mapping.ServiceRoi ?? "[]"));
         var camera = UseCase.Found(await store.Find<Camera>(mapping.CameraId, ct));
         Rules.SameFloor(camera, zone);
         await ReadyCamera(camera, ct);
@@ -226,15 +246,10 @@ public sealed class CheckoutConfiguration
     private static void QueueSources(List<CameraCheckoutMapping> mappings, bool counterEnabled)
     {
         UniquePairs(mappings);
-        if (mappings.Any(m => m.IsQueueSource && !m.IsEnabled))
-            throw new ApplicationException("CHECKOUT_QUEUE_SOURCE_DISABLED", "A queue source must be an enabled mapping.");
-        if (mappings.Any(m => m.IsEnabled && m.IsQueueSource && m.ServiceRoi is null))
-            throw new ApplicationException("CHECKOUT_SERVICE_ROI_REQUIRED", "Draw Service ROI before enabling a queue source.");
-        var sources = mappings.Count(m => m.IsEnabled && m.IsQueueSource);
-        if (sources > 1)
-            throw new ApplicationException("CHECKOUT_QUEUE_SOURCE_DUPLICATE", "Only one enabled queue source is allowed per checkout counter.");
-        if (counterEnabled && sources != 1)
-            throw new ApplicationException("CHECKOUT_QUEUE_SOURCE_REQUIRED", "An enabled checkout counter requires an enabled mapping and exactly one enabled queue source.");
+        if (mappings.Any(m => m.IsEnabled && m.ServiceRoi is null))
+            throw new ApplicationException("CHECKOUT_SERVICE_ROI_REQUIRED", "Draw Service ROI before enabling checkout coverage.");
+        if (counterEnabled && !mappings.Any(m => m.IsEnabled))
+            throw new ApplicationException("CHECKOUT_SOURCE_REQUIRED", "An enabled checkout counter requires an enabled camera mapping.");
     }
 
     private static void UniquePairs(List<CameraCheckoutMapping> mappings)
