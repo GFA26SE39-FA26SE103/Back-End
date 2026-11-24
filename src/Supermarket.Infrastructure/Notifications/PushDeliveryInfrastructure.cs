@@ -47,16 +47,21 @@ public sealed class FirebasePushSender : IPushSender
     {
         if (messaging is null) throw new InvalidOperationException("Firebase push is not configured.");
         var expires = DateTimeOffset.UtcNow.Add(message.TimeToLive).ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+        // Task offers are sent data-only so the Staff app draws them itself with a full-screen intent
+        // that wakes a locked phone. Other categories keep the system-drawn notification.
+        var dataOnly = message.Channel == "task_offers";
+        var data = new Dictionary<string, string>(message.Data, StringComparer.Ordinal);
+        if (dataOnly) { data["title"] = message.Title; data["body"] = message.Body; }
         var messages = devices.Select(device => new Message
         {
             Fid = device.Token,
-            Notification = new FirebaseAdmin.Messaging.Notification { Title = message.Title, Body = message.Body },
-            Data = new Dictionary<string, string>(message.Data, StringComparer.Ordinal),
+            Notification = dataOnly ? null : new FirebaseAdmin.Messaging.Notification { Title = message.Title, Body = message.Body },
+            Data = data,
             Android = new AndroidConfig
             {
                 Priority = Priority.High,
                 TimeToLive = message.TimeToLive,
-                Notification = new AndroidNotification { ChannelId = message.Channel, ClickAction = "FLUTTER_NOTIFICATION_CLICK" }
+                Notification = dataOnly ? null : new AndroidNotification { ChannelId = message.Channel, ClickAction = "FLUTTER_NOTIFICATION_CLICK" }
             },
             Apns = new ApnsConfig
             {
