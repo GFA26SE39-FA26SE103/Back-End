@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Supermarket.Domain;
 
 namespace Supermarket.Application;
@@ -5,6 +6,8 @@ namespace Supermarket.Application;
 public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPreviewClient client,IMonitoringSessionOwnership? ownership=null,
     CheckoutSourceGuard? checkoutGuard=null)
 {
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
     public async Task<AiPreviewStatusView> Start(Guid cameraId, CancellationToken ct, Guid? zoneId = null)
     {
         UseCase.LiveView(current);
@@ -28,12 +31,19 @@ public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPrevie
         {
             var zone = UseCase.Found(await store.Find<Zone>(zoneId.Value, ct));
             Rules.SameFloor(camera, zone);
-            if(owned && checkoutGuard is not null && await checkoutGuard.IsActive(cameraId,zoneId,ct))
-                return await Attach(cameraId,ct);
-            var mapping = (await store.List<CameraZoneMapping>(m => m.CameraId == cameraId && m.ZoneId == zoneId.Value && m.Status == "ACTIVE", ct)).SingleOrDefault()
-                ?? throw new ApplicationException("ZONE_NOT_MAPPED", "Map this camera to the selected zone before testing its confidence.");
-            try { Rules.Polygon(System.Text.Json.JsonSerializer.Deserialize<Point[]>(mapping.RoiPolygon)); }
-            catch (System.Text.Json.JsonException) { throw new ApplicationException("ROI_INVALID", "Save a valid camera-frame ROI before zone preview."); }
+            var checkoutMappings = zone.ZoneType == "CHECKOUT" && checkoutGuard is not null
+                ? await checkoutGuard.MappingsForPreview(cameraId, zone.ZoneId, ct) : [];
+            if (checkoutMappings.Length > 0)
+            {
+                foreach (var mapping in checkoutMappings)
+                    ValidatePreviewRoi(mapping.LaneRoi, "Save a valid checkout Lane ROI before zone preview.");
+            }
+            else
+            {
+                var mapping = (await store.List<CameraZoneMapping>(m => m.CameraId == cameraId && m.ZoneId == zoneId.Value && m.Status == "ACTIVE", ct)).SingleOrDefault()
+                    ?? throw new ApplicationException("ZONE_NOT_MAPPED", "Map this camera to the selected zone before testing its confidence.");
+                ValidatePreviewRoi(mapping.RoiPolygon, "Save a valid camera-frame ROI before zone preview.");
+            }
             var configuration = UseCase.Found((await store.List<MonitoringConfiguration>(c => c.ZoneId == zoneId.Value, ct)).SingleOrDefault());
             MonitoringPolicy.Confidence(configuration.ConfidenceThreshold);
             if(owned)
@@ -45,6 +55,12 @@ public sealed class AiPreview(ISetupStore store, ICurrentUser current, IAiPrevie
         }
         if(owned) return await Attach(cameraId,ct);
         return await client.Start(connection, ct, confidence);
+    }
+
+    private static void ValidatePreviewRoi(string polygon, string message)
+    {
+        try { Rules.Polygon(JsonSerializer.Deserialize<Point[]>(polygon, Json)); }
+        catch (JsonException) { throw new ApplicationException("ROI_INVALID", message); }
     }
 
     public async Task<AiPreviewStatusView> Status(Guid cameraId, Guid viewerLeaseId, CancellationToken ct)
