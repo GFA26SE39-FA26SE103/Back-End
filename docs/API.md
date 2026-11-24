@@ -233,6 +233,8 @@ ERD V6 đã có `SystemSetting`, `Notification`, `NotificationRecipient`, `UserD
 | STAFF | `POST /me/devices` | Body `{fcmToken, platform, appVersion?, deviceId?}`; platform `ANDROID`/`IOS`. Idempotent theo token; `deviceId` hỗ trợ rotation. Response không trả raw token. |
 | STAFF | `DELETE /me/devices/{deviceId}` | Soft-revoke đúng device của caller, idempotent; device của user khác trả 404. |
 
+Backend ghi log mức Information khi nhận và trả response cho `POST /api/me/devices`. Tìm `Device registration POST /api/me/devices` trong log và đối chiếu `RequestId` cùng mã HTTP. Log này chỉ ghi trạng thái request, mã HTTP và RequestId.
+
 V1 Admin chỉ quản lý `notification.push_enabled`, `notification.task_offer_push_enabled`, `notification.task_update_push_enabled`, `notification.shift_swap_push_enabled`. In-app records và web inbox luôn hoạt động; không có switch tắt persistence. Staff device lifecycle đã có trên `UserDevice`, nhưng `pushConfigured` vẫn `false` vì FCM sender, credential, Mobile integration và Gate B staging chưa được implement/enable. Vì vậy lưu policy, web inbox và device registration đã có, nhưng **chưa có FCM delivery**. `FA26SE103_Database_V8_Notification_Settings.sql` seed bốn default row idempotently; API không tự mutate DB khi startup.
 
 ### Operator Incident intervention

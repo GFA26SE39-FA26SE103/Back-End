@@ -1,5 +1,11 @@
+using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Http.Json;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Supermarket.Api;
 using Supermarket.Api.Controllers;
 using Supermarket.Application;
@@ -131,6 +137,45 @@ public sealed class UserDeviceTests
     {
         Assert.Equal(AccessRoles.Staff, Assert.Single(typeof(MeDevicesController)
             .GetCustomAttributes(typeof(AuthorizeAttribute), true).Cast<AuthorizeAttribute>()).Roles);
+    }
+
+    [Theory]
+    [InlineData(null, TokenA, HttpStatusCode.Unauthorized)]
+    [InlineData("ADMIN", TokenA, HttpStatusCode.Forbidden)]
+    [InlineData("STAFF", "", HttpStatusCode.BadRequest)]
+    [InlineData("STAFF", "short-fcm-token", HttpStatusCode.UnprocessableEntity)]
+    [InlineData("STAFF", TokenA, HttpStatusCode.OK)]
+    public async Task RegistrationLogsArrivalAndResponseWithoutLoggingTheToken(
+        string? role, string token, HttpStatusCode expectedStatus)
+    {
+        var log = new RegistrationLog();
+        await using var factory = new SetupOverviewTests.Factory(new MonitoringSetupTests.MemoryStore());
+        await using var configured = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.AddSingleton<ILogger<DeviceRegistrationLoggingMiddleware>>(log);
+            services.PostConfigure<PushDeliveryOptions>(options => options.Enabled = false);
+        }));
+        using var client = configured.CreateClient();
+        if (role is not null) client.DefaultRequestHeaders.Add("X-Test-Role", role);
+
+        using var health = await client.GetAsync("/health/live");
+        Assert.Empty(log.Messages);
+        using var response = await client.PostAsJsonAsync("/api/me/devices", new { fcmToken = token, platform = "ANDROID" });
+
+        Assert.Equal(expectedStatus, response.StatusCode);
+        Assert.Collection(log.Messages,
+            entry => Assert.Contains("POST /api/me/devices received", entry),
+            entry => Assert.Contains($"StatusCode={(int)expectedStatus}", entry));
+        if (token.Length > 0) Assert.DoesNotContain(log.Messages, entry => entry.Contains(token, StringComparison.Ordinal));
+    }
+
+    private sealed class RegistrationLog : ILogger<DeviceRegistrationLoggingMiddleware>
+    {
+        public ConcurrentQueue<string> Messages { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Messages.Enqueue(formatter(state, exception));
     }
 
     private sealed class World(string role)

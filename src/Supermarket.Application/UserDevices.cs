@@ -3,8 +3,8 @@ using Supermarket.Domain;
 
 namespace Supermarket.Application;
 
-public sealed record RegisterDeviceRequest([property: Required, MaxLength(512)] string FcmToken,
-    [property: Required, MaxLength(40)] string Platform, [property: MaxLength(100)] string? AppVersion, Guid? DeviceId);
+public sealed record RegisterDeviceRequest([Required, MaxLength(512)] string FcmToken,
+    [Required, MaxLength(40)] string Platform, [MaxLength(100)] string? AppVersion, Guid? DeviceId);
 public sealed record UserDeviceView(Guid DeviceId, string Platform, string? AppVersion, DateTime CreatedAt,
     DateTime? LastSeenAt, DateTime? RevokedAt);
 

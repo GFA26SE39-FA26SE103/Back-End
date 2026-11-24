@@ -291,6 +291,7 @@ builder.Services.AddSwaggerGen(o =>
     o.AddSecurityRequirement(document => new OpenApiSecurityRequirement { { new OpenApiSecuritySchemeReference("Bearer", document), new List<string>() } });
 });
 var app = builder.Build();
+app.UseMiddleware<DeviceRegistrationLoggingMiddleware>();
 // Suppress framework exception diagnostics to avoid logging sensitive adapter/SQL messages.
 app.UseExceptionHandler(new ExceptionHandlerOptions { SuppressDiagnosticsCallback = _ => true });
 app.UseBackendReverseProxy();
