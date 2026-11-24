@@ -7,6 +7,7 @@ public interface IAiMonitoringClient
 }
 public interface IMonitoringSessionOwnership { bool IsMonitoringOwned(Guid cameraId); }
 public interface IMonitoringRuntimeState { MonitoringCameraRuntimeView? Get(Guid cameraId); }
+public interface IRecordedMonitoringReplay { Task Replay(Guid cameraId, Guid completedSessionId, CancellationToken ct); }
 public interface IMonitoringSnapshotReader
 {
     Task<MonitoringCameraSnapshot[]> ReadAll(CancellationToken ct);

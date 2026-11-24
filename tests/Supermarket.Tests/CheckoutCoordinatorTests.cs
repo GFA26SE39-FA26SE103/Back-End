@@ -12,6 +12,39 @@ namespace Supermarket.Tests;
 public sealed class CheckoutCoordinatorTests
 {
     [Fact]
+    public async Task ReplayStartsANewRecordedMonitoringSessionAndRejectsDuplicateRequests()
+    {
+        await using var world = new World();
+        world.Snapshot.Connection.SourceType = "RECORDED";
+        world.Snapshot.Connection.Protocol = "FILE";
+        var cameraId = world.Snapshot.CameraId;
+        await world.Frame(0);
+        var sessionId = world.Ai.Session;
+        var active = await Assert.ThrowsAsync<Supermarket.Application.ApplicationException>(() => world.Coordinator.Replay(cameraId, sessionId, default));
+        Assert.Equal("MONITORING_REPLAY_NOT_READY", active.Code);
+
+        world.Ai.State = "COMPLETED";
+        await world.Coordinator.Tick(default);
+        Assert.Equal("COMPLETED", world.Coordinator.Get(cameraId)!.State);
+        await world.Coordinator.Replay(cameraId, sessionId, default);
+
+        Assert.Equal(2, world.Ai.Starts);
+        Assert.Equal(1, world.Ai.Stops);
+        Assert.NotEqual(sessionId, world.Ai.Session);
+        var restarted = world.Coordinator.Get(cameraId)!;
+        Assert.Equal("STARTING", restarted.State);
+        Assert.Equal(world.Ai.Session, restarted.SessionId);
+        Assert.Null(restarted.SourceElapsedMs);
+        Assert.Equal("ACTIVE", world.H.Configuration.Status);
+        await Assert.ThrowsAsync<Supermarket.Application.ApplicationException>(() => world.Coordinator.Replay(cameraId, sessionId, default));
+
+        await world.Frame(0);
+        Assert.Equal(0, world.Coordinator.Get(cameraId)!.SourceElapsedMs);
+        Assert.Equal("RUNNING", world.Coordinator.Get(cameraId)!.State);
+        Assert.Equal(2, world.Ai.Starts);
+    }
+
+    [Fact]
     public async Task MixedCameraSharesOneAiSessionAndWritesBothEventsAfterPresenceAndSustain()
     {
         await using var world = new World();
@@ -334,8 +367,8 @@ public sealed class CheckoutCoordinatorTests
 
     private sealed class AiFake(Clock clock) : IAiMonitoringClient
     {
-        internal Guid Session { get; } = Guid.NewGuid();
-        internal Guid Continuity { get; } = Guid.NewGuid();
+        internal Guid Session { get; private set; } = Guid.NewGuid();
+        internal Guid Continuity { get; private set; } = Guid.NewGuid();
         internal Guid StartOwner { get; private set; }
         internal int ProtocolVersion { get; set; } = 2;
         internal int Starts { get; private set; }
@@ -351,6 +384,13 @@ public sealed class CheckoutCoordinatorTests
 
         public Task<AiPreviewStatusView> Start(MonitoringCameraSnapshot snapshot, Guid ownerId, CancellationToken ct)
         {
+            if (StartOwner != Guid.Empty && ownerId != StartOwner)
+            {
+                Session = Guid.NewGuid();
+                Continuity = Guid.NewGuid();
+                Frame = null;
+                State = "LIVE";
+            }
             Starts++;
             StartOwner = ownerId;
             StartedSnapshots.Add(snapshot);
@@ -359,7 +399,7 @@ public sealed class CheckoutCoordinatorTests
         }
         public Task<AiMeasurementPage> Read(Guid cameraId, Guid ownerId, Guid? afterSessionId, long afterSequence, int limit, CancellationToken ct)
         {
-            Assert.Equal(Assert.Single(StartedSnapshots).CameraId, cameraId);
+            Assert.Equal(StartedSnapshots[^1].CameraId, cameraId);
             Assert.Equal(StartOwner, ownerId);
             Assert.InRange(limit, 1, 64);
             ReadOwners.Add(ownerId);

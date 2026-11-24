@@ -202,6 +202,7 @@ builder.Services.AddScoped<StandaloneTaskSlaPolicyService>();
 builder.Services.AddScoped<MonitoringLive>();
 builder.Services.AddSingleton<MonitoringCameraCoordinator>();
 builder.Services.AddSingleton<IMonitoringRuntimeState>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());
+builder.Services.AddSingleton<IRecordedMonitoringReplay>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());
 builder.Services.AddSingleton<IMonitoringSessionOwnership>(s=>s.GetRequiredService<MonitoringCameraCoordinator>());
 builder.Services.AddScoped<SetupOverview>();
 builder.Services.AddScoped<IAnalyticsQueries, EfAnalyticsQueries>();

@@ -46,6 +46,44 @@ public sealed class CheckoutSourceGuardTests
         Assert.Equal("ACTIVE", Assert.Single(w.Store.Values.OfType<MonitoringConfiguration>()).Status);
     }
 
+    [Fact]
+    public async Task CameraRuntimeShowsCheckoutOnlyMonitoringAndItsMeasurements()
+    {
+        var w = new World();
+        var configuration = Assert.Single(w.Store.Values.OfType<MonitoringConfiguration>());
+        var type = new OperationalEventType { EventTypeId = Guid.NewGuid(), Code = "LONG_QUEUE", Name = "Long Queue", MeasurementType = "QUEUE_LENGTH" };
+        var rule = new MonitoringRule { RuleId = Guid.NewGuid(), ConfigId = configuration.ConfigId, EventTypeId = type.EventTypeId,
+            ThresholdUnit = "PEOPLE", WarningThreshold = 3, CriticalThreshold = 5, SustainSec = 2, ParametersJson = RuleHysteresis.Merge(null, 2, 4) };
+        w.Store.Values.AddRange([type, rule]);
+        Assert.Empty(w.Store.Values.OfType<CameraZoneMapping>());
+        var state = new LiveState();
+        var live = new MonitoringLive(w.Store, new MonitoringSetupTests.User("OPERATOR"), state, state, state, w.Guard, state, state);
+
+        var starting = await live.Runtime(w.Camera.CameraId, default);
+        Assert.Equal("STARTING", starting.State);
+        Assert.True(starting.HasCheckoutMonitoring);
+        var pending = Assert.Single(Assert.Single(starting.Zones).Rules);
+        Assert.Equal("CHECKOUT_QUEUE_LENGTH", pending.Mode);
+        Assert.Null(pending.MetricValue);
+
+        state.Camera = new(w.Camera.CameraId, "RUNNING", "MEASUREMENTS_AVAILABLE", null, "RECORDED", Guid.NewGuid(), 30_000,
+            Now, false, null, [], HasCheckoutMonitoring: true);
+        state.Checkout = new(w.Zone.ZoneId, configuration.ConfigId, configuration.UpdatedAt, Now, "READY", null, 5, 1, 5,
+            false, [], [pending with { MetricValue = 5, CriticalProgressMs = 1500 }]);
+        var running = await live.Runtime(w.Camera.CameraId, default);
+        Assert.Equal("RUNNING", running.State);
+        var checkout = Assert.Single(running.Zones);
+        Assert.Equal(5, checkout.QueueCount);
+        Assert.Equal(1500, Assert.Single(checkout.Rules).CriticalProgressMs);
+
+        state.Camera = state.Camera with { State = "COMPLETED" };
+        Assert.Equal("COMPLETED", (await live.Runtime(w.Camera.CameraId, default)).State);
+        configuration.Status = "INACTIVE";
+        Assert.Equal("STOPPING", (await live.Runtime(w.Camera.CameraId, default)).State);
+        state.Camera = null;
+        Assert.Equal("STOPPED", (await live.Runtime(w.Camera.CameraId, default)).State);
+    }
+
     [Theory, InlineData(null,401), InlineData("STAFF",403), InlineData("ADMIN",200), InlineData("OPERATOR",200), InlineData("MANAGER",200)]
     public async Task RuntimeReadIsAuthorizedAndNeverReturnsZeroWhenNotActive(string? role, int expected)
     {
@@ -82,6 +120,18 @@ public sealed class CheckoutSourceGuardTests
         }
     }
     private sealed class Schema:ICheckoutSchema {public Task<bool> Ready(CancellationToken ct)=>Task.FromResult(true);}
+    private sealed class LiveState : IMonitoringRuntimeState, ICheckoutRuntimeState, IMonitoringIncidentQueries, IMonitoringSnapshotReader, IRecordedMonitoringReplay
+    {
+        public MonitoringCameraRuntimeView? Camera { get; set; }
+        public CheckoutZoneRuntimeView? Checkout { get; set; }
+        MonitoringCameraRuntimeView? IMonitoringRuntimeState.Get(Guid cameraId) => Camera;
+        CheckoutZoneRuntimeView? ICheckoutRuntimeState.Get(Guid zoneId) => Checkout;
+        public Task EnsureSchema(CancellationToken ct) => Task.CompletedTask;
+        public Task<IncidentFeedView> PageForCamera(Guid id, IncidentFeedQuery query, CancellationToken ct) => throw new NotSupportedException();
+        public Task<MonitoringCameraSnapshot[]> ReadAll(CancellationToken ct) => Task.FromResult(Array.Empty<MonitoringCameraSnapshot>());
+        public Task<bool> IsCurrent(MonitoringCameraSnapshot snapshot, Guid zoneId, CancellationToken ct) => throw new NotSupportedException();
+        public Task Replay(Guid cameraId, Guid completedSessionId, CancellationToken ct) => throw new NotSupportedException();
+    }
     private sealed class Queries(MonitoringSetupTests.MemoryStore store):ICheckoutConfigurationQueries
     {
         public Task<List<CheckoutCounter>> CountersByZone(Guid id,int limit,CancellationToken ct)=>Task.FromResult(store.Values.OfType<CheckoutCounter>().Where(c=>c.ZoneId==id).Take(limit+1).ToList());

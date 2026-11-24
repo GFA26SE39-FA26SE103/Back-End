@@ -7,7 +7,7 @@ using AppError=Supermarket.Application.ApplicationException;
 namespace Supermarket.Infrastructure.Monitoring;
 
 public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOptions<MonitoringWorkerOptions> configured,IClock clock,
-    CheckoutMonitoringRuntime? checkout=null):IMonitoringRuntimeState,IMonitoringSessionOwnership
+    CheckoutMonitoringRuntime? checkout=null):IMonitoringRuntimeState,IMonitoringSessionOwnership,IRecordedMonitoringReplay
 {
     private readonly MonitoringWorkerOptions options=configured.Value;
     private readonly Dictionary<Guid,Job> jobs=[];
@@ -15,6 +15,44 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
     private readonly SemaphoreSlim gate=new(1,1);
     public MonitoringCameraRuntimeView? Get(Guid cameraId)=>views.GetValueOrDefault(cameraId);
     public bool IsMonitoringOwned(Guid cameraId)=>views.TryGetValue(cameraId,out var view) && (view.HasCheckoutMonitoring || view.Zones.Any(z=>z.ConfigurationStatus=="ACTIVE"));
+
+    public async Task Replay(Guid cameraId, Guid completedSessionId, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct);
+        try
+        {
+            if (completedSessionId == Guid.Empty || !jobs.TryGetValue(cameraId, out var completed) || !completed.Started
+                || Get(cameraId) is not { State: "COMPLETED", VideoSourceType: "RECORDED" } view || view.SessionId != completedSessionId)
+                throw new AppError("MONITORING_REPLAY_NOT_READY", "Replay requires a completed recorded monitoring session.", 409);
+
+            using var scope = scopes.CreateScope();
+            var services = scope.ServiceProvider;
+            var current = (await services.GetRequiredService<IMonitoringSnapshotReader>().ReadAll(ct)).SingleOrDefault(s => s.CameraId == cameraId);
+            if (current is not { IssueCode: null, Connection: { SourceType: "RECORDED", Protocol: "FILE" } }
+                || current.Fingerprint != completed.AppliedFingerprint)
+                throw new AppError("MONITORING_REPLAY_CONFIGURATION_CHANGED", "The recorded monitoring configuration changed. Refresh the camera before replaying.", 409);
+
+            var ai = services.GetRequiredService<IAiMonitoringClient>();
+            await ai.Stop(cameraId, completed.OwnerId, ct);
+            checkout?.Unavailable(cameraId);
+            var restart = new Job(current);
+            jobs[cameraId] = restart;
+            Publish(restart, "STARTING", "STARTING");
+            try
+            {
+                await Start(restart, current, ai, ct);
+                Publish(restart, "STARTING", "STARTING");
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception error)
+            {
+                Error(restart, Code(error));
+                throw new AppError(Code(error), "Could not start the recorded monitoring replay.", 503);
+            }
+        }
+        finally { gate.Release(); }
+    }
+
     public async Task Tick(CancellationToken ct)
     {
         await gate.WaitAsync(ct);
@@ -60,9 +98,7 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
                     if(!job.Started || job.AppliedFingerprint!=snapshot.Fingerprint)
                     {
                         Publish(job,"STARTING","STARTING");
-                        var started=await ai.Start(snapshot,job.OwnerId,ct);
-                        job.Started=true; job.AppliedFingerprint=snapshot.Fingerprint; job.AppliedSource=source; job.AnnotationContext=started.AnnotationContext;
-                        if(job.SessionId!=started.SessionId) { job.SessionId=started.SessionId; job.Sequence=0; job.RuleStates.Clear(); job.Samples.Clear(); }
+                        await Start(job,snapshot,ai,ct);
                     }
                     var page=await ai.Read(snapshot.CameraId,job.OwnerId,job.SessionId,job.Sequence,Math.Clamp(options.MaxBatch,1,64),ct);
                     var hasCheckout=(snapshot.CheckoutMappings?.Length??0)>0;
@@ -158,6 +194,12 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
             }
         }
         finally { gate.Release(); }
+    }
+    private static async Task Start(Job job,MonitoringCameraSnapshot snapshot,IAiMonitoringClient ai,CancellationToken ct)
+    {
+        var started=await ai.Start(snapshot,job.OwnerId,ct);
+        job.Started=true; job.AppliedFingerprint=snapshot.Fingerprint; job.AppliedSource=Source(snapshot.Connection); job.AnnotationContext=started.AnnotationContext;
+        if(job.SessionId!=started.SessionId) { job.SessionId=started.SessionId; job.Sequence=0; job.RuleStates.Clear(); job.Samples.Clear(); }
     }
     private void Error(Job job,string code,bool resetContinuity=true)
     {
