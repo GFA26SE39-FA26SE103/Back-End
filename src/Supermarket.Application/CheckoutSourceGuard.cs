@@ -11,17 +11,26 @@ public sealed class CheckoutSourceGuard(ISetupStore store, ICheckoutSchema schem
 
     internal async Task<List<MonitoringConfiguration>> ActiveConfigurations(Guid cameraId, Guid? zoneId, CancellationToken ct)
     {
+        var zones = (await EnabledMappings(cameraId, zoneId, ct)).Select(source => source.ZoneId).ToHashSet();
+        return zones.Count == 0 ? [] : await store.List<MonitoringConfiguration>(c => zones.Contains(c.ZoneId) && c.Status == "ACTIVE", ct);
+    }
+
+    internal async Task<CameraCheckoutMapping[]> MappingsForPreview(Guid cameraId, Guid zoneId, CancellationToken ct)
+        => (await EnabledMappings(cameraId, zoneId, ct)).Select(source => source.Mapping).ToArray();
+
+    private async Task<List<(CameraCheckoutMapping Mapping, Guid ZoneId)>> EnabledMappings(Guid cameraId, Guid? zoneId, CancellationToken ct)
+    {
         if (!await schema.Ready(ct)) return []; // No checkout capability on pre-V17 environments.
         var mappings = await queries.MappingsByCamera(cameraId, options.MaxMappingsPerCamera, ct);
         if (mappings.Count > options.MaxMappingsPerCamera)
             throw new ApplicationException("CHECKOUT_MAPPING_LIMIT", "Camera checkout mapping capacity exceeded.", 503);
-        var zones = new HashSet<Guid>();
+        var sources = new List<(CameraCheckoutMapping, Guid)>();
         foreach (var mapping in mappings.Where(m => m.IsEnabled))
         {
             var counter = UseCase.Found(await store.Find<CheckoutCounter>(mapping.CheckoutCounterId, ct));
-            if (counter.IsEnabled && (zoneId is null || zoneId == counter.ZoneId)) zones.Add(counter.ZoneId);
+            if (counter.IsEnabled && (zoneId is null || zoneId == counter.ZoneId)) sources.Add((mapping, counter.ZoneId));
         }
-        return zones.Count == 0 ? [] : await store.List<MonitoringConfiguration>(c => zones.Contains(c.ZoneId) && c.Status == "ACTIVE", ct);
+        return sources;
     }
 
     public async Task EnsureCameraEditable(Guid cameraId, CancellationToken ct)

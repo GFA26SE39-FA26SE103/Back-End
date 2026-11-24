@@ -26,13 +26,13 @@ public sealed record CheckoutMappingSnapshot(Guid MappingId, Guid CameraId, Guid
 // Protocol v2 adds these camera-source observations; protocol v1 remains unchanged.
 public sealed record AiCheckoutObservation(Guid MappingId, Guid CounterId, Guid ConfigId,
     DateTime ConfigVersion, DateTime MappingVersion, bool? PersonPresent, int? QueueCount, bool Usable,
-    double? MaxWaitSeconds = null);
+    double? MaxWaitSeconds = null, int? LanePeopleCount = null);
 
 public sealed record CheckoutCounterRuntimeView(Guid CounterId, string Presence, int? QueueCount, bool Disagreement);
 public sealed record CheckoutZoneRuntimeView(Guid ZoneId, Guid ConfigId, DateTime ConfigVersion, DateTime GeneratedAt,
     string State, string? IssueCode, long? QueueCount, int? StaffedCounterCount, decimal? QueuePerStaffedCounter,
     bool NoStaffedCapacity, CheckoutCounterRuntimeView[] Counters, MonitoringRuleRuntimeView[] Rules,
-    double? MaxWaitSeconds = null);
+    double? MaxWaitSeconds = null, long? LanePeopleCount = null);
 
 public interface ICheckoutRuntimeState { CheckoutZoneRuntimeView? Get(Guid zoneId); }
 public interface ICheckoutCameraUsability { Task<bool> Ready(Guid cameraId, CancellationToken ct); }

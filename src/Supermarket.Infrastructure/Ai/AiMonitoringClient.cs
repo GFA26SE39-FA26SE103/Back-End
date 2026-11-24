@@ -58,6 +58,7 @@ public sealed class AiMonitoringClient(HttpClient http,IOptions<AiPreviewOptions
                 || checkouts.Select(m=>m?.MappingId).Distinct().Count()!=checkouts.Length
                 || checkouts.Any(m=>m is null || m.MappingId==Guid.Empty || m.CounterId==Guid.Empty || m.ConfigId==Guid.Empty
                     || m.ConfigVersion.Kind!=DateTimeKind.Utc || m.MappingVersion.Kind!=DateTimeKind.Utc || m.QueueCount is <0
+                    || m.LanePeopleCount is <0 || m.QueueCount > m.LanePeopleCount
                     || m.MaxWaitSeconds is < 0 || m.MaxWaitSeconds is { } seconds && !double.IsFinite(seconds))) throw Invalid();
             previous=batch.Sequence;
         }

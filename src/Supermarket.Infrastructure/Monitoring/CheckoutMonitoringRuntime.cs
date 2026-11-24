@@ -22,7 +22,7 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
     {
         var view = views.GetValueOrDefault(zoneId);
         if (view is null || clock.UtcNow - view.GeneratedAt <= TimeSpan.FromSeconds(options.MaxObservationAgeSeconds)) return view;
-        return view with { State = "UNAVAILABLE", IssueCode = "CHECKOUT_OBSERVATION_STALE", QueueCount = null,
+        return view with { State = "UNAVAILABLE", IssueCode = "CHECKOUT_OBSERVATION_STALE", QueueCount = null, LanePeopleCount = null,
             StaffedCounterCount = null, QueuePerStaffedCounter = null, NoStaffedCapacity = false,
             Counters = view.Counters.Select(c => c with { Presence = "UNKNOWN", QueueCount = null }).ToArray(),
             Rules = view.Rules.Select(r => r with { MetricValue = null, Reason = "CHECKOUT_OBSERVATION_STALE", CurrentLevel = null }).ToArray() };
@@ -82,6 +82,7 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
             if (mapping is null || mapping.CounterId != observed.CounterId || mapping.ConfigId != observed.ConfigId
                 || mapping.ConfigVersion != observed.ConfigVersion || mapping.MappingVersion != observed.MappingVersion
                 || observed.QueueCount is < 0
+                || observed.LanePeopleCount is < 0 || observed.QueueCount > observed.LanePeopleCount
                 || observed.MaxWaitSeconds is { } wait && (!double.IsFinite(wait) || wait < 0)) throw Invalid();
         }
         foreach (var observed in batch.Checkouts)
@@ -92,7 +93,7 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
             if (source is null) throw Invalid();
             var accepted = counter.Observe(new(m.MappingId, batch.SessionId, batch.ContinuityId, batch.Sequence,
                 batch.SourceElapsedMs, batch.CapturedAt, observed.PersonPresent, observed.QueueCount,
-                cameraUsable && observed.Usable, observed.MaxWaitSeconds), clock.UtcNow);
+                cameraUsable && observed.Usable, observed.MaxWaitSeconds, observed.LanePeopleCount), clock.UtcNow);
             if (accepted && cameraUsable && observed.Usable)
             {
                 if (!job.Dirty) job.Origin = source;
@@ -229,7 +230,9 @@ public sealed class CheckoutMonitoringRuntime(IOptions<CheckoutMonitoringOptions
             job.Rules.Select(r => job.RuleViews.GetValueOrDefault(r.RuleId) ?? new MonitoringRuleRuntimeView(r.RuleId, r.Code, r.Name, r.Mode, r.Unit,
                 r.WarningThreshold, r.CriticalThreshold, r.SustainSec, r.CooldownSec, r.ClearDurationSec ?? r.SustainSec, null, 0, 0, 0, metric.IssueCode ?? "STARTING").WithExits(r))
                 .Select(view=>metric.Available?view:view with {MetricValue=null,Reason=metric.IssueCode??"CHECKOUT_UNAVAILABLE",WarningProgressMs=0,CriticalProgressMs=0,CurrentLevel=null}).ToArray(),
-            metric.Available && counters.All(c => c.MaxWaitSeconds is not null) ? counters.Max(c => c.MaxWaitSeconds) : null);
+            metric.Available && counters.All(c => c.MaxWaitSeconds is not null) ? counters.Max(c => c.MaxWaitSeconds) : null,
+            job.Issue is null && counters.Length > 0 && counters.All(c => c.LanePeopleCount.HasValue)
+                ? counters.Sum(c => (long)c.LanePeopleCount!.Value) : null);
 
     private static AppError Invalid() => new("CHECKOUT_MEASUREMENT_INVALID", "Checkout observation does not match the active source configuration.", 503);
     private sealed record Source(MonitoringCameraSnapshot Snapshot, CheckoutMappingSnapshot Mapping);

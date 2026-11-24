@@ -18,6 +18,35 @@ public sealed class MonitoringConfidencePreviewTests
         Assert.Equal(new[] { "start" }, client.Calls);
         Assert.Equal("DRAFT", h.Configuration.Status);
     }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CheckoutDraftPreviewUsesTheSavedConfidenceForAnEnabledCounterMapping(bool enabled)
+    {
+        var fixture = new CheckoutFixture();
+        fixture.H.Configuration.Status = "DRAFT";
+        fixture.H.Configuration.ConfidenceThreshold = .43m;
+        fixture.H.Connection.SourceType = "RECORDED";
+        fixture.H.Connection.Protocol = "FILE";
+        fixture.Mapping.IsEnabled = enabled;
+        var client = new RecordingClient();
+        var guard = new CheckoutSourceGuard(fixture.Store, fixture.Schema, fixture.Queries, new());
+        var preview = new AiPreview(fixture.Store, new MonitoringSetupTests.User("ADMIN"), client, checkoutGuard: guard);
+
+        if (enabled)
+        {
+            await preview.Start(fixture.H.Camera.CameraId, default, fixture.H.Zone.ZoneId);
+            Assert.Equal(.43m, client.Confidence);
+            Assert.Equal(new[] { "start" }, client.Calls);
+            Assert.Equal("DRAFT", fixture.H.Configuration.Status);
+            return;
+        }
+
+        var error = await Assert.ThrowsAsync<AppError>(() => preview.Start(fixture.H.Camera.CameraId, default, fixture.H.Zone.ZoneId));
+        Assert.Equal("ZONE_NOT_MAPPED", error.Code);
+        Assert.Empty(client.Calls);
+    }
     [Theory]
     [InlineData("unmapped", "ZONE_NOT_MAPPED")]
     [InlineData("cross-floor", "CROSS_FLOOR_MAPPING")]
