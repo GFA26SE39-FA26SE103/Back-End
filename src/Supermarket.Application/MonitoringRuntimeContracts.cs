@@ -64,7 +64,8 @@ public sealed record MonitoringRuleRuntimeView(Guid RuleId,string IncidentCode,s
     // Level the evaluator currently holds after sustain and dead band (null = none); the event priority itself never decreases.
     string? CurrentLevel=null);
 public sealed record MonitoringZoneRuntimeView(Guid ZoneId,string ZoneName,Guid? ConfigId,DateTime? ConfigVersion,string ConfigurationStatus,
-    decimal Confidence,int? PeopleCount,int? QueueCount,MonitoringRuleRuntimeView[] Rules,string? IssueCode=null,decimal? AreaM2=null);
+    decimal Confidence,int? PeopleCount,int? QueueCount,MonitoringRuleRuntimeView[] Rules,string? IssueCode=null,decimal? AreaM2=null,
+    long? LanePeopleCount=null);
 public sealed record MonitoringCameraRuntimeView(Guid CameraId,string State,string Reason,string? ErrorCode,string? VideoSourceType,
     Guid? SessionId,long? SourceElapsedMs,DateTime? ObservedAt,bool IsStale,string? AnnotationContext,MonitoringZoneRuntimeView[] Zones,
     bool HasCheckoutMonitoring=false);

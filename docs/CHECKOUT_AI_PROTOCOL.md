@@ -40,10 +40,13 @@ Measurement pages and their batches use protocol_version=2. Existing batch field
 | config_version, mapping_version | Exact UTC versions from start |
 | person_present | boolean or null: raw person-presence evidence in Staff ROI; no employee ReID |
 | queue_count | nonnegative integer or null; designated queue source supplies Lane ROI dwell count |
+| lane_people_count | Optional nonnegative integer. The queue source supplies confirmed tracks in Lane ROI, excluding Service ROI, before the 5-second dwell. Null for other mappings or unavailable evidence. |
 | max_wait_seconds | Nonnegative finite number or null; queue source supplies the longest currently tracked Lane-to-Service duration. Null for other mappings. |
 | usable | false when the frame/source observation cannot be trusted |
 
 Null person_present can coexist with valid lane evidence; it is not a negative detection. A non-queue camera should return null queue_count; Backend never uses its count as a fallback. A camera-wide health failure invalidates all its observations, independently of payload claims.
+
+Older v2 producers may omit `lane_people_count`. When both counts are available, `queue_count` must be at most `lane_people_count`.
 
 The Backend applies the configured 15-second source hysteresis and counter fusion. AI must not apply another 15-second delay on top or merge observations from different cameras. Track dwell within Lane ROI reuses the existing queue-count semantics (>=5 seconds in ROI). A track leaves the waiting set when it enters Service ROI. `max_wait_seconds` is the longest current time to reach that boundary, not proof that a transaction started; track loss and source discontinuity must not be interpreted as service completion. Transaction utilization remains out of scope.
 

@@ -44,7 +44,8 @@ public sealed class MonitoringLive(ISetupStore store,ICurrentUser current,IMonit
             else
             {
                 var generic=zones[index];
-                zones[index]=generic with { QueueCount=checkout.QueueCount, Rules=[..generic.Rules,..checkout.Rules], IssueCode=generic.IssueCode??checkout.IssueCode };
+                zones[index]=generic with { QueueCount=checkout.QueueCount, LanePeopleCount=checkout.LanePeopleCount,
+                    Rules=[..generic.Rules,..checkout.Rules], IssueCode=generic.IssueCode??checkout.IssueCode };
             }
         }
         var hasCheckout=checkoutZones.Count>0;
@@ -90,7 +91,7 @@ public sealed class MonitoringLive(ISetupStore store,ICurrentUser current,IMonit
             if(rules.Length==0) continue;
             var count=reading?.QueueCount;
             zones.Add(new(zone.ZoneId,zone.Name,config.ConfigId,config.UpdatedAt,config.Status,config.ConfidenceThreshold,null,
-                count is >=0 and <=int.MaxValue ? (int)count.Value : null,rules,reading?.IssueCode));
+                count is >=0 and <=int.MaxValue ? (int)count.Value : null,rules,reading?.IssueCode,LanePeopleCount:reading?.LanePeopleCount));
         }
         return zones;
     }

@@ -69,11 +69,12 @@ public sealed class CheckoutSourceGuardTests
         state.Camera = new(w.Camera.CameraId, "RUNNING", "MEASUREMENTS_AVAILABLE", null, "RECORDED", Guid.NewGuid(), 30_000,
             Now, false, null, [], HasCheckoutMonitoring: true);
         state.Checkout = new(w.Zone.ZoneId, configuration.ConfigId, configuration.UpdatedAt, Now, "READY", null, 5, 1, 5,
-            false, [], [pending with { MetricValue = 5, CriticalProgressMs = 1500 }]);
+            false, [], [pending with { MetricValue = 5, CriticalProgressMs = 1500 }], LanePeopleCount: 7);
         var running = await live.Runtime(w.Camera.CameraId, default);
         Assert.Equal("RUNNING", running.State);
         var checkout = Assert.Single(running.Zones);
         Assert.Equal(5, checkout.QueueCount);
+        Assert.Equal(7L, checkout.LanePeopleCount);
         Assert.Equal(1500, Assert.Single(checkout.Rules).CriticalProgressMs);
 
         state.Camera = state.Camera with { State = "COMPLETED" };

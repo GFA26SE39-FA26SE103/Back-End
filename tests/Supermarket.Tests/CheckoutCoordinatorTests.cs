@@ -55,6 +55,7 @@ public sealed class CheckoutCoordinatorTests
         Assert.Equal(world.GenericRule.EventTypeId, generic.EventTypeId);
         Assert.Equal("CRITICAL", generic.Priority);
         Assert.Equal("UNAVAILABLE", world.CheckoutView.State);
+        Assert.Equal(9L, world.CheckoutView.LanePeopleCount);
         Assert.Equal("UNKNOWN", Assert.Single(world.CheckoutView.Counters).Presence);
         Assert.Null(Assert.Single(world.CheckoutView.Rules).MetricValue);
 
@@ -63,6 +64,7 @@ public sealed class CheckoutCoordinatorTests
         Assert.Equal("PRESENT", Assert.Single(world.CheckoutView.Counters).Presence);
         Assert.Equal(1, world.CheckoutView.StaffedCounterCount);
         Assert.Equal(8L, world.CheckoutView.QueueCount);
+        Assert.Equal(9L, world.CheckoutView.LanePeopleCount);
         Assert.Equal(8m, world.CheckoutView.QueuePerStaffedCounter);
         Assert.Equal(0L, Assert.Single(world.CheckoutView.Rules).CriticalProgressMs);
         Assert.Single(world.Events);
@@ -247,6 +249,7 @@ public sealed class CheckoutCoordinatorTests
         Assert.Equal("UNKNOWN", Assert.Single(world.CheckoutView.Counters).Presence);
         var camera = Assert.IsType<MonitoringCameraRuntimeView>(world.Coordinator.Get(world.Snapshot.CameraId));
         Assert.Equal("COMPLETED", camera.State);
+        Assert.Null(world.CheckoutView.LanePeopleCount);
         Assert.Equal(8, Assert.Single(camera.Zones).QueueCount); // Generic final-frame display semantics remain intact.
         Assert.Equal(world.Ai.Session, camera.SessionId);
         Assert.Equal(1, world.Ai.Starts);
@@ -348,7 +351,7 @@ public sealed class CheckoutCoordinatorTests
             Ai.Frame = new(Ai.ProtocolVersion, Ai.Session, Ai.Continuity, second + 1, Clock.UtcNow, second * 1000L,
                 Snapshot.Fingerprint, [new(zone.ZoneId, zone.ConfigId, zone.ConfigVersion, 8, 8)],
                 Ai.ProtocolVersion == 2 ? [new(Mapping.MappingId, Mapping.CounterId, Mapping.ConfigId,
-                    Mapping.ConfigVersion, Mapping.MappingVersion, true, 8, true)] : null);
+                    Mapping.ConfigVersion, Mapping.MappingVersion, true, 8, true, LanePeopleCount: 9)] : null);
             await Coordinator.Tick(default);
         }
 
