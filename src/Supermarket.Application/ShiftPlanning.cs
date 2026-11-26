@@ -126,7 +126,7 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
         return new(start, end, views, coverage, rows.Count(a => a.Status == ShiftAssignmentStatus.Draft), coverage.Count(c => c.BelowMinimum));
     }
 
-    /// <summary>Every active Staff member with the BR-34/35 problems that would block assigning them to this shift.</summary>
+    /// <summary>Lists assignment options, applying direct COVER rules when replacing a published assignment.</summary>
     public async Task<StaffOptionView[]> StaffOptions(Guid shiftId, DateOnly workDate, Guid? replacingAssignmentId, CancellationToken ct)
     {
         UseCase.Manager(current);
@@ -134,12 +134,22 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
         var context = await planner.Load(workDate, workDate, ct);
         var shift = context.Shifts.GetValueOrDefault(shiftId) ?? throw new ApplicationException("NOT_FOUND", "The resource was not found.", 404);
         RequireWorkShiftWeek(shift, workDate);
-        var slot = planner.Slot(context, new ShiftAssignment { ShiftAssignmentId = replacingAssignmentId ?? Guid.NewGuid(), ShiftId = shift.ShiftId, WorkDate = workDate })!;
+        var published = context.Assignments.Find(a => a.ShiftAssignmentId == replacingAssignmentId
+            && a.ShiftId == shiftId && a.WorkDate == workDate && a.Status == ShiftAssignmentStatus.Scheduled);
+        var slot = planner.Slot(context, published ?? new ShiftAssignment
+        {
+            ShiftAssignmentId = replacingAssignmentId ?? Guid.NewGuid(), ShiftId = shiftId, WorkDate = workDate
+        })!;
+        var now = clock.UtcNow;
         var specialties = (await store.List<StaffSpecialty>(ct: ct)).ToDictionary(specialty => specialty.SpecialtyId);
         return context.Staff.Values.Select(user =>
         {
             var specialty = user.SpecialtyId is { } id ? specialties.GetValueOrDefault(id) : null;
-            var problems = planner.PersonChecks(context, user.FullName, user.UserId, slot, null).Where(c => !c.Passed).Select(c => c.Message).ToList();
+            var checks = published is null
+                ? planner.PersonChecks(context, user.FullName, user.UserId, slot, null)
+                : planner.Checks(context, new(SwapType.Cover, published.UserId, slot, user.UserId, null), now,
+                    enforceDecisionDeadline: false, enforceOneOpenRequest: false);
+            var problems = checks.Where(c => !c.Passed).Select(c => c.Message).ToList();
             if (context.Assignments.Any(a => a.UserId == user.UserId && a.ShiftId == shiftId && a.WorkDate == workDate))
                 problems.Insert(0, $"{user.FullName} is already on this shift.");
             return new StaffOptionView(user.UserId, user.FullName, problems.Count == 0,

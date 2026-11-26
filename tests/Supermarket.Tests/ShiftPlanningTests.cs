@@ -131,6 +131,35 @@ public sealed class ShiftPlanningTests
     }
 
     [Fact]
+    public async Task StaffOptionsForPublishedCoverRequireMatchingSpecialties()
+    {
+        var w = new World();
+        var plan = w.Planning(w.User("MANAGER", "Lan"));
+        var cashier = w.Staff("Cashier A");
+        var replacement = w.Staff("Cashier B");
+        var cleaner = w.User("STAFF", "Cleaner A");
+        var noSpecialty = w.User("STAFF", "No specialty");
+        var cleaning = new StaffSpecialty { SpecialtyId = Guid.NewGuid(), Code = "SPC-03", Name = "Cleaner" };
+        w.Store.Values.Add(cleaning);
+        w.Store.Values.OfType<UserAccount>().Single(user => user.UserId == cleaner).SpecialtyId = cleaning.SpecialtyId;
+        var assignment = await plan.Assign(new(cashier, w.Morning.ShiftId, Thu, [w.Checkout.ZoneId]), default);
+
+        var draftOptions = await plan.StaffOptions(w.Morning.ShiftId, Thu, assignment.ShiftAssignmentId, default);
+        Assert.True(draftOptions.Single(option => option.UserId == cleaner).Eligible);
+
+        await plan.Assign(new(replacement, w.Evening.ShiftId, Thu, [w.Checkout.ZoneId]), default);
+        await plan.Publish(new(Thu, Thu), default);
+        var coverOptions = await plan.StaffOptions(w.Morning.ShiftId, Thu, assignment.ShiftAssignmentId, default);
+        Assert.True(coverOptions.Single(option => option.UserId == replacement).Eligible);
+        foreach (var userId in new[] { cleaner, noSpecialty })
+        {
+            var option = coverOptions.Single(option => option.UserId == userId);
+            Assert.False(option.Eligible);
+            Assert.Contains(option.Problems, problem => problem.Contains("same assigned specialty"));
+        }
+    }
+
+    [Fact]
     public async Task CancelledRowIsReusedAndCancellingAPublishedShiftCancelsItsPendingSwap()
     {
         var w = new World(); var manager = w.User("MANAGER", "Lan"); var plan = w.Planning(manager);
