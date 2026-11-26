@@ -399,7 +399,8 @@ public sealed class ShiftSwaps(ISetupStore store, ICurrentUser current, IClock c
             await store.Update(swap, ct);
             await Send(PeerAccepted, "Colleague accepted your swap", $"{Name(context, current.UserId)} accepted. A Manager now reviews the request for {Describe(plan.RequesterSlot)}.",
                 [swap.RequestedByUserId], "SWAP_REQUESTER", ct);
-            await Send(PendingApproval, "Shift swap waiting for approval", $"{Name(context, swap.RequestedByUserId)} and {Name(context, current.UserId)}: {Describe(plan.RequesterSlot)}. Decide before {swap.ExpiresAt:O}.",
+            var deadline = swap.ExpiresAt is { } expiresAt ? TimeZoneInfo.ConvertTimeFromUtc(expiresAt, calendar.TimeZone).ToString("dd/MM/yyyy HH:mm") : "—";
+            await Send(PendingApproval, "Shift swap waiting for approval", $"{Name(context, swap.RequestedByUserId)} and {Name(context, current.UserId)} · Decide by {deadline}.",
                 await notifier.RoleUsers("MANAGER", ct), "MANAGER", ct);
         }, ct);
         return await View(id, ct);
