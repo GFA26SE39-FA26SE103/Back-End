@@ -130,7 +130,9 @@ public sealed class PushDispatch(IPushDispatchStore store, IPushSender sender, I
             : item.NotificationType.StartsWith("SHIFT_", StringComparison.Ordinal) ? "/shifts" : "/alerts";
         var data = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["notificationId"] = item.NotificationId.ToString(), ["type"] = item.NotificationType, ["route"] = route
+            ["notificationId"] = item.NotificationId.ToString(), ["type"] = item.NotificationType, ["route"] = route,
+            // UTC creation time, so the device can stamp the notification with when it really happened.
+            ["sentAt"] = DateTime.SpecifyKind(item.CreatedAt, DateTimeKind.Utc).ToString("O", System.Globalization.CultureInfo.InvariantCulture)
         };
         Add(data, "taskId", item.TaskId); Add(data, "incidentId", item.IncidentId);
         Add(data, "eventId", item.EventId); Add(data, "cameraId", item.CameraId);

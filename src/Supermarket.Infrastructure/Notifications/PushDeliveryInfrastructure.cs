@@ -50,6 +50,12 @@ public sealed class FirebasePushSender : IPushSender
         // Task offers are sent data-only so the Staff app draws them itself with a full-screen intent
         // that wakes a locked phone. Other categories keep the system-drawn notification.
         var dataOnly = message.Channel == "task_offers";
+        // AndroidNotification.EventTimestamp is a non-nullable DateTime; left unset it is year 1, which
+        // Android shows as thousands of years ago. Use the notification's real creation time instead.
+        var eventTime = message.Data.TryGetValue("sentAt", out var sentAt) && DateTime.TryParse(sentAt,
+            System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed)
+            ? parsed : DateTime.UtcNow;
         var data = new Dictionary<string, string>(message.Data, StringComparer.Ordinal);
         if (dataOnly) { data["title"] = message.Title; data["body"] = message.Body; }
         var messages = devices.Select(device => new Message
@@ -61,7 +67,7 @@ public sealed class FirebasePushSender : IPushSender
             {
                 Priority = Priority.High,
                 TimeToLive = message.TimeToLive,
-                Notification = dataOnly ? null : new AndroidNotification { ChannelId = message.Channel, ClickAction = "FLUTTER_NOTIFICATION_CLICK" }
+                Notification = dataOnly ? null : new AndroidNotification { ChannelId = message.Channel, ClickAction = "FLUTTER_NOTIFICATION_CLICK", EventTimestamp = eventTime }
             },
             Apns = new ApnsConfig
             {
