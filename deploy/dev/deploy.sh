@@ -50,6 +50,7 @@ compose() { docker compose -f "$release/compose.yml" "$@"; }
 # Validate quietly: expanded config contains secrets and must not enter CI logs.
 compose config --quiet
 compose pull api
+compose up --detach --wait --wait-timeout 45 redis
 if compose up --detach --no-deps --wait --wait-timeout 120 api; then
   printf '%s\n%s\n' "$relative_release" "$image" > .active-release.next
   mv -f .active-release.next .active-release

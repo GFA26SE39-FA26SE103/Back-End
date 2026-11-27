@@ -25,7 +25,7 @@ public sealed class StoreController(StoreSetup setup, FloorPlanUpload floorPlans
         var x = await setup.SaveFloor(null, id, r, ct);
         return Created($"/api/floors/{x.FloorId}", x);
     }
-    [Authorize(Roles = AccessRoles.Viewer), HttpGet("/api/floors/{id:guid}")] public Task<Floor> Floor(Guid id, CancellationToken ct) => setup.Get<Floor>(id, ct);
+    [Authorize(Roles = AccessRoles.Viewer), HttpGet("/api/floors/{id:guid}")] public Task<Floor> Floor(Guid id, CancellationToken ct) => setup.Floor(id, ct);
     [Authorize(Roles = AccessRoles.Admin), HttpPatch("/api/floors/{id:guid}")] public Task<Floor> UpdateFloor(Guid id, FloorRequest r, CancellationToken ct) => setup.SaveFloor(id, null, r, ct);
     [Authorize(Roles = AccessRoles.Admin), HttpPatch("/api/floors/{id:guid}/details")] public Task<Floor> UpdateFloorDetails(Guid id, FloorDetailsRequest r, CancellationToken ct) => setup.UpdateFloorDetails(id, r, ct);
     [Authorize(Roles = AccessRoles.Admin), HttpDelete("/api/floors/{id:guid}")]

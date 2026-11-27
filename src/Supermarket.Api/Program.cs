@@ -14,6 +14,7 @@ using Supermarket.Application;
 using Supermarket.Domain;
 using Supermarket.Infrastructure;
 using Supermarket.Infrastructure.Ai;
+using Supermarket.Infrastructure.Caching;
 using Supermarket.Infrastructure.FloorPlans;
 using Supermarket.Infrastructure.Persistence;
 using Supermarket.Infrastructure.Persistence.Scaffolded;
@@ -26,6 +27,21 @@ using Role = Supermarket.Domain.Role;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: false).AddEnvironmentVariables();
+var redisConnection = builder.Configuration.GetConnectionString("Redis");
+if (!string.IsNullOrWhiteSpace(redisConnection))
+{
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.ConfigurationOptions = StackExchange.Redis.ConfigurationOptions.Parse(redisConnection);
+        options.ConfigurationOptions.AbortOnConnectFail = false;
+        options.ConfigurationOptions.ConnectRetry = 0;
+        options.ConfigurationOptions.ConnectTimeout = 1000;
+        options.ConfigurationOptions.AsyncTimeout = 1000;
+        options.ConfigurationOptions.SyncTimeout = 1000;
+        options.InstanceName = "fa26se103:";
+    });
+    builder.Services.AddSingleton<IReadCache, RedisReadCache>();
+}
 builder.Services.AddBackendReverseProxy(builder.Configuration);
 builder.Services.AddOptions<JwtOptions>().Bind(builder.Configuration.GetSection("Jwt")).Validate(o => Encoding.UTF8.GetByteCount(o.Key) >= 32, "Set Jwt:Key to a secret containing at least 32 UTF-8 bytes.").Validate(o => o.LifetimeMinutes is > 0 and <= 1440, "JWT lifetime must be 1 to 1440 minutes.").ValidateOnStart();
 builder.Services.Configure<VideoOptions>(builder.Configuration.GetSection("Video"));

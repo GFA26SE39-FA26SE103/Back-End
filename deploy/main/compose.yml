@@ -8,10 +8,13 @@ services:
     env_file:
       - path: ${API_ENV_FILE:-./api.env}
         format: raw
+    environment:
+      ConnectionStrings__Redis: redis:6379
     ports:
       - "${API_BIND_IP:?Set API_BIND_IP in .env}:5081:8080"
     networks:
       - sql
+      - cache
     volumes:
       - state:/app/.local
     mem_limit: 1g
@@ -26,8 +29,22 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+  redis:
+    image: redis:8.12.0-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxmemory", "64mb", "--maxmemory-policy", "allkeys-lru"]
+    networks:
+      - cache
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -qx PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 networks:
+  cache:
+    internal: true
   sql:
     external: true
     name: ${SQL_NETWORK:?Set SQL_NETWORK in .env}

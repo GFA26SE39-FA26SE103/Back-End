@@ -58,7 +58,9 @@ Current hosted runtime posture:
 
 ### What is automated now
 
-A push to `dev` runs non-SQL tests, validates deployment/recovery scripts, builds Linux amd64, pushes an immutable image to GHCR, joins Tailscale, verifies the pinned SSH host key, copies a numbered release, starts the API with Compose, waits for readiness, records the active release, and restores the previous image/Compose release if readiness fails. The VM reuses its private `api.env` and persistent named volumes. No self-hosted runner or public API-VM SSH port is used.
+A push to `dev` runs non-SQL tests, validates deployment/recovery scripts, builds Linux amd64, pushes an immutable image to GHCR, joins Tailscale, verifies the pinned SSH host key, and copies a numbered release. On the VM the script starts Redis and checks its health before updating the API. It records the active release after API readiness and restores the previous image and Compose release if API readiness fails. The VM reuses its private `api.env` and persistent named volumes. No self-hosted runner or public API-VM SSH port is used.
+
+Compose supplies `ConnectionStrings__Redis=redis:6379` on a private network shared by the Dev API and its Redis container. For a Backend process running directly on a developer's machine, set `ConnectionStrings__Redis=127.0.0.1:6379` when a local Redis container publishes that port to the loopback interface. At runtime, cache reads fall back to SQL Server if Redis is unavailable.
 
 ### What remains manual or external
 
@@ -251,5 +253,7 @@ flock -u 9
 ```
 
 These commands expect a previous successful rollout. Check `docker logs --tail 100 capstone-backend-dev` privately if startup/readiness fails; share only sanitized errors. `/health/live` checks process availability; `/health/ready` checks SQL connectivity. Neither proves NPM/DNS reachability, Cloudinary credentials, camera readiness or AI availability. Those require the acceptance steps above.
+
+To check Redis on an active release, use the same `API_ENV_FILE` and `API_IMAGE`, then run `docker compose -f "${active[0]}/compose.yml" exec -T redis redis-cli PING`.
 
 The first Dev rollout and the health/auth path are verified as recorded in the checkpoint above. Cloudinary upload/download, large MP4 upload, camera retest/enable, camera health worker, Python AI integration and continuous monitoring remain separate acceptance work; health/auth success must not be presented as evidence that those capabilities are operational.

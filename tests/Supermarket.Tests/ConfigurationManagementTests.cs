@@ -1,8 +1,13 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Supermarket.Application;
 using Supermarket.Domain;
+using Supermarket.Infrastructure.Caching;
 using Store = Supermarket.Domain.Supermarket;
 using AppError = Supermarket.Application.ApplicationException;
 using Xunit;
@@ -10,6 +15,55 @@ namespace Supermarket.Tests;
 
 public sealed class ConfigurationManagementTests
 {
+    [Fact]
+    public async Task FloorMetadataAndStoreListRefreshAfterFloorWrites()
+    {
+        var store = new MonitoringSetupTests.MemoryStore();
+        var supermarket = new Store { SupermarketId = Guid.NewGuid() };
+        store.Values.Add(supermarket);
+        var cache = new RedisReadCache(NullLogger<RedisReadCache>.Instance, new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())));
+        var admin = new StoreSetup(store, new MonitoringSetupTests.User("ADMIN"), cache: cache);
+        Assert.Empty(await admin.Floors(supermarket.SupermarketId, default));
+
+        var floor = await admin.SaveFloor(null, supermarket.SupermarketId, new(1, "Before", null, null, null), default);
+        Assert.Equal("Before", Assert.Single(await admin.Floors(supermarket.SupermarketId, default)).Name);
+        Assert.Equal("Before", (await admin.Floor(floor.FloorId, default)).Name);
+
+        await admin.UpdateFloorDetails(floor.FloorId, new(1, "After"), default);
+        Assert.Equal("After", Assert.Single(await admin.Floors(supermarket.SupermarketId, default)).Name);
+        Assert.Equal("After", (await admin.Floor(floor.FloorId, default)).Name);
+
+        await admin.DeleteFloor(floor.FloorId, default);
+        Assert.Empty(await admin.Floors(supermarket.SupermarketId, default));
+        Assert.Equal(404, (await Assert.ThrowsAsync<AppError>(() => admin.Floor(floor.FloorId, default))).Status);
+    }
+
+    [Fact]
+    public async Task CachedFloorZonesReloadAfterCreateUpdateAndDelete()
+    {
+        var store = new MonitoringSetupTests.MemoryStore();
+        var floor = new Floor { FloorId = Guid.NewGuid() };
+        store.Values.Add(floor);
+        var cache = new RedisReadCache(NullLogger<RedisReadCache>.Instance, new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())));
+        var admin = new StoreSetup(store, new MonitoringSetupTests.User("ADMIN"), cache: cache);
+        var viewer = new StoreSetup(store, new MonitoringSetupTests.User("OPERATOR"), cache: cache);
+        var request = new ZoneRequest("TEST", "Original", "AISLES", [new(0, 0), new(1, 0), new(1, 1), new(0, 1)]);
+
+        Assert.Empty(await viewer.Zones(floor.FloorId, default));
+
+        var created = await admin.SaveZone(null, floor.FloorId, request, default);
+        Assert.Equal("Original", Assert.Single(await viewer.Zones(floor.FloorId, default)).Name);
+
+        // A read is served from the existing snapshot until the successful write invalidates it.
+        Assert.Single(store.Values.OfType<Zone>()).Name = "Intermediate";
+        Assert.Equal("Original", Assert.Single(await viewer.Zones(floor.FloorId, default)).Name);
+        await admin.SaveZone(created.ZoneId, null, request with { Name = "Updated" }, default);
+        Assert.Equal("Updated", Assert.Single(await viewer.Zones(floor.FloorId, default)).Name);
+
+        await admin.DeleteZone(created.ZoneId, default);
+        Assert.Empty(await viewer.Zones(floor.FloorId, default));
+    }
+
     [Theory, InlineData(false), InlineData(true)]
     public async Task CheckoutRuleCatalogReportsTheEnvironmentCapability(bool enabled)
     {

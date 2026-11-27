@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Supermarket.Application;
 using Supermarket.Domain;
+using Supermarket.Infrastructure.Caching;
 using Xunit;
 
 namespace Supermarket.Tests;
@@ -84,6 +85,34 @@ public sealed class FloorPlanTests
         response.EnsureSuccessStatusCode();
         Assert.Equal("image/png", response.Content.Headers.ContentType?.MediaType);
         Assert.Equal(Png, await response.Content.ReadAsByteArrayAsync());
+    }
+
+    [Fact]
+    public async Task RepeatedMapReadsReuseFloorMetadataAndKeepTheFilePrivate()
+    {
+        var floor = NewFloor();
+        var store = new TestStore(floor);
+        using var factory = new FloorPlanApiFactory(store, TempRoot(), enableCache: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-Role", "ADMIN");
+        await UploadPng(client, floor.FloorId);
+        var route = $"/api/floors/{floor.FloorId}/map";
+
+        using var first = await client.GetAsync(route);
+        first.EnsureSuccessStatusCode();
+        var reads = store.FloorReads;
+
+        using var second = await client.GetAsync(route);
+        second.EnsureSuccessStatusCode();
+        Assert.Equal(reads, store.FloorReads);
+        Assert.Equal(Png, await second.Content.ReadAsByteArrayAsync());
+        Assert.True(second.Headers.CacheControl?.NoStore);
+
+        client.DefaultRequestHeaders.Remove("X-Test-Role");
+        client.DefaultRequestHeaders.Add("X-Test-Role", "STAFF");
+        using var forbidden = await client.GetAsync(route);
+        Assert.Equal(403, (int)forbidden.StatusCode);
+        Assert.Equal(reads, store.FloorReads);
     }
 
     [Fact]
@@ -219,7 +248,8 @@ public sealed class FloorPlanTests
         (await client.PostAsync($"/api/floors/{floorId}/map", multipart)).EnsureSuccessStatusCode();
     }
 
-    private sealed class FloorPlanApiFactory(TestStore store, string root, long maxBytes = 20L * 1024 * 1024) : WebApplicationFactory<Program>
+    private sealed class FloorPlanApiFactory(TestStore store, string root, long maxBytes = 20L * 1024 * 1024,
+        bool enableCache = false) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -233,6 +263,11 @@ public sealed class FloorPlanTests
             }));
             builder.ConfigureTestServices(services =>
             {
+                if (enableCache)
+                {
+                    services.AddDistributedMemoryCache();
+                    services.AddSingleton<IReadCache, RedisReadCache>();
+                }
                 services.RemoveAll<ISetupStore>();
                 services.AddSingleton<ISetupStore>(store);
                 services.RemoveAll<ICheckoutSchema>(); services.AddSingleton<ICheckoutSchema,NoCheckoutSchema>();
@@ -269,10 +304,13 @@ public sealed class FloorPlanTests
     private sealed class TestStore(Floor floor) : ISetupStore
     {
         private readonly List<Entity> values = [floor];
+        private int floorReads;
+        public int FloorReads => Volatile.Read(ref floorReads);
         public bool FailUpdates { get; set; }
 
         public Task<T?> Find<T>(Guid id, CancellationToken ct = default) where T : Entity, new()
         {
+            if (typeof(T) == typeof(Floor)) Interlocked.Increment(ref floorReads);
             var key = typeof(T).GetProperties().First(property => property.Name.EndsWith("Id", StringComparison.Ordinal));
             return Task.FromResult(values.OfType<T>().FirstOrDefault(value => Equals(key.GetValue(value), id)));
         }

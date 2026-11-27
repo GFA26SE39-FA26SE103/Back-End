@@ -2,13 +2,18 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using ClosedXML.Excel;
 using Supermarket.Application;
 using Supermarket.Domain;
 using Supermarket.Infrastructure;
+using Supermarket.Infrastructure.Caching;
 using Supermarket.Infrastructure.Persistence;
 using Supermarket.Infrastructure.Persistence.Scaffolded;
 using Xunit;
@@ -23,6 +28,7 @@ public sealed class ManagerAnalyticsTests
     private static readonly DateTime Now = new(2026, 11, 6, 5, 0, 0, DateTimeKind.Utc);
     private static readonly Guid ZoneId = Guid.NewGuid();
     private sealed class Clock : IClock { public DateTime UtcNow => Now; }
+    private sealed class ManualClock : IClock { public DateTime UtcNow { get; set; } = Now; }
     private sealed class Queries(params AnalyticsBucket[] rows) : IAnalyticsQueries
     {
         public AnalyticsWindow? Window { get; private set; }
@@ -43,6 +49,30 @@ public sealed class ManagerAnalyticsTests
         int responseSamples = 0, double responseSeconds = 0, int resolutionSamples = 0, double resolutionSeconds = 0,
         string responseSla = "EXCLUDED", string resolutionSla = "EXCLUDED")
         => new(domain, day, ZoneId, status, priority, count, responseSamples, responseSeconds, resolutionSamples, resolutionSeconds, responseSla, resolutionSla);
+
+    [Fact]
+    public async Task DashboardSectionsShareOneSnapshotPerFilterWhileExportsReadFreshData()
+    {
+        var queries = new Queries(Bucket("EVENT", "ACTIVE"));
+        var cache = new RedisReadCache(NullLogger<RedisReadCache>.Instance, new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions())));
+        var clock = new ManualClock();
+        var analytics = new ManagerAnalytics(queries, Store(), new MonitoringSetupTests.User("MANAGER"), clock,
+            new(StoreCalendar.Zone(null)), cache);
+
+        var overview = await analytics.Overview(new(), default);
+        clock.UtcNow = Now.AddSeconds(10);
+        var trends = await analytics.Trends(new(), default);
+        var zones = await analytics.Zones(new(), default);
+
+        Assert.Equal(1, queries.Reads);
+        Assert.Equal(overview.Period.GeneratedAt, trends.Period.GeneratedAt);
+        Assert.Equal(overview.Period.GeneratedAt, zones.Period.GeneratedAt);
+        Assert.Equal(overview.Summary.Events.Total, Assert.Single(zones.Zones).Summary.Events.Total);
+
+        Assert.Equal(clock.UtcNow, (await analytics.Overview(new(ZoneId: ZoneId), default)).Period.GeneratedAt);
+        Assert.Equal(clock.UtcNow, (await analytics.Report(new(), default)).Period.GeneratedAt);
+        Assert.Equal(3, queries.Reads);
+    }
 
     [Fact]
     public async Task DefaultWindowUsesSevenLocalDaysAndUtcBoundaries()

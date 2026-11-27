@@ -120,6 +120,8 @@ Mỗi quan hệ được lưu hai chiều. API xóa cả hai chiều của liên
 
 ### Zone usage and deletion
 
+Khi cấu hình Redis, `GET /api/floors/{floorId}/zones` dùng danh sách zone theo từng tầng với thời hạn tối đa 3 phút. Backend xóa cache của tầng sau khi tạo, sửa hoặc xóa zone thành công. Khi Redis lỗi, API lấy dữ liệu từ SQL Server.
+
 `GET /api/zones/{zoneId}/usage` chỉ dành cho Admin. Trả `dependencies` gồm `kind`, `label` và `count` của các liên kết đang chặn xóa; `monitoring` gồm tên, trạng thái cấu hình và danh sách rule đã lưu; `recentStaffNames` gồm tối đa ba tên từ các phân công gần đây. Khi xóa, API kiểm tra lại các liên kết trong transaction và trả `409 ZONE_IN_USE` với số bản ghi theo nhóm nếu zone còn được dùng.
 
 ### Measured Zone area
@@ -203,6 +205,8 @@ Floor plan upload dùng `POST /api/floors/{id}/map` với `multipart/form-data`,
 ```
 
 `GET /api/floors/{id}/map` yêu cầu JWT ADMIN, OPERATOR hoặc MANAGER và trả bytes với Content-Type đã lưu. Asset không được public qua static files và response dùng `Cache-Control: no-store`. File Local mặc định nằm ngoài `wwwroot` tại `src/Supermarket.Api/.local/floor-plans`; client không được biết hoặc gửi đường dẫn này. Upload thay thế cùng một floor được serialize trong process; EF version/transaction checks vẫn bảo vệ cập nhật DB. Cleanup chỉ dùng exact prior token, không liệt kê/xóa toàn prefix.
+
+Khi cấu hình Redis, API dùng cache nội bộ tối đa 3 phút cho metadata tầng và danh sách tầng theo supermarket. File ảnh/PDF gốc được cache tối đa 5 phút theo cặp floor và phiên bản asset trong `mapAssetUrl`. Upload thành công làm hết hiệu lực metadata và cache bản file trước đó. Các thao tác tạo, sửa, xóa tầng làm hết hiệu lực cache metadata liên quan. Cache hit tránh truy vấn SQL về phiên bản và tránh đọc lại file từ Local/Cloudinary. Các lượt tải vẫn kiểm tra quyền Viewer trước khi đọc cache.
 
 `FloorPlan:Provider=Cloudinary` lưu upload mới trên Cloudinary `authenticated` bằng signed server-side API. PNG/JPEG là `image`, PDF là `raw`; giữ file gốc, không crop/transform. API và FE DTO không đổi; `mapAssetUrl` vẫn trỏ về API map của backend với opaque version token. Token local cũ vẫn được đọc từ `FloorPlan:Root`; không tự migrate. Cloud token chứa cloud name, floor owner, asset ID và format, không chứa key/secret hoặc URL hết hạn. Backend kiểm tra token, tải file bằng signed `POST /asset/download` rồi trả bytes; không gửi JWT hay Cloudinary credentials cho client. POST chỉ ADMIN; GET viewer roles giữ nguyên.
 
@@ -374,6 +378,8 @@ Operators review the recommendation and use the existing manual Task workflow if
 Operational Event drill-down is available through read-only `GET /api/operational-events`, `/api/operational-events/zones` and `/api/operational-events/{eventId}` for ADMIN/OPERATOR/MANAGER. Includes All/status/priority/Zone/date filters, SQL paging and linked Tasks. [Event history contract and verification](OPERATIONAL_EVENTS_API.md).
 
 MANAGER-only `GET /api/manager/analytics/overview`, `/trends`, `/zones` accept `from`, `to` (local dates, inclusive, at most 93 days) and optional `zoneId`. They return SQL-aggregated recorded Event/Incident/Task KPIs, sample-weighted durations and snapshot-deadline SLA results. `GET /api/manager/analytics/export` reuses the same filters/calculations and accepts `format=csv|xlsx|pdf`; generated files include the period, timezone, applied Zone, generation time, summary, daily/Zone breakdowns and explicit data-availability notes. Successful/failed generation is audited without personal data or credentials. Empty samples/rates are null; unavailable SQL returns 503, not successful zeros. Cohorts use detection/creation dates with current statuses, not historical end-of-day snapshots. Full schemas, KPI definitions, examples and limits: [Manager analytics API](MANAGER_ANALYTICS_API.md).
+
+With Redis configured, the three dashboard endpoints reuse grouped SQL results for the same date range, store time zone and Zone filter for up to 30 seconds. `period.generatedAt` reports when those results were calculated. Export reads the current SQL data when requested.
 
 ## Operational SLA compatibility cutover (2026-11-06)
 

@@ -120,6 +120,7 @@ docker run --rm --network none --entrypoint sh "$image" -c '
   test -r /app/appsettings.json &&
   test -r /app/appsettings.Production.json
 ' || { echo 'The image must run as a non-root user and read its appsettings files.' >&2; exit 1; }
+compose up --detach --wait --wait-timeout 45 redis
 
 pending_env=$(mktemp "$root/.env.next.XXXXXX")
 sed "s|^API_IMAGE=.*|API_IMAGE=$image|" .env > "$pending_env"

@@ -2,8 +2,12 @@ using Supermarket.Domain;
 
 namespace Supermarket.Application;
 
-public sealed class ManagerAnalytics(IAnalyticsQueries queries, ISetupStore store, ICurrentUser user, IClock clock, StoreCalendar calendar)
+public sealed class ManagerAnalytics(IAnalyticsQueries queries, ISetupStore store, ICurrentUser user, IClock clock,
+    StoreCalendar calendar, IReadCache? cache = null)
 {
+    private static readonly TimeSpan DashboardCacheLifetime = TimeSpan.FromSeconds(30);
+    private sealed record DashboardSnapshot(DateTime GeneratedAt, List<AnalyticsBucket> Rows);
+
     private async Task<AnalyticsWindow> Window(AnalyticsQuery query, CancellationToken ct)
     {
         UseCase.Manager(user);
@@ -22,25 +26,36 @@ public sealed class ManagerAnalytics(IAnalyticsQueries queries, ISetupStore stor
 
     public async Task<AnalyticsOverview> Overview(AnalyticsQuery query, CancellationToken ct)
     {
-        var window = await Window(query, ct);
-        return new(window, Summarize(await queries.Read(window, ct)));
+        var (window, rows) = await Dashboard(query, ct);
+        return new(window, Summarize(rows));
     }
 
     public async Task<AnalyticsTrends> Trends(AnalyticsQuery query, CancellationToken ct)
     {
-        var window = await Window(query, ct);
-        var rows = (await queries.Read(window, ct)).ToLookup(row => row.Day);
+        var (window, data) = await Dashboard(query, ct);
+        var rows = data.ToLookup(row => row.Day);
         return new(window, Enumerable.Range(0, window.DayStartsUtc.Length)
             .Select(day => new AnalyticsDay(window.From.AddDays(day), Summarize(rows[day]))).ToArray());
     }
 
     public async Task<AnalyticsZones> Zones(AnalyticsQuery query, CancellationToken ct)
     {
-        var window = await Window(query, ct);
+        var (window, data) = await Dashboard(query, ct);
         var zones = await store.List<Zone>(z => window.ZoneId == null || z.ZoneId == window.ZoneId, ct);
-        var rows = (await queries.Read(window, ct)).ToLookup(row => row.ZoneId);
+        var rows = data.ToLookup(row => row.ZoneId);
         return new(window, zones.OrderBy(zone => zone.Name).ThenBy(zone => zone.ZoneId)
             .Select(zone => new AnalyticsZone(zone.ZoneId, zone.Name, Summarize(rows[zone.ZoneId]))).ToArray());
+    }
+
+    private async Task<(AnalyticsWindow Window, List<AnalyticsBucket> Rows)> Dashboard(AnalyticsQuery query, CancellationToken ct)
+    {
+        var window = await Window(query, ct);
+        if (cache is null) return (window, await queries.Read(window, ct));
+
+        var key = FormattableString.Invariant($"manager-analytics:v1:{window.From:yyyy-MM-dd}:{window.To:yyyy-MM-dd}:{window.TimeZone}:{window.ZoneId:N}");
+        var snapshot = await cache.GetOrCreate(key, DashboardCacheLifetime,
+            async token => new DashboardSnapshot(window.GeneratedAt, await queries.Read(window, token)), ct);
+        return (window with { GeneratedAt = snapshot.GeneratedAt }, snapshot.Rows);
     }
 
     public async Task<AnalyticsReportData> Report(AnalyticsQuery query, CancellationToken ct)

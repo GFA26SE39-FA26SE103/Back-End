@@ -24,6 +24,7 @@ case "$1" in
       config) [[ "$5" == --quiet ]]; exit 0 ;;
       pull) exit "${MOCK_PULL_FAIL:-0}" ;;
       up)
+        if [[ "${!#}" == redis ]]; then exit "${MOCK_REDIS_FAIL:-0}"; fi
         printf '%s %s\n' "$file" "$API_IMAGE" >> "$MOCK_UPS"
         if [[ "${MOCK_NEW_FAIL:-0}" == 1 && "$API_IMAGE" == "$NEXT_IMAGE" ]]; then exit 1; fi
         if [[ "${MOCK_ROLLBACK_FAIL:-0}" == 1 && "$API_IMAGE" != "$NEXT_IMAGE" ]]; then exit 1; fi
@@ -51,7 +52,7 @@ prepare() {
   printf 'Jwt__Key=dummy\n' > "$root/api.env"
   if [[ "$previous" == yes ]]; then printf '%s\n%s\n' 'releases/1-1' "$OLD_IMAGE" > "$root/.active-release"; fi
   export MOCK_CALLS="$root/calls" MOCK_UPS="$root/ups"
-  unset MOCK_NEW_FAIL MOCK_PULL_FAIL MOCK_ROLLBACK_FAIL
+  unset MOCK_NEW_FAIL MOCK_PULL_FAIL MOCK_REDIS_FAIL MOCK_ROLLBACK_FAIL
 }
 run_deploy() { printf 'dummy-token' | bash "$root/releases/2-1/deploy.sh" "$NEXT_IMAGE" example > "$root/output" 2>&1; }
 clean_registry() { [[ -z $(find "$root" -maxdepth 1 -name '.registry.*' -print) ]]; }
@@ -61,6 +62,7 @@ prepare success no
 run_deploy
 [[ $(cat "$root/.active-release") == "$(printf '%s\n%s' 'releases/2-1' "$NEXT_IMAGE")" ]]
 [[ $(wc -l < "$MOCK_UPS") == 1 ]]
+[[ $(grep -E ' up .* (redis|api)$' "$MOCK_CALLS" | awk '{print $NF}') == $'redis\napi' ]]
 clean_registry
 echo 'PASS: first rollout records ready digest and removes temporary registry credentials'
 
@@ -86,6 +88,14 @@ previous_state
 [[ ! -f "$MOCK_UPS" ]]
 clean_registry
 echo 'PASS: failed pull leaves running container and release state untouched'
+
+prepare redis-failure yes
+export MOCK_REDIS_FAIL=1
+if run_deploy; then echo 'Expected failed Redis startup' >&2; exit 1; fi
+previous_state
+[[ ! -f "$MOCK_UPS" ]]
+clean_registry
+echo 'PASS: failed Redis startup leaves the active API alone'
 
 prepare first-failure no
 export MOCK_NEW_FAIL=1

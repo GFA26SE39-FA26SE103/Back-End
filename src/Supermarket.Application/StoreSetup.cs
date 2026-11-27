@@ -3,8 +3,10 @@ using Supermarket.Domain;
 using Store = Supermarket.Domain.Supermarket;
 namespace Supermarket.Application;
 
-public sealed class StoreSetup(ISetupStore store, ICurrentUser current, CheckoutSourceGuard? checkoutGuard=null)
+public sealed class StoreSetup(ISetupStore store, ICurrentUser current, CheckoutSourceGuard? checkoutGuard=null, IReadCache? cache = null)
 {
+    private static readonly TimeSpan ZoneCacheLifetime = TimeSpan.FromMinutes(3);
+
     public Task<List<Store>> Stores(CancellationToken ct)
     {
         UseCase.Viewer(current);
@@ -34,15 +36,20 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
             return x;
         }, ct);
     }
-    public async Task<List<Floor>> Floors(Guid storeId, CancellationToken ct)
+    public Task<List<Floor>> Floors(Guid storeId, CancellationToken ct)
     {
-        await Get<Store>(storeId, ct);
-        return await store.List<Floor>(f => f.SupermarketId == storeId, ct);
+        UseCase.Viewer(current);
+        return FloorReadCache.List(store, cache, storeId, ct);
     }
-    public Task<Floor> SaveFloor(Guid? id, Guid? storeId, FloorRequest r, CancellationToken ct)
+    public Task<Floor> Floor(Guid floorId, CancellationToken ct)
+    {
+        UseCase.Viewer(current);
+        return FloorReadCache.Get(store, cache, floorId, ct);
+    }
+    public async Task<Floor> SaveFloor(Guid? id, Guid? storeId, FloorRequest r, CancellationToken ct)
     {
         UseCase.Admin(current);
-        return store.Transaction(async () =>
+        var saved = await store.Transaction(async () =>
         {
             var x = id is null ? new Floor { FloorId = Guid.NewGuid(), SupermarketId = storeId!.Value } : UseCase.Found(await store.Find<Floor>(id.Value, ct));
             UseCase.Found(await store.Find<Store>(x.SupermarketId, ct));
@@ -59,16 +66,20 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
             await Save(x, id, ct);
             return x;
         }, ct);
+        await FloorReadCache.Invalidate(cache, saved);
+        return saved;
     }
     public async Task<List<ZoneView>> Zones(Guid floorId, CancellationToken ct)
     {
-        await Get<Floor>(floorId, ct);
-        return (await store.List<Zone>(z => z.FloorId == floorId, ct)).Select(View).ToList();
+        await Floor(floorId, ct);
+        async Task<List<ZoneView>> Read(CancellationToken token) =>
+            (await store.List<Zone>(z => z.FloorId == floorId, token)).Select(View).ToList();
+        return cache is null ? await Read(ct) : await cache.GetOrCreate(ZoneCacheKey(floorId), ZoneCacheLifetime, Read, ct);
     }
-    public Task<Floor> UpdateFloorDetails(Guid id, FloorDetailsRequest request, CancellationToken ct)
+    public async Task<Floor> UpdateFloorDetails(Guid id, FloorDetailsRequest request, CancellationToken ct)
     {
         UseCase.Admin(current);
-        return store.Transaction(async () =>
+        var saved = await store.Transaction(async () =>
         {
             var floor = UseCase.Found(await store.Find<Floor>(id, ct));
             UseCase.Unique((await store.List<Floor>(f => f.SupermarketId == floor.SupermarketId
@@ -80,11 +91,13 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
             await store.Update(floor, ct);
             return floor;
         }, ct);
+        await FloorReadCache.Invalidate(cache, saved);
+        return saved;
     }
-    public Task<Floor> DeleteFloor(Guid id, CancellationToken ct)
+    public async Task<Floor> DeleteFloor(Guid id, CancellationToken ct)
     {
         UseCase.Admin(current);
-        return store.Transaction(async () =>
+        var deleted = await store.Transaction(async () =>
         {
             var floor = UseCase.Found(await store.Find<Floor>(id, ct));
             var zones = await store.Count<Zone>(zone => zone.FloorId == id, ct);
@@ -96,12 +109,15 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
             await store.Remove(floor, ct);
             return floor;
         }, ct);
+        await FloorReadCache.Invalidate(cache, deleted);
+        if (cache is not null) await cache.Invalidate(ZoneCacheKey(id), ZoneCacheLifetime);
+        return deleted;
     }
     public async Task<ZoneView> Zone(Guid id, CancellationToken ct) => View(await Get<Zone>(id, ct));
-    public Task<ZoneView> SaveZone(Guid? id, Guid? floorId, ZoneRequest r, CancellationToken ct)
+    public async Task<ZoneView> SaveZone(Guid? id, Guid? floorId, ZoneRequest r, CancellationToken ct)
     {
         UseCase.Admin(current);
-        return store.Transaction(async () =>
+        var saved = await store.Transaction(async () =>
         {
             var x = id is null ? new Zone { ZoneId = Guid.NewGuid(), FloorId = floorId!.Value } : UseCase.Found(await store.Find<Zone>(id.Value, ct));
             UseCase.Found(await store.Find<Floor>(x.FloorId, ct));
@@ -137,6 +153,8 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
             await Save(x, id, ct);
             return View(x);
         }, ct);
+        if (cache is not null) await cache.Invalidate(ZoneCacheKey(saved.FloorId), ZoneCacheLifetime);
+        return saved;
     }
     public async Task<ZoneUsageView> ZoneUsage(Guid id, CancellationToken ct)
     {
@@ -171,10 +189,10 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
         return new(dependencies, monitoring, staffNames);
     }
 
-    public Task DeleteZone(Guid id, CancellationToken ct)
+    public async Task DeleteZone(Guid id, CancellationToken ct)
     {
         UseCase.Admin(current);
-        return store.Transaction(async () =>
+        var floorId = await store.Transaction(async () =>
         {
             var zone = UseCase.Found(await store.Find<Zone>(id, ct));
             var dependencies = await ZoneDependencies(id, ct);
@@ -187,8 +205,9 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
             foreach (var adjacency in await store.List<ZoneAdjacency>(x => x.ZoneId == id || x.AdjacentZoneId == id, ct))
                 await store.Remove(adjacency, ct);
             await store.Remove(zone, ct);
-            return true;
+            return zone.FloorId;
         }, ct);
+        if (cache is not null) await cache.Invalidate(ZoneCacheKey(floorId), ZoneCacheLifetime);
     }
     private async Task<ZoneDependencyView[]> ZoneDependencies(Guid id, CancellationToken ct)
     {
@@ -207,5 +226,6 @@ public sealed class StoreSetup(ISetupStore store, ICurrentUser current, Checkout
         return references.Where(x => x.Count > 0).ToArray();
     }
     public static ZoneView View(Zone x) => new(x.ZoneId, x.FloorId, x.Code, x.Name, x.ZoneType, JsonSerializer.Deserialize<Point[]>(x.MapPolygon)!, x.ColorHex, x.MinStaff, x.Status, x.UpdatedAt, x.AreaM2);
+    private static string ZoneCacheKey(Guid floorId) => $"floor-zones:v1:{floorId:N}";
     private Task Save<T>(T x, Guid? id, CancellationToken ct) where T : Entity, new() => id is null ? store.Add(x, ct) : store.Update(x, ct);
 }

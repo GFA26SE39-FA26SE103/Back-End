@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Supermarket.Application;
 using Supermarket.Domain;
+using Supermarket.Infrastructure.Caching;
 using Supermarket.Infrastructure.FloorPlans;
 using AppError = Supermarket.Application.ApplicationException;
 using Xunit;
@@ -218,6 +219,43 @@ public sealed class CloudinaryFloorPlanTests
         Assert.Equal(status, (int)response.StatusCode);
         Assert.Equal(status == 200 ? 1 : 0, w.Handler.Calls.Count);
         if (status == 200) { Assert.Equal(Png, await response.Content.ReadAsByteArrayAsync()); Assert.Equal("image/png", response.Content.Headers.ContentType!.MediaType); Assert.True(response.Headers.CacheControl!.NoStore); }
+    }
+
+    [Fact]
+    public async Task CachedMapReadsReuseTheDownloadUntilAReplacementCommits()
+    {
+        using var w = new World();
+        await w.Upload();
+        await using var parent = new SetupOverviewTests.Factory(w.Store);
+        await using var factory = parent.WithWebHostBuilder(builder => builder
+            .ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(Settings(w.Root)))
+            .ConfigureTestServices(services =>
+            {
+                services.AddDistributedMemoryCache();
+                services.AddSingleton<IReadCache, RedisReadCache>();
+                services.AddHttpClient<CloudinaryFloorPlanStorage>().ConfigurePrimaryHttpMessageHandler(() => w.Handler);
+            }));
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-Role", "ADMIN");
+        var route = $"/api/floors/{w.Floor.FloorId}/map";
+
+        Assert.Equal(Png, await client.GetByteArrayAsync(route));
+        Assert.Equal(Png, await client.GetByteArrayAsync(route));
+        Assert.Single(w.Handler.Calls, call => call.Action == "asset/download");
+
+        var pdf = "%PDF-1.7\nreplacement"u8.ToArray();
+        using var upload = new MultipartFormDataContent();
+        using var file = new ByteArrayContent(pdf);
+        file.Headers.ContentType = new("application/pdf");
+        upload.Add(file, "file", "replacement.pdf");
+        using var saved = await client.PostAsync(route, upload);
+        saved.EnsureSuccessStatusCode();
+
+        using var current = await client.GetAsync(route);
+        current.EnsureSuccessStatusCode();
+        Assert.Equal(pdf, await current.Content.ReadAsByteArrayAsync());
+        Assert.Equal("application/pdf", current.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(2, w.Handler.Calls.Count(call => call.Action == "asset/download"));
     }
 
     [Fact]

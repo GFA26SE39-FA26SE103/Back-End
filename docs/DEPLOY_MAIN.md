@@ -56,7 +56,7 @@ For the current manual setup both should show the same local `capstone-backend-m
 
 After the secrets and SSH key are in place, merge the workflow into `main`. The push starts **Deploy backend Main** automatically. To retry after configuration is fixed, open that workflow under **Actions → Run workflow** and select `main`.
 
-On the VM the deployment uses the existing Main Compose project, configuration and volume. It pulls the new image first and checks that the non-root runtime user can read both appsettings files. It then updates the API, waits for container health and checks readiness via the host port. After those checks succeed it records the new digest in `.env`. A failed rollout restores the previous locally available image, including the manual image on the first rollout. Keep the previous image available for recovery.
+On the VM the deployment uses the existing Main Compose project, configuration and volume. It pulls the new image and checks that the non-root runtime user can read both appsettings files. Then it starts Redis and checks its health before updating the API. The API reaches `redis:6379` on a private Main-only network. After the API health and host readiness checks succeed, the script records the new digest in `.env`. A failed API rollout restores the previous locally available image, including the manual image on the first rollout. Keep the previous image available for recovery.
 
 ```bash
 curl -fsS https://supermarket-api.kitsuracloud.com/health/ready
@@ -64,3 +64,5 @@ curl -fsS https://supermarket-api-dev.kitsuracloud.com/health/ready
 ```
 
 Both endpoints should return `READY`. The workflow changes the backend image. SQL migrations, VM configuration, and Nginx or DNS changes follow their own deployment steps.
+
+From `/opt/capstone/backend-main`, run `docker compose exec -T redis redis-cli PING` to check Redis. Cache reads fall back to SQL Server if Redis is unavailable at runtime.

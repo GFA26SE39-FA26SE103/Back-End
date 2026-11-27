@@ -31,6 +31,7 @@ JSON
         ;;
       pull) exit "${MOCK_PULL_FAIL:-0}" ;;
       up)
+        if [[ "${!#}" == redis ]]; then exit "${MOCK_REDIS_FAIL:-0}"; fi
         printf '%s\n' "$API_IMAGE" >> "$MOCK_UPS"
         if [[ "$API_IMAGE" == "$NEXT_IMAGE" ]]; then exit "${MOCK_NEW_FAIL:-0}"; fi
         exit "${MOCK_ROLLBACK_FAIL:-0}"
@@ -66,7 +67,7 @@ prepare() {
   cp "$root/.env" "$root/original.env"
   printf 'Jwt__Key=test-secret\n' > "$root/api.env"
   export MOCK_CALLS="$root/calls" MOCK_UPS="$root/ups" MOCK_COMPOSE_FILES="$root/compose-files"
-  unset MOCK_RUNNING_ID MOCK_DB MOCK_PULL_FAIL MOCK_IMAGE_FAIL MOCK_NEW_FAIL MOCK_READY_FAIL MOCK_ROLLBACK_FAIL
+  unset MOCK_RUNNING_ID MOCK_DB MOCK_PULL_FAIL MOCK_IMAGE_FAIL MOCK_NEW_FAIL MOCK_READY_FAIL MOCK_REDIS_FAIL MOCK_ROLLBACK_FAIL
 }
 
 deploy() {
@@ -91,6 +92,7 @@ prepare adopt "$manual_image"
 deploy
 [[ $(sed -n 's/^API_IMAGE=//p' "$root/.env") == "$NEXT_IMAGE" ]]
 [[ $(cat "$MOCK_UPS") == "$NEXT_IMAGE" ]]
+[[ $(grep -E ' up .* (redis|api)$' "$MOCK_CALLS" | awk '{print $NF}') == $'redis\napi' ]]
 grep -qx 'API_BIND_IP=192.168.1.206' "$root/.env"
 grep -qx 'SQL_NETWORK=capstone_default' "$root/.env"
 cmp "$root/compose.yml" "$release/compose.yml"
@@ -126,6 +128,13 @@ expect_failure
 [[ ! -f "$MOCK_UPS" ]]
 check_cleanup
 echo 'PASS: failed image pull leaves the current container alone'
+
+prepare redis-failure "$previous_digest"
+export MOCK_REDIS_FAIL=1
+expect_failure
+[[ ! -f "$MOCK_UPS" ]]
+check_cleanup
+echo 'PASS: failed Redis startup leaves the active API alone'
 
 prepare unreadable-image "$previous_digest"
 export MOCK_IMAGE_FAIL=1
