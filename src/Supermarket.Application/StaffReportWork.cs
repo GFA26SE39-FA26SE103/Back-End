@@ -283,7 +283,7 @@ public sealed class StaffReportWork(ISetupStore store, ICurrentUser current, ICl
     public async Task<StaffReportView> Get(Guid id, CancellationToken ct)
     {
         var report = UseCase.Found(await store.Find<Report>(id, ct));
-        CheckReader(report);
+        await CheckReader(report, ct);
         var rows = await store.List<StaffReportMedium>(x => x.ReportId == id, ct);
         var incident = (await store.List<Incident>(x => x.StaffReportId == id, ct)).FirstOrDefault();
         var code = report.IncidentTypeId is Guid typeId ? (await store.Find<IncidentType>(typeId, ct))?.Code : null;
@@ -315,7 +315,7 @@ public sealed class StaffReportWork(ISetupStore store, ICurrentUser current, ICl
     public async Task<EvidenceFile> Image(Guid id, Guid mediaId, CancellationToken ct)
     {
         var report = UseCase.Found(await store.Find<Report>(id, ct));
-        CheckReader(report);
+        await CheckReader(report, ct);
         var row = UseCase.Found(await store.Find<StaffReportMedium>(mediaId, ct));
         if (row.ReportId != id) throw new ApplicationException("NOT_FOUND", "Photo not found.", 404);
         if (row.MediaType == AudioMedia)
@@ -536,8 +536,10 @@ public sealed class StaffReportWork(ISetupStore store, ICurrentUser current, ICl
         catch (Exception error) when (error is JsonException or InvalidOperationException) { return null; }
     }
 
-    private void CheckReader(Report report)
+    private async Task CheckReader(Report report, CancellationToken ct)
     {
+        if (current.Role == "MANAGER" && (await store.List<Incident>(i => i.StaffReportId == report.ReportId, ct)).Count > 0)
+            return;
         if (report.ReportedByUserId != current.UserId && current.Role is not ("OPERATOR" or "ADMIN"))
             throw new ApplicationException("FORBIDDEN", "You cannot read this report.", 403);
     }

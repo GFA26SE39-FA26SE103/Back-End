@@ -11,6 +11,19 @@ public sealed class IncidentBoardTests
     private static readonly DateTime Now = new(2026, 11, 11, 3, 0, 0, DateTimeKind.Utc);
 
     [Fact]
+    public async Task ManagerCanReadButCannotDismissIncidents()
+    {
+        var store = new MonitoringSetupTests.MemoryStore();
+        var reportId = Guid.NewGuid();
+        var incident = new Incident { IncidentId = Guid.NewGuid(), IncidentTypeId = Guid.NewGuid(), ZoneId = Guid.NewGuid(), Title = "Spill", Status = "DETECTED", StaffReportId = reportId, CreatedAt = Now };
+        store.Values.Add(incident);
+        var service = new IncidentActions(store, new MonitoringSetupTests.User("MANAGER"), new StaffTaskTests.Clock { UtcNow = Now });
+        Assert.Equal(reportId, Assert.Single(await service.List("all", default)).StaffReportId);
+        Assert.Equal(reportId, (await service.Get(incident.IncidentId, default)).StaffReportId);
+        Assert.Equal("FORBIDDEN", (await Assert.ThrowsAsync<AppError>(() => service.Dismiss(incident.IncidentId, new("reason"), default))).Code);
+    }
+
+    [Fact]
     public async Task OpenAndEndedIncidentsShowTypeZoneMandatoryTaskProgressAndMilestones()
     {
         var store = new MonitoringSetupTests.MemoryStore();

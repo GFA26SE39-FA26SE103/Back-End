@@ -7,6 +7,20 @@ namespace Supermarket.Tests;
 
 public sealed class StaffReportWorkTests
 {
+    [Fact]
+    public async Task ManagerCanReadOnlyIncidentLinkedReportsAndPhotos()
+    {
+        var (staff, store) = World("ACTIVE");
+        store.Values.Add(Policy());
+        var report = await staff.Submit(Input("SAFETY_HAZARD"), [new StaffReportPhoto(Stream.Null, "hazard.jpg", "image/jpeg", 5)], default);
+        var manager = CreateWork(store, new User("MANAGER"), new Clock());
+        Assert.Equal(report.ReportId, (await manager.Get(report.ReportId, default)).ReportId);
+        Assert.Equal("image/jpeg", (await manager.Image(report.ReportId, Assert.Single(report.Photos).MediaId, default)).ContentType);
+        var incident = Assert.Single(store.Values.OfType<Incident>());
+        incident.StaffReportId = null;
+        Assert.Equal("FORBIDDEN", (await Assert.ThrowsAsync<AppError>(() => manager.Get(report.ReportId, default))).Code);
+        Assert.Equal("FORBIDDEN", (await Assert.ThrowsAsync<AppError>(() => manager.Image(report.ReportId, Assert.Single(report.Photos).MediaId, default))).Code);
+    }
     private static readonly Guid ZoneId = Guid.Parse("2bc6e3f6-dd30-484c-b108-ffdc8c18c012");
     private static readonly Guid TypeId = Guid.Parse("2bc6e3f6-dd30-484c-b108-ffdc8c18c013");
 

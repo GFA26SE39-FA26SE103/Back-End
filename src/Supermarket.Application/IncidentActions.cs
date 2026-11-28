@@ -15,7 +15,7 @@ public sealed record IncidentTaskView(Guid TaskId, string Title, string Status, 
 /// <summary>L3: Operator Incident board row. Mitigation (BR-21) and closure (BR-22) are separate milestones.</summary>
 public sealed record IncidentListView(Guid IncidentId, string Title, string? Description, string SourceType, string? IncidentTypeCode, string? IncidentTypeName,
     Guid ZoneId, string ZoneName, string Status, string? StatusReason, DateTime CreatedAt, DateTime UpdatedAt, DateTime? ClosedAt, DateTime? MitigatedAt,
-    DateTime? ResolutionDeadlineAt, string? SlaPriorityCode, bool IsOpen, int MandatoryTasks, int VerifiedMandatoryTasks, IncidentTaskView[] Tasks);
+    DateTime? ResolutionDeadlineAt, string? SlaPriorityCode, bool IsOpen, int MandatoryTasks, int VerifiedMandatoryTasks, IncidentTaskView[] Tasks, Guid? StaffReportId = null);
 
 public sealed class IncidentActions(ISetupStore store, ICurrentUser current, IClock clock)
 {
@@ -26,7 +26,7 @@ public sealed class IncidentActions(ISetupStore store, ICurrentUser current, ICl
     /// <summary>state = open (default) | ended | all; newest first, at most <see cref="ListLimit"/> rows.</summary>
     public async Task<IncidentListView[]> List(string? state, CancellationToken ct)
     {
-        UseCase.Operator(current);
+        ReadAccess();
         var filter = string.IsNullOrWhiteSpace(state) ? "open" : state.Trim().ToLowerInvariant();
         Rules.Status(filter, "open", "ended", "all");
         var incidents = filter switch
@@ -40,7 +40,7 @@ public sealed class IncidentActions(ISetupStore store, ICurrentUser current, ICl
 
     public async Task<IncidentListView> Get(Guid incidentId, CancellationToken ct)
     {
-        UseCase.Operator(current);
+        ReadAccess();
         var incident = UseCase.Found(await store.Find<Incident>(incidentId, ct));
         return (await Views([incident], ct)).Single();
     }
@@ -70,8 +70,14 @@ public sealed class IncidentActions(ISetupStore store, ICurrentUser current, ICl
             return new IncidentListView(i.IncidentId, i.Title, i.Description, i.SourceType, type?.Code, type?.Name, i.ZoneId, zones.GetValueOrDefault(i.ZoneId) ?? "",
                 i.Status, i.StatusReason, i.CreatedAt, i.UpdatedAt, i.ClosedAt, i.MitigatedAt, i.ResolutionDeadlineAt,
                 IncidentSlaPolicyService.ReadSnapshot(i.SlaSnapshotJson)?.PriorityCode, i.ClosedAt is null && !EndedStatuses.Contains(i.Status),
-                own.Count(t => t.IsMandatory), own.Count(t => t.IsMandatory && t.Status == WorkTaskStatus.Verified), own);
+                own.Count(t => t.IsMandatory), own.Count(t => t.IsMandatory && t.Status == WorkTaskStatus.Verified), own, i.StaffReportId);
         }).ToArray();
+    }
+
+    private void ReadAccess()
+    {
+        if (current.Role is not ("OPERATOR" or "MANAGER"))
+            throw new ApplicationException("FORBIDDEN", "Incident read access requires an Operator or Manager.", 403);
     }
 
     public Task<IncidentActionView> Dismiss(Guid incidentId, IncidentDismissRequest request, CancellationToken ct)
