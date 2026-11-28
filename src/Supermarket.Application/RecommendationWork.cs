@@ -23,7 +23,7 @@ public interface IRecommendationQueries
 }
 
 public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries queries, ICurrentUser user, IClock clock, TaskNotifier notifier,
-    RecommendationEvidenceReader evidenceReader, IRecommendationModel model, ManagerAnalytics analytics,
+    RecommendationEvidenceReader evidenceReader, IRecommendationModel model, StoreCalendar calendar,
     HistoricalRecommendationReader historical)
 {
     public const string AcceptedNotification = "RECOMMENDATION_ACCEPTED";
@@ -31,7 +31,8 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
 
     public async Task<HistoricalRecommendationResult> GenerateHistorical(AnalyticsQuery query, CancellationToken ct)
     {
-        var window = await analytics.Window(query, ct);
+        UseCase.Manager(user);
+        var window = await AnalyticsWindowResolver.Resolve(query, store, clock, calendar, ct);
         var supermarketId = await StoreId(ct);
         if (window.DayStartsUtc.Length < HistoricalRecommendationReader.MinimumDistinctDays)
             return new([], "PERIOD_TOO_SHORT");
@@ -182,7 +183,8 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
                 RecommendationEventEvidence? eventEvidence = null;
                 if (ReadHistorical(row) is { } pattern)
                 {
-                    var window = await analytics.Window(new(pattern.From, pattern.To, pattern.FilterZoneId), ct);
+                    var window = await AnalyticsWindowResolver.Resolve(new(pattern.From, pattern.To, pattern.FilterZoneId),
+                        store, clock, calendar, ct);
                     if (!(await historical.Read(supermarketId, window with { ZoneId = pattern.ZoneId }, ct))
                         .Any(current => (current with { FilterZoneId = pattern.FilterZoneId }) == pattern))
                         throw EvidenceUnavailable();

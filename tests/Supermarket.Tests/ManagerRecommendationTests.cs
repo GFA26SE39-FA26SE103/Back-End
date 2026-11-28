@@ -407,6 +407,7 @@ public sealed class ManagerRecommendationTests
                     services.AddSingleton<IClock>(new StaffTaskTests.Clock { UtcNow = Now });
                     services.RemoveAll<IRecommendationQueries>();
                     services.AddSingleton<IRecommendationQueries>(Queries);
+                    services.RemoveAll<IAnalyticsQueries>();
                     services.RemoveAll<IHistoricalRecommendationQueries>();
                     services.AddSingleton<IHistoricalRecommendationQueries>(History);
                     services.RemoveAll<IRecommendationModel>();
