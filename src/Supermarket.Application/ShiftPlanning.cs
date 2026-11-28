@@ -10,6 +10,7 @@ namespace Supermarket.Application;
 public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, IClock clock, StoreCalendar calendar, SwapPlanner planner, TaskNotifier notifier, IShiftSwapSchema schema)
 {
     public const string Published = "SHIFT_PUBLISHED", Changed = "SHIFT_CHANGED", Removed = "SHIFT_CANCELLED";
+    private const string DuplicateWorkShiftTime = "DUPLICATE_WORK_SHIFT_TIME";
 
     /// <summary>Sets the Manager-owned Zone staffing baseline used by coverage checks for every active Work Shift.</summary>
     public Task<ZoneView> SetZoneMinimumStaff(Guid zoneId, ZoneMinimumStaffRequest request, CancellationToken ct)
@@ -44,12 +45,15 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
         await schema.Require(ct);
         ShiftRules.Monday(request.WeekStart);
         var name = ShiftRules.WorkShift(request.Name, request.StartTime, request.EndTime);
+        var start = StoredShiftTime(request.StartTime);
+        var end = StoredShiftTime(request.EndTime);
         var shift = await store.Transaction(async () =>
         {
             var market = (await store.List<Store>(null, ct)).OrderBy(s => s.CreatedAt).FirstOrDefault()
                 ?? throw new ApplicationException("SUPERMARKET_REQUIRED", "Create the supermarket before Work Shifts.", 422);
             UseCase.Unique((await store.List<Shift>(s => s.SupermarketId == market.SupermarketId && s.WeekStart == request.WeekStart && s.Name == name, ct)).Count > 0);
-            var row = new Shift { ShiftId = Guid.NewGuid(), SupermarketId = market.SupermarketId, Name = name, StartTime = request.StartTime, EndTime = request.EndTime,
+            await RequireAvailableWorkShiftTime(market.SupermarketId, request.WeekStart, start, end, null, ct);
+            var row = new Shift { ShiftId = Guid.NewGuid(), SupermarketId = market.SupermarketId, Name = name, StartTime = start, EndTime = end,
                 WeekStart = request.WeekStart, Status = WorkShiftStatus.Active };
             await store.Add(row, ct);
             return row;
@@ -69,6 +73,11 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
             if (source.Count == 0) throw new ApplicationException("SOURCE_WEEK_EMPTY", "The source week has no active Work Shifts to copy.", 422);
             if ((await store.List<Shift>(s => s.WeekStart == request.TargetWeekStart, ct)).Count > 0)
                 throw new ApplicationException("TARGET_WEEK_NOT_EMPTY", "The target week already has Work Shifts.");
+            var duplicate = source.GroupBy(shift => (shift.SupermarketId, shift.StartTime, shift.EndTime))
+                .FirstOrDefault(group => group.Skip(1).Any());
+            if (duplicate is not null)
+                throw new ApplicationException(DuplicateWorkShiftTime,
+                    $"The source week has multiple active Work Shifts at {duplicate.Key.StartTime:HH:mm:ss}–{duplicate.Key.EndTime:HH:mm:ss}. Deactivate one before copying.");
             foreach (var shift in source)
                 await store.Add(new Shift { ShiftId = Guid.NewGuid(), SupermarketId = shift.SupermarketId, WeekStart = request.TargetWeekStart,
                     Name = shift.Name, StartTime = shift.StartTime, EndTime = shift.EndTime, Status = WorkShiftStatus.Active }, ct);
@@ -86,16 +95,40 @@ public sealed class ShiftPlanning(ISetupStore store, ICurrentUser current, ICloc
         {
             var shift = UseCase.Found(await store.Find<Shift>(id, ct));
             var used = (await store.List<ShiftAssignment>(a => a.ShiftId == id && a.Status != ShiftAssignmentStatus.Cancelled, ct)).Count > 0;
-            var start = request.StartTime ?? shift.StartTime; var end = request.EndTime ?? shift.EndTime;
+            var requestedStart = request.StartTime ?? shift.StartTime;
+            var requestedEnd = request.EndTime ?? shift.EndTime;
+            var start = StoredShiftTime(requestedStart);
+            var end = StoredShiftTime(requestedEnd);
             if (used && (start != shift.StartTime || end != shift.EndTime))
                 throw new ApplicationException("SHIFT_IN_USE", "Work Shift times cannot change after assignments use it in this week.");
-            var name = ShiftRules.WorkShift(request.Name ?? shift.Name, start, end);
+            var name = ShiftRules.WorkShift(request.Name ?? shift.Name, requestedStart, requestedEnd);
             UseCase.Unique((await store.List<Shift>(s => s.SupermarketId == shift.SupermarketId && s.WeekStart == shift.WeekStart && s.Name == name && s.ShiftId != id, ct)).Count > 0);
-            shift.Name = name; shift.StartTime = start; shift.EndTime = end; shift.Status = request.Status ?? shift.Status;
+            var status = request.Status ?? shift.Status;
+            if (status == WorkShiftStatus.Active)
+                await RequireAvailableWorkShiftTime(shift.SupermarketId, shift.WeekStart, start, end, id, ct);
+            shift.Name = name; shift.StartTime = start; shift.EndTime = end; shift.Status = status;
             await store.Update(shift, ct);
             return used;
         }, ct);
         return WorkShift(UseCase.Found(await store.Find<Shift>(id, ct)), inUse);
+    }
+
+    private async Task RequireAvailableWorkShiftTime(Guid supermarketId, DateOnly weekStart, TimeOnly start, TimeOnly end,
+        Guid? exceptShiftId, CancellationToken ct)
+    {
+        var matches = await store.List<Shift>(shift => shift.SupermarketId == supermarketId && shift.WeekStart == weekStart
+            && shift.Status == WorkShiftStatus.Active && shift.StartTime == start && shift.EndTime == end
+            && (exceptShiftId == null || shift.ShiftId != exceptShiftId), ct);
+        if (matches.OrderBy(shift => shift.Name, StringComparer.Ordinal).FirstOrDefault() is { } match)
+            throw new ApplicationException(DuplicateWorkShiftTime,
+                $"The active Work Shift \"{match.Name}\" already uses {start:HH:mm:ss}–{end:HH:mm:ss} this week. Choose different hours or deactivate that shift.");
+    }
+
+    private static TimeOnly StoredShiftTime(TimeOnly time)
+    {
+        // Compare and save at the whole-second precision of the Shift table.
+        var rounded = time.Add(TimeSpan.FromMilliseconds(500));
+        return new TimeOnly(rounded.Hour, rounded.Minute, rounded.Second);
     }
 
     /// <summary>Assignments and BR-02 coverage for a date range; defaults to the current local Monday–Sunday week.</summary>

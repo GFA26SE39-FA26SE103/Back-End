@@ -8,9 +8,20 @@ namespace Supermarket.Api.Controllers;
 public sealed class WorkShiftsController(ShiftPlanning planning) : ControllerBase
 {
     [HttpGet, Authorize(Roles = AccessRoles.Viewer)] public Task<WorkShiftView[]> List([FromQuery] DateOnly? weekStart, CancellationToken ct) => planning.WorkShifts(weekStart, ct);
-    [HttpPost, Authorize(Roles = AccessRoles.Manager)] public Task<WorkShiftView> Create(CreateWorkShiftRequest request, CancellationToken ct) => planning.CreateWorkShift(request, ct);
-    [HttpPost("copy-week"), Authorize(Roles = AccessRoles.Manager)] public Task<WorkShiftView[]> CopyWeek(CopyWorkShiftWeekRequest request, CancellationToken ct) => planning.CopyWorkShiftWeek(request, ct);
-    [HttpPatch("{id:guid}"), Authorize(Roles = AccessRoles.Manager)] public Task<WorkShiftView> Update(Guid id, UpdateWorkShiftRequest request, CancellationToken ct) => planning.UpdateWorkShift(id, request, ct);
+    [HttpPost, Authorize(Roles = AccessRoles.Manager)]
+    [ProducesResponseType<WorkShiftView>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict, "application/problem+json")]
+    public Task<WorkShiftView> Create(CreateWorkShiftRequest request, CancellationToken ct) => planning.CreateWorkShift(request, ct);
+
+    [HttpPost("copy-week"), Authorize(Roles = AccessRoles.Manager)]
+    [ProducesResponseType<WorkShiftView[]>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict, "application/problem+json")]
+    public Task<WorkShiftView[]> CopyWeek(CopyWorkShiftWeekRequest request, CancellationToken ct) => planning.CopyWorkShiftWeek(request, ct);
+
+    [HttpPatch("{id:guid}"), Authorize(Roles = AccessRoles.Manager)]
+    [ProducesResponseType<WorkShiftView>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict, "application/problem+json")]
+    public Task<WorkShiftView> Update(Guid id, UpdateWorkShiftRequest request, CancellationToken ct) => planning.UpdateWorkShift(id, request, ct);
 }
 
 /// <summary>Manager schedule: DRAFT assignments, publishing with Zone coverage, edits and cancellation before a shift starts.</summary>
