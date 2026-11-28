@@ -13,7 +13,7 @@ public sealed class ManagerRecommendationsController(RecommendationWork recommen
         => recommendations.Generate(request, ct);
 
     [HttpPost("generate-historical")]
-    public Task<HistoricalRecommendationResult> GenerateHistorical(AnalyticsQuery query, CancellationToken ct)
+    public Task<HistoricalRecommendationResult> GenerateHistorical(HistoricalRecommendationQuery query, CancellationToken ct)
         => recommendations.GenerateHistorical(query, ct);
 
     [HttpGet]

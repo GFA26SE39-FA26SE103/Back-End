@@ -2028,17 +2028,17 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AnalyticsQuery"
+                "$ref": "#/components/schemas/HistoricalRecommendationQuery"
               }
             },
             "text/json": {
               "schema": {
-                "$ref": "#/components/schemas/AnalyticsQuery"
+                "$ref": "#/components/schemas/HistoricalRecommendationQuery"
               }
             },
             "application/*+json": {
               "schema": {
-                "$ref": "#/components/schemas/AnalyticsQuery"
+                "$ref": "#/components/schemas/HistoricalRecommendationQuery"
               }
             }
           }
@@ -8285,7 +8285,7 @@
         },
         "additionalProperties": false
       },
-      "AnalyticsQuery": {
+      "HistoricalRecommendationQuery": {
         "type": "object",
         "properties": {
           "from": {
@@ -8301,6 +8301,10 @@
           "zoneId": {
             "type": "string",
             "format": "uuid",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
             "nullable": true
           }
         },
@@ -8344,7 +8348,8 @@
           },
           "localHour": {
             "type": "integer",
-            "format": "int32"
+            "format": "int32",
+            "nullable": true
           },
           "eventCount": {
             "type": "integer",
@@ -8353,6 +8358,10 @@
           "daysWithEvents": {
             "type": "integer",
             "format": "int32"
+          },
+          "source": {
+            "type": "string",
+            "nullable": true
           },
           "periodDays": {
             "type": "integer",

@@ -29,15 +29,18 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
     public const string AcceptedNotification = "RECOMMENDATION_ACCEPTED";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public async Task<HistoricalRecommendationResult> GenerateHistorical(AnalyticsQuery query, CancellationToken ct)
+    public async Task<HistoricalRecommendationResult> GenerateHistorical(HistoricalRecommendationQuery query, CancellationToken ct)
     {
         UseCase.Manager(user);
-        var window = await AnalyticsWindowResolver.Resolve(query, store, clock, calendar, ct);
+        var source = query.Source?.Trim().ToUpperInvariant() ?? HistoricalRecommendationReader.Events;
+        if (source is not (HistoricalRecommendationReader.Events or HistoricalRecommendationReader.Incidents))
+            throw new ApplicationException("INVALID_RECOMMENDATION_SOURCE", "Choose Events or Incidents.", 400);
+        var window = await AnalyticsWindowResolver.Resolve(new(query.From, query.To, query.ZoneId), store, clock, calendar, ct);
         var supermarketId = await StoreId(ct);
         if (window.DayStartsUtc.Length < HistoricalRecommendationReader.MinimumDistinctDays)
             return new([], "PERIOD_TOO_SHORT");
 
-        var patterns = await ReadTopPatterns(supermarketId, window, ct);
+        var patterns = await ReadTopPatterns(supermarketId, window, source, ct);
         if (patterns.Length == 0)
             return new([], "NO_RECURRING_PATTERN");
 
@@ -47,8 +50,8 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
         if (missing.Length == 0)
             return new(patterns.Select(pattern => View(existing[pattern], now)).ToArray(), null);
 
-        var signals = missing.Select((pattern, index) => new HistoricalRecommendationSignal(index, pattern.EventType,
-            HistoricalRecommendationReader.ActionFor(pattern.EventType), pattern.LocalHour, pattern.EventCount,
+        var signals = missing.Select((pattern, index) => new HistoricalRecommendationSignal(index, pattern.Source, pattern.EventType,
+            HistoricalRecommendationReader.ActionFor(pattern), pattern.LocalHour, pattern.EventCount,
             pattern.DaysWithEvents, pattern.PeriodDays)).ToArray();
         var drafts = await model.DraftHistorical(signals, ct);
         if (string.IsNullOrWhiteSpace(drafts.Model)
@@ -61,7 +64,7 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
 
         return await store.Transaction<HistoricalRecommendationResult>(async () =>
         {
-            var currentPatterns = await ReadTopPatterns(supermarketId, window, ct);
+            var currentPatterns = await ReadTopPatterns(supermarketId, window, source, ct);
             if (!patterns.SequenceEqual(currentPatterns))
                 return new([], "EVIDENCE_CHANGED");
 
@@ -76,7 +79,7 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
                     row = new Recommendation
                     {
                         RecommendationId = Guid.NewGuid(), SupermarketId = supermarketId, ZoneId = pattern.ZoneId,
-                        RecommendationType = HistoricalRecommendationReader.ActionFor(pattern.EventType),
+                        RecommendationType = HistoricalRecommendationReader.ActionFor(pattern),
                         GeneratedAt = savedAt, ExpiresAt = savedAt.AddDays(7),
                         Title = draft.Title.Trim(), Description = draft.Description.Trim(),
                         SupportingDataJson = JsonSerializer.Serialize(new { HistoricalEvidence = pattern, HistoricalModel = drafts.Model }, Json)
@@ -89,8 +92,8 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
         }, ct);
     }
 
-    private async Task<HistoricalRecommendationEvidence[]> ReadTopPatterns(Guid supermarketId, AnalyticsWindow window, CancellationToken ct) =>
-        (await historical.Read(supermarketId, window, ct)).DistinctBy(pattern => pattern.EventType).ToArray();
+    private async Task<HistoricalRecommendationEvidence[]> ReadTopPatterns(Guid supermarketId, AnalyticsWindow window, string source, CancellationToken ct) =>
+        (await historical.Read(supermarketId, window, source, ct)).DistinctBy(pattern => pattern.EventType).Take(4).ToArray();
 
     private async Task<Dictionary<HistoricalRecommendationEvidence, Recommendation>> ReadAiHistory(Guid supermarketId,
         HistoricalRecommendationEvidence[] patterns, DateTime now, CancellationToken ct)
@@ -100,7 +103,8 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
             && row.EventId == null && row.ZoneId.HasValue && zoneIds.Contains(row.ZoneId.Value)
             && row.Status != RecommendationStatus.Expired && row.ExpiresAt > now
             && (row.RecommendationType == HistoricalRecommendationReader.ReviewCoverage
-                || row.RecommendationType == HistoricalRecommendationReader.InspectZone), ct);
+                || row.RecommendationType == HistoricalRecommendationReader.InspectZone
+                || row.RecommendationType == HistoricalRecommendationReader.ReviewIncidentPrevention), ct);
         var reusable = new Dictionary<HistoricalRecommendationEvidence, Recommendation>();
         foreach (var row in existing.OrderByDescending(row => row.GeneratedAt))
             if (ReadHistorical(row) is { Model: not null } saved)
@@ -217,7 +221,7 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
                     var pattern = history.Evidence;
                     var window = await AnalyticsWindowResolver.Resolve(new(pattern.From, pattern.To, pattern.FilterZoneId),
                         store, clock, calendar, ct);
-                    if (!(await historical.Read(supermarketId, window with { ZoneId = pattern.ZoneId }, ct))
+                    if (!(await historical.Read(supermarketId, window with { ZoneId = pattern.ZoneId }, pattern.Source, ct))
                         .Any(current => (current with { FilterZoneId = pattern.FilterZoneId }) == pattern))
                         throw EvidenceUnavailable();
                 }
@@ -326,7 +330,8 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
     private static (HistoricalRecommendationEvidence Evidence, string? Model)? ReadHistorical(Recommendation row)
     {
         if (row.EventId is not null || row.SupportingDataJson is null
-            || row.RecommendationType is not (HistoricalRecommendationReader.ReviewCoverage or HistoricalRecommendationReader.InspectZone))
+            || row.RecommendationType is not (HistoricalRecommendationReader.ReviewCoverage or HistoricalRecommendationReader.InspectZone
+                or HistoricalRecommendationReader.ReviewIncidentPrevention))
             return null;
         try
         {
@@ -334,7 +339,13 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
             var root = data.RootElement;
             if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("historicalEvidence", out var evidence)
                 || evidence.Deserialize<HistoricalRecommendationEvidence>(Json) is not { } pattern
-                || pattern.ZoneId != row.ZoneId || HistoricalRecommendationReader.ActionFor(pattern.EventType) != row.RecommendationType)
+                || pattern.ZoneId != row.ZoneId)
+                return null;
+            // Existing event-only rows predate the source field.
+            pattern = pattern with { Source = pattern.Source ?? HistoricalRecommendationReader.Events };
+            if (pattern.Source is not (HistoricalRecommendationReader.Events or HistoricalRecommendationReader.Incidents)
+                || (pattern.Source == HistoricalRecommendationReader.Incidents ? pattern.LocalHour is not null : pattern.LocalHour is not (>= 0 and < 24))
+                || HistoricalRecommendationReader.ActionFor(pattern) != row.RecommendationType)
                 return null;
             var model = root.TryGetProperty("historicalModel", out var value) && value.ValueKind == JsonValueKind.String
                 ? value.GetString() : null;

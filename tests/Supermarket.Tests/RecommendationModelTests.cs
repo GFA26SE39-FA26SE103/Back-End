@@ -53,7 +53,12 @@ public sealed class RecommendationModelTests
             using var input = JsonDocument.Parse(root.GetProperty("input").GetString()!);
             var signal = input.RootElement[0];
             Assert.Equal(19, signal.GetProperty("localHour").GetInt32());
-            Assert.Equal(3, signal.GetProperty("daysWithEvents").GetInt32());
+            Assert.Equal(3, signal.GetProperty("daysWithRecords").GetInt32());
+            Assert.Equal("EVENTS", signal.GetProperty("source").GetString());
+            var incident = input.RootElement[1];
+            Assert.Equal("INCIDENTS", incident.GetProperty("source").GetString());
+            Assert.Equal("SPILL", incident.GetProperty("recordType").GetString());
+            Assert.Equal(JsonValueKind.Null, incident.GetProperty("localHour").ValueKind);
             Assert.False(signal.TryGetProperty("zoneId", out _));
             Assert.False(signal.TryGetProperty("zoneName", out _));
             Assert.False(signal.TryGetProperty("eventId", out _));
@@ -62,7 +67,8 @@ public sealed class RecommendationModelTests
                 { new { type = "message", content = new[] { new { type = "output_text", text } } } } }) };
         })) { BaseAddress = new Uri("https://unit-test.invalid/v1/") };
         var model = new OpenAiRecommendationModel(http, Options.Create(new RecommendationAiOptions { ApiKey = "test-key", Model = "test-model" }));
-        var result = await model.DraftHistorical([new(0, "LONG_QUEUE", "REVIEW_HISTORICAL_CHECKOUT_COVERAGE", 19, 5, 3, 7)], default);
+        var result = await model.DraftHistorical([new(0, "EVENTS", "LONG_QUEUE", "REVIEW_HISTORICAL_CHECKOUT_COVERAGE", 19, 5, 3, 7),
+            new(1, "INCIDENTS", "SPILL", "REVIEW_HISTORICAL_INCIDENT_PREVENTION", null, 3, 2, 7)], default);
 
         Assert.Equal("test-model", result.Model);
         Assert.Equal(new HistoricalRecommendationDraft(0, "Compare coverage", "Review staffing at the recurring hour."),
