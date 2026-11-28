@@ -51,6 +51,8 @@ public sealed class ManagerRecommendationTests
         Assert.All(result.Recommendations, row =>
         {
             Assert.Null(row.EventId);
+            Assert.Equal("test-historical-model", row.HistoricalModel);
+            Assert.Equal("Review the recurring condition with the team.", row.Description);
             Assert.Equal(zoneId, row.ZoneId);
             Assert.Equal(14, row.HistoricalEvidence!.PeriodDays);
             Assert.Equal(2, row.HistoricalEvidence.DaysWithEvents);
@@ -61,6 +63,10 @@ public sealed class ManagerRecommendationTests
         var again = await GenerateHistory(manager, filter);
         Assert.Equal(result.Recommendations.Select(row => row.RecommendationId), again.Recommendations.Select(row => row.RecommendationId));
         Assert.Equal(0, world.Model.Calls);
+        Assert.Equal(1, world.Model.HistoricalCalls);
+        Assert.Equal(4, world.Model.HistoricalSignals.Length);
+        Assert.Contains(world.Model.HistoricalSignals, signal => signal.EventType == "LONG_QUEUE"
+            && signal.EventCount == 3 && signal.DaysWithEvents == 2 && signal.LocalHour == 19);
 
         using var coverage = await manager.PostAsJsonAsync($"{Route}/{queue.RecommendationId}/decision", new RecommendationDecision("ACCEPTED"));
         coverage.EnsureSuccessStatusCode();
@@ -74,6 +80,7 @@ public sealed class ManagerRecommendationTests
         Assert.Equal(operatorUser.UserId, Assert.Single(world.Store.Values.OfType<NotificationRecipient>()).UserId);
         var handedOff = await op.GetFromJsonAsync<RecommendationView>($"{OperatorRoute}/{congestion.RecommendationId}");
         Assert.Equal("CONGESTION", handedOff!.HistoricalEvidence!.EventType);
+        Assert.Equal("test-historical-model", handedOff.HistoricalModel);
         Assert.Empty(world.Store.Values.OfType<WorkTask>());
         Assert.Equal(2, world.Store.Values.OfType<AuditLog>().Count());
     }
@@ -97,6 +104,49 @@ public sealed class ManagerRecommendationTests
         Assert.Equal(HttpStatusCode.Conflict, change.StatusCode);
         Assert.Contains("RECOMMENDATION_EVIDENCE_UNAVAILABLE", await change.Content.ReadAsStringAsync());
         Assert.Empty(world.Store.Values.OfType<AuditLog>());
+    }
+
+    [Theory]
+    [InlineData("declines", HttpStatusCode.OK, "NO_SUPPORTED_RECOMMENDATION")]
+    [InlineData("invalid-index", HttpStatusCode.ServiceUnavailable, "RECOMMENDATION_AI_INVALID_RESPONSE")]
+    [InlineData("changed", HttpStatusCode.OK, "EVIDENCE_CHANGED")]
+    public async Task MissingOrInvalidAiAdviceDoesNotSaveARecommendation(string scenario, HttpStatusCode status, string reason)
+    {
+        var world = new World();
+        var first = new HistoricalEventSample(world.Event.ZoneId, "Checkout", "LONG_QUEUE", "Long queue", Now.AddDays(-1));
+        world.History.Rows.AddRange([first, first with { DetectedAt = Now.AddDays(-2) }]);
+        world.Model.OnDraft = _ =>
+        {
+            if (scenario == "changed") world.History.Rows.Clear();
+            return new("test-historical-model", scenario == "declines" ? []
+                : [new(scenario == "invalid-index" ? 1 : 0, "Review checkout coverage", "Compare staffed capacity at the recurring hour.")]);
+        };
+        await using var factory = world.Factory();
+        using var manager = ManagerClient(factory);
+        using var response = await manager.PostAsJsonAsync(Route + "/generate-historical", new AnalyticsQuery());
+        Assert.Equal(status, response.StatusCode);
+        Assert.Contains(reason, await response.Content.ReadAsStringAsync());
+        Assert.Equal(1, world.Model.HistoricalCalls);
+        Assert.Single(world.Store.Values.OfType<Recommendation>());
+    }
+
+    [Fact]
+    public async Task HistoricalAdviceWithoutModelProvenanceIsNotReusedWhenGeneratingAgain()
+    {
+        var world = new World();
+        var first = new HistoricalEventSample(world.Event.ZoneId, "Checkout", "LONG_QUEUE", "Long queue", Now.AddDays(-1));
+        world.History.Rows.AddRange([first, first with { DetectedAt = Now.AddDays(-2) }]);
+        await using var factory = world.Factory();
+        using var manager = ManagerClient(factory);
+        var generated = Assert.Single((await GenerateHistory(manager, new())).Recommendations);
+        var old = Assert.Single(world.Store.Values.OfType<Recommendation>(), row => row.RecommendationId == generated.RecommendationId);
+        old.SupportingDataJson = JsonSerializer.Serialize(new { historicalEvidence = generated.HistoricalEvidence },
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        var replacement = Assert.Single((await GenerateHistory(manager, new())).Recommendations);
+        Assert.NotEqual(generated.RecommendationId, replacement.RecommendationId);
+        Assert.Equal("test-historical-model", replacement.HistoricalModel);
+        Assert.Equal(2, world.Model.HistoricalCalls);
     }
 
     [Fact]
@@ -355,6 +405,8 @@ public sealed class ManagerRecommendationTests
             .GetProperty("HistoricalRecommendationEvidence").GetProperty("properties");
         Assert.True(historical.TryGetProperty("daysWithEvents", out _));
         Assert.True(historical.TryGetProperty("evidenceVersion", out _));
+        Assert.True(document.RootElement.GetProperty("components").GetProperty("schemas")
+            .GetProperty("RecommendationView").GetProperty("properties").TryGetProperty("historicalModel", out _));
     }
 
     private static HttpClient ManagerClient(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> factory)
@@ -431,12 +483,24 @@ public sealed class ManagerRecommendationTests
     private sealed class ModelStub : IRecommendationModel
     {
         public int Calls;
+        public int HistoricalCalls;
+        public HistoricalRecommendationSignal[] HistoricalSignals = [];
         public Func<RecommendationChoice> OnChoose = () => throw new InvalidOperationException();
+        public Func<IReadOnlyList<HistoricalRecommendationSignal>, HistoricalRecommendationDrafts> OnDraft = signals =>
+            new("test-historical-model", signals.Select(signal => new HistoricalRecommendationDraft(signal.CandidateIndex,
+                $"Model advice for {signal.EventType}", "Review the recurring condition with the team.")).ToArray());
 
         public Task<RecommendationChoice> Choose(RecommendationSignal signal, IReadOnlyList<string> actions, CancellationToken ct)
         {
             Calls++;
             return Task.FromResult(OnChoose());
+        }
+
+        public Task<HistoricalRecommendationDrafts> DraftHistorical(IReadOnlyList<HistoricalRecommendationSignal> signals, CancellationToken ct)
+        {
+            HistoricalCalls++;
+            HistoricalSignals = signals.ToArray();
+            return Task.FromResult(OnDraft(signals));
         }
     }
 

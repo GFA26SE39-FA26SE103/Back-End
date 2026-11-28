@@ -8,9 +8,15 @@ public sealed record RecommendationGenerationResult(RecommendationView? Recommen
 public sealed record RecommendationSignal(string EventType, string AlertLevel, decimal Metric, string Unit,
     decimal WarningThreshold, decimal CriticalThreshold, int SustainSeconds, string? SlaPriority);
 public sealed record RecommendationChoice(string Action, string Confidence, string? Model = null);
+public sealed record HistoricalRecommendationSignal(int CandidateIndex, string EventType, string ReviewAction,
+    int LocalHour, int EventCount, int DaysWithEvents, int PeriodDays);
+public sealed record HistoricalRecommendationDraft(int CandidateIndex, string Title, string Description);
+public sealed record HistoricalRecommendationDrafts(string Model, HistoricalRecommendationDraft[] Recommendations);
+
 public interface IRecommendationModel
 {
     Task<RecommendationChoice> Choose(RecommendationSignal signal, IReadOnlyList<string> actions, CancellationToken ct);
+    Task<HistoricalRecommendationDrafts> DraftHistorical(IReadOnlyList<HistoricalRecommendationSignal> signals, CancellationToken ct);
 }
 
 public sealed record RecommendationRuleEvidence(Guid RuleId, DateTime RuleVersion, Guid ConfigId, DateTime ConfigVersion,

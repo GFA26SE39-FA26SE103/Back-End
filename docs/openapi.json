@@ -8387,6 +8387,10 @@
       "RecommendationView": {
         "type": "object",
         "properties": {
+          "historicalModel": {
+            "type": "string",
+            "nullable": true
+          },
           "historicalEvidence": {
             "$ref": "#/components/schemas/HistoricalRecommendationEvidence"
           },
