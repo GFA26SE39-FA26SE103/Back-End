@@ -1,3 +1,9 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Supermarket.Application;
 using Supermarket.Domain;
 using Xunit;
@@ -30,6 +36,81 @@ public sealed class ShiftPlanningTests
         var renamed = await plan.UpdateWorkShift(w.Morning.ShiftId, new("Morning A", null, null, WorkShiftStatus.Inactive), default);
         Assert.Equal(("Morning A", WorkShiftStatus.Inactive, true), (renamed.Name, renamed.Status, renamed.InUse));
         Assert.Equal("SHIFT_INACTIVE", (await Assert.ThrowsAsync<AppError>(() => plan.Assign(new(w.Staff("Binh"), w.Morning.ShiftId, Thu, [w.Checkout.ZoneId]), default))).Code);
+    }
+
+    [Fact]
+    public async Task ReactivatingAWorkShiftWithTheSameHoursAsItsReplacementReturnsConflict()
+    {
+        var world = new World();
+        await using var root = new SetupOverviewTests.Factory(world.Store);
+        await using var factory = root.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.RemoveAll<IShiftSwapSchema>();
+            services.AddSingleton<IShiftSwapSchema>(new SwapSchema());
+        }));
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Test-Role", "MANAGER");
+        var request = new CreateWorkShiftRequest(Monday, "Original", new(0, 0), new(4, 0));
+        using var created = await client.PostAsJsonAsync("/api/shifts", request);
+        created.EnsureSuccessStatusCode();
+        var original = (await created.Content.ReadFromJsonAsync<WorkShiftView>())!;
+        using var deactivated = await client.PatchAsJsonAsync($"/api/shifts/{original.ShiftId}", new UpdateWorkShiftRequest(null, null, null, WorkShiftStatus.Inactive));
+        deactivated.EnsureSuccessStatusCode();
+        using var replacement = await client.PostAsJsonAsync("/api/shifts", request with { Name = "Replacement" });
+        replacement.EnsureSuccessStatusCode();
+
+        using var conflict = await client.PatchAsJsonAsync($"/api/shifts/{original.ShiftId}", new UpdateWorkShiftRequest(null, null, null, WorkShiftStatus.Active));
+        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+        using var problem = JsonDocument.Parse(await conflict.Content.ReadAsStringAsync());
+        Assert.Equal("DUPLICATE_WORK_SHIFT_TIME", problem.RootElement.GetProperty("code").GetString());
+        Assert.Contains("Replacement", problem.RootElement.GetProperty("detail").GetString());
+        var rows = await client.GetFromJsonAsync<WorkShiftView[]>($"/api/shifts?weekStart={Monday:yyyy-MM-dd}");
+        Assert.Equal(WorkShiftStatus.Inactive, Assert.Single(rows!, row => row.ShiftId == original.ShiftId).Status);
+    }
+
+    [Fact]
+    public async Task CreatingAndEditingWorkShiftsRejectsExactHoursAndAllowsPartialOverlap()
+    {
+        var world = new World();
+        var plan = world.Planning(world.User("MANAGER", "Lan"));
+        var request = new CreateWorkShiftRequest(Monday, "Night", new(22, 0), new(6, 0));
+        var night = await plan.CreateWorkShift(request, default);
+        var duplicate = await Assert.ThrowsAsync<AppError>(() => plan.CreateWorkShift(request with { Name = "Other night" }, default));
+        Assert.Equal(("DUPLICATE_WORK_SHIFT_TIME", 409), (duplicate.Code, duplicate.Status));
+        var fractional = await Assert.ThrowsAsync<AppError>(() => plan.CreateWorkShift(request with
+        {
+            Name = "Fractional night", StartTime = new(22, 0, 0, 100), EndTime = new(6, 0, 0, 100)
+        }, default));
+        Assert.Equal("DUPLICATE_WORK_SHIFT_TIME", fractional.Code);
+
+        var overlapping = await plan.CreateWorkShift(new(Monday, "Handover", new(22, 0), new(2, 0)), default);
+        var edit = await Assert.ThrowsAsync<AppError>(() => plan.UpdateWorkShift(overlapping.ShiftId, new(null, null, request.EndTime, null), default));
+        Assert.Equal("DUPLICATE_WORK_SHIFT_TIME", edit.Code);
+        Assert.Equal(overlapping.EndTime, Assert.Single(await plan.WorkShifts(Monday, default), row => row.ShiftId == overlapping.ShiftId).EndTime);
+        var renamed = await plan.UpdateWorkShift(night.ShiftId, new("Night shift", null, null, null), default);
+        Assert.Equal("Night shift", renamed.Name);
+        var nextWeek = await plan.CreateWorkShift(request with { WeekStart = Monday.AddDays(7) }, default);
+        Assert.Equal(night.StartTime, nextWeek.StartTime);
+    }
+
+    [Fact]
+    public async Task CopyWeekRejectsExistingDuplicateHoursWithoutCreatingAnyShifts()
+    {
+        var world = new World();
+        var plan = world.Planning(world.User("MANAGER", "Lan"));
+        var nextMonday = Monday.AddDays(7);
+        var duplicate = new Shift
+        {
+            ShiftId = Guid.NewGuid(), SupermarketId = world.Morning.SupermarketId, WeekStart = Monday, Name = "Legacy duplicate",
+            StartTime = world.Morning.StartTime, EndTime = world.Morning.EndTime, Status = WorkShiftStatus.Active
+        };
+        world.Store.Values.Add(duplicate);
+        var conflict = await Assert.ThrowsAsync<AppError>(() => plan.CopyWorkShiftWeek(new(Monday, nextMonday), default));
+        Assert.Equal("DUPLICATE_WORK_SHIFT_TIME", conflict.Code);
+        Assert.Empty(await plan.WorkShifts(nextMonday, default));
+
+        await plan.UpdateWorkShift(duplicate.ShiftId, new(null, null, null, WorkShiftStatus.Inactive), default);
+        Assert.Equal(2, (await plan.CopyWorkShiftWeek(new(Monday, nextMonday), default)).Length);
     }
 
     [Fact]
