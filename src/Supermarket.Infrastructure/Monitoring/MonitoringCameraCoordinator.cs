@@ -21,9 +21,11 @@ public sealed class MonitoringCameraCoordinator(IServiceScopeFactory scopes,IOpt
         await gate.WaitAsync(ct);
         try
         {
+            // A recorded session can be restarted while it is still playing or after it finished, so the Operator
+            // does not have to wait for the whole video. STARTING is excluded: a restart is already in flight.
             if (completedSessionId == Guid.Empty || !jobs.TryGetValue(cameraId, out var completed) || !completed.Started
-                || Get(cameraId) is not { State: "COMPLETED", VideoSourceType: "RECORDED" } view || view.SessionId != completedSessionId)
-                throw new AppError("MONITORING_REPLAY_NOT_READY", "Replay requires a completed recorded monitoring session.", 409);
+                || Get(cameraId) is not { State: "RUNNING" or "COMPLETED", VideoSourceType: "RECORDED" } view || view.SessionId != completedSessionId)
+                throw new AppError("MONITORING_REPLAY_NOT_READY", "Replay requires a running or completed recorded monitoring session.", 409);
 
             using var scope = scopes.CreateScope();
             var services = scope.ServiceProvider;

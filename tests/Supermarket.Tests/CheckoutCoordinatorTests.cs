@@ -12,6 +12,29 @@ namespace Supermarket.Tests;
 public sealed class CheckoutCoordinatorTests
 {
     [Fact]
+    public async Task ReplayRestartsARecordedSessionThatIsStillPlaying()
+    {
+        await using var world = new World();
+        world.Snapshot.Connection.SourceType = "RECORDED";
+        world.Snapshot.Connection.Protocol = "FILE";
+        var cameraId = world.Snapshot.CameraId;
+        await world.Frame(0);
+        Assert.Equal("RUNNING", world.Coordinator.Get(cameraId)!.State);
+        var sessionId = world.Ai.Session;
+        var stale = await Assert.ThrowsAsync<Supermarket.Application.ApplicationException>(() => world.Coordinator.Replay(cameraId, Guid.NewGuid(), default));
+        Assert.Equal("MONITORING_REPLAY_NOT_READY", stale.Code);
+
+        await world.Coordinator.Replay(cameraId, sessionId, default);
+
+        Assert.Equal(2, world.Ai.Starts);
+        Assert.Equal(1, world.Ai.Stops);
+        Assert.NotEqual(sessionId, world.Ai.Session);
+        Assert.Equal("STARTING", world.Coordinator.Get(cameraId)!.State);
+        var duplicate = await Assert.ThrowsAsync<Supermarket.Application.ApplicationException>(() => world.Coordinator.Replay(cameraId, sessionId, default));
+        Assert.Equal("MONITORING_REPLAY_NOT_READY", duplicate.Code);
+    }
+
+    [Fact]
     public async Task ReplayStartsANewRecordedMonitoringSessionAndRejectsDuplicateRequests()
     {
         await using var world = new World();
@@ -20,8 +43,6 @@ public sealed class CheckoutCoordinatorTests
         var cameraId = world.Snapshot.CameraId;
         await world.Frame(0);
         var sessionId = world.Ai.Session;
-        var active = await Assert.ThrowsAsync<Supermarket.Application.ApplicationException>(() => world.Coordinator.Replay(cameraId, sessionId, default));
-        Assert.Equal("MONITORING_REPLAY_NOT_READY", active.Code);
 
         world.Ai.State = "COMPLETED";
         await world.Coordinator.Tick(default);
