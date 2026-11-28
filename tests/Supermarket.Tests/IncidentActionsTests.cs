@@ -18,9 +18,9 @@ public sealed class IncidentActionsTests
     public void DismissEndpointIsOperatorOnlyAndUsesTheIncidentRoute()
     {
         var controller = typeof(IncidentsController);
-        var authorization = Assert.Single(controller.GetCustomAttributes(typeof(AuthorizeAttribute), true).Cast<AuthorizeAttribute>());
         var route = Assert.Single(controller.GetCustomAttributes(typeof(RouteAttribute), true).Cast<RouteAttribute>());
         var method = controller.GetMethod(nameof(IncidentsController.Dismiss))!;
+        var authorization = Assert.Single(method.GetCustomAttributes(typeof(AuthorizeAttribute), true).Cast<AuthorizeAttribute>());
         var post = Assert.Single(method.GetCustomAttributes(typeof(HttpPostAttribute), true).Cast<HttpPostAttribute>());
 
         Assert.Equal(AccessRoles.Operator, authorization.Roles);
