@@ -12,6 +12,10 @@ public sealed class ManagerRecommendationsController(RecommendationWork recommen
     public Task<RecommendationGenerationResult> Generate(GenerateRecommendationRequest request, CancellationToken ct)
         => recommendations.Generate(request, ct);
 
+    [HttpPost("generate-historical")]
+    public Task<HistoricalRecommendationResult> GenerateHistorical(AnalyticsQuery query, CancellationToken ct)
+        => recommendations.GenerateHistorical(query, ct);
+
     [HttpGet]
     public Task<RecommendationPage> List([FromQuery] RecommendationQuery query, CancellationToken ct) => recommendations.List(query, ct);
 

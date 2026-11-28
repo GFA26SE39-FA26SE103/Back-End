@@ -8,9 +8,11 @@ namespace Supermarket.Infrastructure.Persistence;
 
 public sealed class EfRecommendationQueries(AppDbContext db) : IRecommendationQueries
 {
-    public async Task<RecommendationPage> List(Guid supermarketId, RecommendationQuery query, DateTime now, CancellationToken ct)
+    public async Task<RecommendationPage> List(Guid supermarketId, RecommendationQuery query, DateTime now, bool forOperator, CancellationToken ct)
     {
         var rows = db.Recommendations.AsNoTracking().Where(row => row.SupermarketId == supermarketId);
+        if (forOperator)
+            rows = rows.Where(row => row.RecommendationType != HistoricalRecommendationReader.ReviewCoverage);
         if (query.ZoneId is { } zoneId)
             rows = rows.Where(row => row.ZoneId == zoneId);
         if (query.Status == RecommendationStatus.Expired)

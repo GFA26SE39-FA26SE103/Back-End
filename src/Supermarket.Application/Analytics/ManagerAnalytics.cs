@@ -8,7 +8,7 @@ public sealed class ManagerAnalytics(IAnalyticsQueries queries, ISetupStore stor
     private static readonly TimeSpan DashboardCacheLifetime = TimeSpan.FromSeconds(30);
     private sealed record DashboardSnapshot(DateTime GeneratedAt, List<AnalyticsBucket> Rows);
 
-    private async Task<AnalyticsWindow> Window(AnalyticsQuery query, CancellationToken ct)
+    internal async Task<AnalyticsWindow> Window(AnalyticsQuery query, CancellationToken ct)
     {
         UseCase.Manager(user);
         var now = DateTime.SpecifyKind(clock.UtcNow, DateTimeKind.Utc);

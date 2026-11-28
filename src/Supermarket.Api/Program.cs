@@ -226,6 +226,8 @@ builder.Services.AddScoped<ManagerAnalytics>();
 builder.Services.AddSingleton<IAnalyticsReportRenderer, AnalyticsReportRenderer>();
 builder.Services.AddScoped<ManagerAnalyticsExport>();
 builder.Services.AddScoped<IRecommendationQueries, EfRecommendationQueries>();
+builder.Services.AddScoped<IHistoricalRecommendationQueries, EfHistoricalRecommendationQueries>();
+builder.Services.AddScoped<HistoricalRecommendationReader>();
 builder.Services.AddScoped<RecommendationWork>();
 builder.Services.AddScoped<RecommendationEvidenceReader>();
 builder.Services.AddOptions<RecommendationAiOptions>().Bind(builder.Configuration.GetSection("OperationalRecommendationAi"))

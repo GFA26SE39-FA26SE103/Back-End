@@ -2,11 +2,14 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Supermarket.Application;
 using Supermarket.Domain;
+using Supermarket.Infrastructure.Persistence;
+using AppDbContext = Supermarket.Infrastructure.Persistence.Scaffolded.AppDbContext;
 using Xunit;
 
 namespace Supermarket.Tests;
@@ -16,6 +19,106 @@ public sealed class ManagerRecommendationTests
     private static readonly DateTime Now = new(2026, 11, 12, 12, 0, 0, DateTimeKind.Utc);
     private const string Route = "/api/manager/recommendations";
     private const string OperatorRoute = "/api/operator/recommendations";
+
+    [Fact]
+    public async Task ClosedEventHistoryGeneratesEachSupportedTypeAndRoutesOnlyOperatorWork()
+    {
+        var world = new World();
+        world.Event.Status = "CLEARED";
+        var zoneId = world.Event.ZoneId;
+        var operatorRole = new Role { RoleId = Guid.NewGuid(), Name = "OPERATOR" };
+        var operatorUser = new UserAccount { UserId = Guid.NewGuid(), RoleId = operatorRole.RoleId, Status = "ACTIVE" };
+        world.Store.Values.AddRange([operatorRole, operatorUser]);
+        foreach (var type in HistoricalRecommendationReader.SupportedEventTypes)
+        {
+            world.History.Rows.Add(new(zoneId, "Checkout A", type, type, Now.AddDays(-2)));
+            world.History.Rows.Add(new(zoneId, "Checkout A", type, type, Now.AddDays(-1)));
+        }
+        world.History.Rows.Add(new(zoneId, "Checkout A", "LONG_QUEUE", "LONG_QUEUE", Now.AddDays(-1).AddMinutes(15)));
+        world.History.Rows.Add(new(Guid.NewGuid(), "Other zone", "LONG_QUEUE", "LONG_QUEUE", Now.AddDays(-1)));
+
+        await using var factory = world.Factory();
+        using var manager = ManagerClient(factory);
+        using var op = factory.CreateClient();
+        op.DefaultRequestHeaders.Add("X-Test-Role", "OPERATOR");
+        var filter = new AnalyticsQuery(new DateOnly(2026, 10, 30), new DateOnly(2026, 11, 12), zoneId);
+        var denied = await op.PostAsJsonAsync(Route + "/generate-historical", filter);
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        var result = await GenerateHistory(manager, filter);
+        Assert.Null(result.Reason);
+        Assert.Equal(HistoricalRecommendationReader.SupportedEventTypes.Order(),
+            result.Recommendations.Select(row => row.HistoricalEvidence!.EventType).Order());
+        Assert.All(result.Recommendations, row =>
+        {
+            Assert.Null(row.EventId);
+            Assert.Equal(zoneId, row.ZoneId);
+            Assert.Equal(14, row.HistoricalEvidence!.PeriodDays);
+            Assert.Equal(2, row.HistoricalEvidence.DaysWithEvents);
+            Assert.Equal(19, row.HistoricalEvidence.LocalHour);
+        });
+        var queue = Assert.Single(result.Recommendations, row => row.HistoricalEvidence!.EventType == "LONG_QUEUE");
+        Assert.Equal(3, queue.HistoricalEvidence!.EventCount);
+        var again = await GenerateHistory(manager, filter);
+        Assert.Equal(result.Recommendations.Select(row => row.RecommendationId), again.Recommendations.Select(row => row.RecommendationId));
+        Assert.Equal(0, world.Model.Calls);
+
+        using var coverage = await manager.PostAsJsonAsync($"{Route}/{queue.RecommendationId}/decision", new RecommendationDecision("ACCEPTED"));
+        coverage.EnsureSuccessStatusCode();
+        Assert.Empty(world.Store.Values.OfType<Notification>());
+        Assert.Equal(HttpStatusCode.NotFound, (await op.GetAsync($"{OperatorRoute}/{queue.RecommendationId}")).StatusCode);
+
+        var congestion = Assert.Single(result.Recommendations, row => row.HistoricalEvidence!.EventType == "CONGESTION");
+        using var accepted = await manager.PostAsJsonAsync($"{Route}/{congestion.RecommendationId}/decision", new RecommendationDecision("ACCEPTED"));
+        accepted.EnsureSuccessStatusCode();
+        Assert.Null(Assert.Single(world.Store.Values.OfType<Notification>()).EventId);
+        Assert.Equal(operatorUser.UserId, Assert.Single(world.Store.Values.OfType<NotificationRecipient>()).UserId);
+        var handedOff = await op.GetFromJsonAsync<RecommendationView>($"{OperatorRoute}/{congestion.RecommendationId}");
+        Assert.Equal("CONGESTION", handedOff!.HistoricalEvidence!.EventType);
+        Assert.Empty(world.Store.Values.OfType<WorkTask>());
+        Assert.Equal(2, world.Store.Values.OfType<AuditLog>().Count());
+    }
+
+    [Fact]
+    public async Task HistoryRequiresRecurrenceAcrossDatesAndRevalidatesItBeforeAcceptance()
+    {
+        var world = new World();
+        world.Event.Status = "CLEARED";
+        var first = new HistoricalEventSample(world.Event.ZoneId, "Checkout", "LONG_QUEUE", "Long queue", Now.AddDays(-1));
+        world.History.Rows.AddRange([first, first with { DetectedAt = first.DetectedAt.AddMinutes(10) }]);
+        await using var factory = world.Factory();
+        using var manager = ManagerClient(factory);
+        Assert.Equal("PERIOD_TOO_SHORT", (await GenerateHistory(manager, new(new DateOnly(2026, 11, 12), new DateOnly(2026, 11, 12)))).Reason);
+        Assert.Equal("NO_RECURRING_PATTERN", (await GenerateHistory(manager, new())).Reason);
+        world.History.Rows.Add(first with { DetectedAt = Now.AddDays(-2) });
+        var row = Assert.Single((await GenerateHistory(manager, new())).Recommendations);
+
+        world.History.Rows.RemoveAt(2);
+        using var change = await manager.PostAsJsonAsync($"{Route}/{row.RecommendationId}/decision", new RecommendationDecision("ACCEPTED"));
+        Assert.Equal(HttpStatusCode.Conflict, change.StatusCode);
+        Assert.Contains("RECOMMENDATION_EVIDENCE_UNAVAILABLE", await change.Content.ReadAsStringAsync());
+        Assert.Empty(world.Store.Values.OfType<AuditLog>());
+    }
+
+    [Fact]
+    public void HistoricalQueryTranslatesWithStoreScopeAndClearedEvents()
+    {
+        using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+            .UseSqlServer("Server=localhost;Database=RecommendationTranslationOnly;Integrated Security=True;TrustServerCertificate=True").Options);
+        var sql = new EfHistoricalRecommendationQueries(db).Events(Guid.NewGuid(), new AnalyticsWindow(
+            new DateOnly(2026, 11, 6), new DateOnly(2026, 11, 12), "Asia/Ho_Chi_Minh", Now.AddDays(-7), Now.AddDays(1), Now, Guid.NewGuid(), []))
+            .ToQueryString();
+        Assert.Contains("supermarket_id", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("CLEARED", sql);
+        Assert.Contains("event_type_id", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("LONG_QUEUE", sql);
+    }
+
+    private static async Task<HistoricalRecommendationResult> GenerateHistory(HttpClient client, AnalyticsQuery query)
+    {
+        using var response = await client.PostAsJsonAsync(Route + "/generate-historical", query);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<HistoricalRecommendationResult>())!;
+    }
 
     [Theory]
     [InlineData("success", null, HttpStatusCode.OK)]
@@ -240,6 +343,7 @@ public sealed class ManagerRecommendationTests
         Assert.True(paths.GetProperty(Route + "/{id}").TryGetProperty("get", out _));
         Assert.True(paths.GetProperty(Route + "/{id}/decision").TryGetProperty("post", out _));
         Assert.True(paths.GetProperty(Route + "/generate").TryGetProperty("post", out _));
+        Assert.True(paths.GetProperty(Route + "/generate-historical").TryGetProperty("post", out _));
         Assert.True(paths.GetProperty(OperatorRoute).TryGetProperty("get", out _));
         Assert.True(paths.GetProperty(OperatorRoute + "/{id}").TryGetProperty("get", out _));
         var guidance = document.RootElement.GetProperty("components").GetProperty("schemas").GetProperty("RecommendationGuidance").GetProperty("properties");
@@ -247,6 +351,10 @@ public sealed class ManagerRecommendationTests
         Assert.True(guidance.TryGetProperty("immediateSteps", out _));
         Assert.True(guidance.TryGetProperty("recheckAfterMinutes", out _));
         Assert.True(guidance.TryGetProperty("escalationCondition", out _));
+        var historical = document.RootElement.GetProperty("components").GetProperty("schemas")
+            .GetProperty("HistoricalRecommendationEvidence").GetProperty("properties");
+        Assert.True(historical.TryGetProperty("daysWithEvents", out _));
+        Assert.True(historical.TryGetProperty("evidenceVersion", out _));
     }
 
     private static HttpClient ManagerClient(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> factory)
@@ -260,6 +368,7 @@ public sealed class ManagerRecommendationTests
     {
         public readonly MonitoringSetupTests.MemoryStore Store = new();
         public readonly QueriesStub Queries = new();
+        public readonly HistoricalQueriesStub History = new();
         public readonly ModelStub Model = new();
         public readonly Recommendation Row;
         public readonly OperationalEvent Event;
@@ -287,16 +396,35 @@ public sealed class ManagerRecommendationTests
 
         public Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Factory() => new SetupOverviewTests.Factory(Store)
             .WithWebHostBuilder(builder => builder.ConfigureAppConfiguration((_, config) =>
-                config.AddInMemoryCollection(new Dictionary<string, string?> { ["Swagger:Enabled"] = "true" }))
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Swagger:Enabled"] = "true",
+                    ["Store:TimeZone"] = "Asia/Ho_Chi_Minh"
+                }))
                 .ConfigureTestServices(services =>
                 {
                     services.RemoveAll<IClock>();
                     services.AddSingleton<IClock>(new StaffTaskTests.Clock { UtcNow = Now });
                     services.RemoveAll<IRecommendationQueries>();
                     services.AddSingleton<IRecommendationQueries>(Queries);
+                    services.RemoveAll<IHistoricalRecommendationQueries>();
+                    services.AddSingleton<IHistoricalRecommendationQueries>(History);
                     services.RemoveAll<IRecommendationModel>();
                     services.AddSingleton<IRecommendationModel>(Model);
                 }));
+    }
+
+    private sealed class HistoricalQueriesStub : IHistoricalRecommendationQueries
+    {
+        public List<HistoricalEventSample> Rows { get; } = [];
+
+        public async IAsyncEnumerable<HistoricalEventSample> ClearedEvents(Guid supermarketId, AnalyticsWindow window)
+        {
+            await Task.Yield();
+            foreach (var row in Rows.Where(row => row.DetectedAt >= window.FromUtc && row.DetectedAt < window.ToUtcExclusive
+                && (window.ZoneId == null || row.ZoneId == window.ZoneId)))
+                yield return row;
+        }
     }
 
     private sealed class ModelStub : IRecommendationModel
@@ -315,7 +443,7 @@ public sealed class ManagerRecommendationTests
     {
         public RecommendationQuery? Query;
         public Guid SupermarketId;
-        public Task<RecommendationPage> List(Guid supermarketId, RecommendationQuery query, DateTime now, CancellationToken ct)
+        public Task<RecommendationPage> List(Guid supermarketId, RecommendationQuery query, DateTime now, bool forOperator, CancellationToken ct)
         {
             SupermarketId = supermarketId;
             Query = query;

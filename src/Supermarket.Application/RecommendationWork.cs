@@ -9,7 +9,7 @@ public sealed record RecommendationDecision(string Decision, string? Reason = nu
 public sealed record RecommendationView(Guid RecommendationId, Guid? ZoneId, Guid? EventId, string RecommendationType,
     string Title, string Description, string Status, DateTime GeneratedAt, DateTime? ExpiresAt,
     Guid? ReviewedByUserId, DateTime? ReviewedAt, RecommendationDisplayEvidence? Evidence = null,
-    RecommendationGuidance? Guidance = null);
+    RecommendationGuidance? Guidance = null, HistoricalRecommendationEvidence? HistoricalEvidence = null);
 public sealed record RecommendationPage(RecommendationView[] Items, int Page, int PageSize, bool HasMore);
 public sealed record RecommendationEventEvidence(Guid EventId, DateTime ObservedAt, DateTime UpdatedAt, DateTime ValidUntil,
     RecommendationRuleEvidence? RuleBasis = null);
@@ -19,14 +19,62 @@ public sealed record RecommendationGuidance(string Rationale, string[] Immediate
 
 public interface IRecommendationQueries
 {
-    Task<RecommendationPage> List(Guid supermarketId, RecommendationQuery query, DateTime now, CancellationToken ct);
+    Task<RecommendationPage> List(Guid supermarketId, RecommendationQuery query, DateTime now, bool forOperator, CancellationToken ct);
 }
 
 public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries queries, ICurrentUser user, IClock clock, TaskNotifier notifier,
-    RecommendationEvidenceReader evidenceReader, IRecommendationModel model)
+    RecommendationEvidenceReader evidenceReader, IRecommendationModel model, ManagerAnalytics analytics,
+    HistoricalRecommendationReader historical)
 {
     public const string AcceptedNotification = "RECOMMENDATION_ACCEPTED";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    public async Task<HistoricalRecommendationResult> GenerateHistorical(AnalyticsQuery query, CancellationToken ct)
+    {
+        var window = await analytics.Window(query, ct);
+        var supermarketId = await StoreId(ct);
+        if (window.DayStartsUtc.Length < HistoricalRecommendationReader.MinimumDistinctDays)
+            return new([], "PERIOD_TOO_SHORT");
+
+        return await store.Transaction<HistoricalRecommendationResult>(async () =>
+        {
+            var patterns = (await historical.Read(supermarketId, window, ct))
+                .DistinctBy(pattern => pattern.EventType).ToArray();
+            if (patterns.Length == 0)
+                return new([], "NO_RECURRING_PATTERN");
+
+            var now = clock.UtcNow;
+            var zoneIds = patterns.Select(pattern => pattern.ZoneId).Distinct().ToArray();
+            var existing = await store.List<Recommendation>(row => row.SupermarketId == supermarketId
+                && row.EventId == null && row.ZoneId.HasValue && zoneIds.Contains(row.ZoneId.Value)
+                && row.Status != RecommendationStatus.Expired && row.ExpiresAt > now
+                && (row.RecommendationType == HistoricalRecommendationReader.ReviewCoverage
+                    || row.RecommendationType == HistoricalRecommendationReader.InspectZone), ct);
+            var result = new List<RecommendationView>(patterns.Length);
+            foreach (var pattern in patterns)
+            {
+                var row = existing.FirstOrDefault(item => ReadHistorical(item) == pattern);
+                if (row is null)
+                {
+                    var action = HistoricalRecommendationReader.ActionFor(pattern.EventType);
+                    var inspect = action == HistoricalRecommendationReader.InspectZone;
+                    row = new Recommendation
+                    {
+                        RecommendationId = Guid.NewGuid(), SupermarketId = supermarketId, ZoneId = pattern.ZoneId,
+                        RecommendationType = action, GeneratedAt = now, ExpiresAt = now.AddDays(7),
+                        Title = inspect ? "Review recurring congestion" : $"Review checkout coverage for {pattern.EventTypeName}",
+                        Description = inspect
+                            ? "Ask the Operator to inspect customer flow in this zone during the recurring hour and record any verified bottlenecks."
+                            : "Review staffing and staffed checkout availability for this zone and hour. If needed, propose coverage changes in Schedule and compare recurrence in the next period.",
+                        SupportingDataJson = JsonSerializer.Serialize(new { HistoricalEvidence = pattern }, Json)
+                    };
+                    await store.Add(row, ct);
+                }
+                result.Add(View(row, now));
+            }
+            return new(result.ToArray(), null);
+        }, ct);
+    }
 
     public async Task<RecommendationGenerationResult> Generate(GenerateRecommendationRequest request, CancellationToken ct)
     {
@@ -84,16 +132,16 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
     public Task<RecommendationPage> List(RecommendationQuery query, CancellationToken ct)
     {
         UseCase.Manager(user);
-        return ListScoped(query, ct);
+        return ListScoped(query, forOperator: false, ct);
     }
 
     public Task<RecommendationPage> ListAccepted(OperatorRecommendationQuery query, CancellationToken ct)
     {
         UseCase.Operator(user);
-        return ListScoped(new(RecommendationStatus.Accepted, query.ZoneId, query.Page, query.PageSize), ct);
+        return ListScoped(new(RecommendationStatus.Accepted, query.ZoneId, query.Page, query.PageSize), forOperator: true, ct);
     }
 
-    private async Task<RecommendationPage> ListScoped(RecommendationQuery query, CancellationToken ct)
+    private async Task<RecommendationPage> ListScoped(RecommendationQuery query, bool forOperator, CancellationToken ct)
     {
         var status = query.Status?.Trim().ToUpperInvariant();
         if (status is not (null or RecommendationStatus.Available or RecommendationStatus.Deferred or RecommendationStatus.Accepted
@@ -102,7 +150,7 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
             throw new ApplicationException("INVALID_RECOMMENDATION_QUERY", "Use a valid status or zone ID, page 1–10000 and pageSize 1–100.", 400);
 
         var supermarketId = await StoreId(ct);
-        return await queries.List(supermarketId, query with { Status = status }, clock.UtcNow, ct);
+        return await queries.List(supermarketId, query with { Status = status }, clock.UtcNow, forOperator, ct);
     }
 
     public async Task<RecommendationView> Get(Guid id, CancellationToken ct)
@@ -116,7 +164,8 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
     {
         UseCase.Operator(user);
         var row = await Find(id, await StoreId(ct), ct);
-        return View(UseCase.Found(row.Status == RecommendationStatus.Accepted ? row : null), clock.UtcNow);
+        return View(UseCase.Found(row.Status == RecommendationStatus.Accepted
+            && row.RecommendationType != HistoricalRecommendationReader.ReviewCoverage ? row : null), clock.UtcNow);
     }
 
     public Task<RecommendationView> Decide(Guid id, RecommendationDecision request, CancellationToken ct)
@@ -130,10 +179,21 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
             var reason = ValidateDecision(row, request, now);
             if (request.Decision == RecommendationStatus.Accepted)
             {
-                var evidence = await RevalidateEvent(row, supermarketId, ct);
+                RecommendationEventEvidence? eventEvidence = null;
+                if (ReadHistorical(row) is { } pattern)
+                {
+                    var window = await analytics.Window(new(pattern.From, pattern.To, pattern.FilterZoneId), ct);
+                    if (!(await historical.Read(supermarketId, window with { ZoneId = pattern.ZoneId }, ct))
+                        .Any(current => (current with { FilterZoneId = pattern.FilterZoneId }) == pattern))
+                        throw EvidenceUnavailable();
+                }
+                else
+                {
+                    eventEvidence = await RevalidateEvent(row, supermarketId, ct);
+                }
                 now = clock.UtcNow;
                 ValidateDecision(row, request, now);
-                if (evidence.ObservedAt > row.GeneratedAt || row.GeneratedAt > now || now >= evidence.ValidUntil)
+                if (eventEvidence is { } evidence && (evidence.ObservedAt > row.GeneratedAt || row.GeneratedAt > now || now >= evidence.ValidUntil))
                     throw EvidenceUnavailable();
             }
 
@@ -149,7 +209,7 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
                 OldValuesJson = before, NewValuesJson = JsonSerializer.Serialize(new { row.Status, row.ReviewedByUserId, row.ReviewedAt }, Json),
                 ResultStatus = "SUCCESS", CreatedAt = now
             }, ct);
-            if (row.Status == RecommendationStatus.Accepted)
+            if (row.Status == RecommendationStatus.Accepted && row.RecommendationType != HistoricalRecommendationReader.ReviewCoverage)
                 await NotifyOperators(row, ct);
             return View(row, now);
         }, ct);
@@ -225,6 +285,23 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
             using var data = JsonDocument.Parse(json);
             return data.RootElement.ValueKind == JsonValueKind.Object && data.RootElement.TryGetProperty("eventEvidence", out var evidence)
                 ? evidence.Deserialize<RecommendationEventEvidence>(Json) : null;
+        }
+        catch (JsonException) { return null; }
+    }
+
+    private static HistoricalRecommendationEvidence? ReadHistorical(Recommendation row)
+    {
+        if (row.EventId is not null || row.SupportingDataJson is null
+            || row.RecommendationType is not (HistoricalRecommendationReader.ReviewCoverage or HistoricalRecommendationReader.InspectZone))
+            return null;
+        try
+        {
+            using var data = JsonDocument.Parse(row.SupportingDataJson);
+            return data.RootElement.ValueKind == JsonValueKind.Object
+                && data.RootElement.TryGetProperty("historicalEvidence", out var evidence)
+                && evidence.Deserialize<HistoricalRecommendationEvidence>(Json) is { } pattern
+                && pattern.ZoneId == row.ZoneId && HistoricalRecommendationReader.ActionFor(pattern.EventType) == row.RecommendationType
+                ? pattern : null;
         }
         catch (JsonException) { return null; }
     }
@@ -306,7 +383,8 @@ public sealed class RecommendationWork(ISetupStore store, IRecommendationQueries
     public static RecommendationView View(Recommendation row, DateTime now) => new(row.RecommendationId, row.ZoneId,
         row.EventId, row.RecommendationType, row.Title, row.Description,
         RecommendationLifecycle.EffectiveStatus(row.Status, row.ExpiresAt, now), DateTime.SpecifyKind(row.GeneratedAt, DateTimeKind.Utc),
-        Utc(row.ExpiresAt), row.ReviewedByUserId, Utc(row.ReviewedAt), DisplayEvidence(row.SupportingDataJson), DisplayGuidance(row.SupportingDataJson));
+        Utc(row.ExpiresAt), row.ReviewedByUserId, Utc(row.ReviewedAt), DisplayEvidence(row.SupportingDataJson),
+        DisplayGuidance(row.SupportingDataJson), ReadHistorical(row));
 
     private static DateTime? Utc(DateTime? value) => value is { } date ? DateTime.SpecifyKind(date, DateTimeKind.Utc) : null;
 }

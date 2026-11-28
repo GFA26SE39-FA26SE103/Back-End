@@ -2019,6 +2019,54 @@
         }
       }
     },
+    "/api/manager/recommendations/generate-historical": {
+      "post": {
+        "tags": [
+          "ManagerRecommendations"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsQuery"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsQuery"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyticsQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoricalRecommendationResult"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoricalRecommendationResult"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoricalRecommendationResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/manager/recommendations/generate": {
       "post": {
         "tags": [
@@ -8237,9 +8285,111 @@
         },
         "additionalProperties": false
       },
+      "AnalyticsQuery": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "to": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "zoneId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "HistoricalRecommendationEvidence": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "timeZone": {
+            "type": "string",
+            "nullable": true
+          },
+          "filterZoneId": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "zoneId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "zoneName": {
+            "type": "string",
+            "nullable": true
+          },
+          "eventType": {
+            "type": "string",
+            "nullable": true
+          },
+          "eventTypeName": {
+            "type": "string",
+            "nullable": true
+          },
+          "localHour": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "eventCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "daysWithEvents": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "periodDays": {
+            "type": "integer",
+            "format": "int32",
+            "readOnly": true
+          },
+          "evidenceVersion": {
+            "type": "string",
+            "nullable": true,
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "HistoricalRecommendationResult": {
+        "type": "object",
+        "properties": {
+          "recommendations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RecommendationView"
+            },
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
       "RecommendationView": {
         "type": "object",
         "properties": {
+          "historicalEvidence": {
+            "$ref": "#/components/schemas/HistoricalRecommendationEvidence"
+          },
           "recommendationId": {
             "type": "string",
             "format": "uuid"
